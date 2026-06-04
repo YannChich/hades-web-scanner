@@ -86,12 +86,17 @@ A dedicated module (`scanner/db/db_security.py`) that turns Hades into a focused
 - [x] SQL **and** NoSQL injection on crawled parameters (confirmed SQLi is sqlmap-exploitable)
 - [x] **Secret-file hunting** — `.env`, `database.yml`, `my.cnf`, `wp-config.php`, `appsettings.json`, `docker-compose.yml`… (credentials redacted in the report)
 - [x] Leaked DB connection strings in page/JS source, GraphQL introspection, exposed admin GUIs (phpMyAdmin, Adminer, Fauxton, Kibana…), dump/SQLite files, framework debug leaks, DB-port TLS posture
-- [x] **DB Exposure Score** (0–100 + grade), an ordered **Attack Path** of copy-paste exploitation commands, and a **Loot** summary of the data actually pulled — in the console panel **and** the HTML report
+- [x] **Expanded attack surface** — SQL injection via **HTTP headers & cookies** (`User-Agent`, `Referer`, `X-Forwarded-For`…), **NoSQL authentication bypass** on login forms (`{"$ne":""}`), and **cloud database exposure** (Firebase Realtime DB `/.json`, Firestore REST, Supabase)
+- [x] **DB Exposure Score** (0–100 + grade), an ordered **Attack Path** of copy-paste exploitation commands (tagged with **MITRE ATT&CK** techniques), and a **Loot** summary of the data actually pulled — in the console panel **and** the HTML report
 
-### Exploitation (opt-in)
-- [x] `--exploit` launches the real **sqlmap** against confirmed SQL injections (from both the
-      injection arsenal and `db_scan`) after an explicit per-target authorisation confirmation.
-      Detection-only by default; nothing is exploited automatically.
+### Active exploitation (opt-in, `--exploit`)
+The `--exploit` flag turns `db_scan` from detection into a **red-team engagement** — it actively
+**proves impact** on authorised targets and writes the extracted data as **evidence files** under
+`loot/<host>_<timestamp>/`:
+- [x] **Live data extraction** — dumps real Redis key values, Elasticsearch `_search` / CouchDB `_all_docs` sample records, and an **in-band SQLi** banner pull (DB version/user) without sqlmap
+- [x] **Credential reuse** — replays credentials harvested from leaked `.env` / connection strings against the discovered DB hosts and confirms which ones actually open
+- [x] Launches the real **sqlmap** against confirmed SQL injections (from both the injection arsenal and `db_scan`) after a per-target authorisation confirmation
+- [x] **Detection-only by default** — nothing is extracted or exploited without `--exploit` + confirmation
 
 ### Output
 - [x] Rich terminal UI — coloured findings, progress bars, ASCII banner

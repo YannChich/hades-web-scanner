@@ -340,6 +340,44 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
          "Hades checks whether the database connection is encrypted (TLS). An open port without "
          "TLS means traffic — credentials included — may travel in clear text; a self-signed "
          "certificate is also flagged. Severity: LOW to MEDIUM."),
+
+        ("sub", "7.13  Injection via en-tetes HTTP et cookies",
+         "7.13  Injection via HTTP headers and cookies"),
+        ("body",
+         "Les developpeurs oublient souvent que les EN-TETES (User-Agent, Referer, X-Forwarded-For) "
+         "et les cookies finissent parfois dans une requete SQL (journalisation, statistiques). "
+         "Hades injecte donc ses charges SQL aussi dans ces en-tetes et cookies, pas seulement dans "
+         "les parametres d'URL — ce qui double la surface d'attaque. Severite : CRITIQUE si une "
+         "erreur SQL en sort.",
+         "Developers often forget that HEADERS (User-Agent, Referer, X-Forwarded-For) and cookies "
+         "sometimes end up in a SQL query (logging, analytics). So Hades injects its SQL payloads "
+         "into these headers and cookies too, not only URL parameters — doubling the attack "
+         "surface. Severity: CRITICAL if a SQL error comes out."),
+
+        ("sub", "7.14  Bypass d'authentification NoSQL",
+         "7.14  NoSQL authentication bypass"),
+        ("body",
+         "Sur les applications MongoDB, un formulaire de connexion mal code peut etre trompe en "
+         "envoyant un operateur au lieu d'un mot de passe : `{\"$ne\": \"\"}` signifie « different "
+         "de vide », donc « n'importe quel mot de passe ». Hades soumet ce type de charge aux "
+         "formulaires de login et detecte si une session s'ouvre — c'est un contournement complet "
+         "de l'authentification. Severite : CRITIQUE.",
+         "On MongoDB applications, a poorly coded login form can be tricked by sending an operator "
+         "instead of a password: `{\"$ne\": \"\"}` means 'not equal to empty', i.e. 'any "
+         "password'. Hades submits this kind of payload to login forms and detects whether a "
+         "session opens — a full authentication bypass. Severity: CRITICAL."),
+
+        ("sub", "7.15  Bases de donnees cloud (Firebase, Firestore, Supabase)",
+         "7.15  Cloud databases (Firebase, Firestore, Supabase)"),
+        ("body",
+         "Beaucoup d'applis mobiles/web utilisent une base cloud dont l'adresse est ecrite dans le "
+         "code. Hades la repere et teste si elle est lisible publiquement : une Firebase Realtime "
+         "Database ouverte repond a l'adresse `/.json` avec TOUTES les donnees ; c'est l'une des "
+         "fuites les plus frequentes du web moderne. Severite : CRITIQUE.",
+         "Many mobile/web apps use a cloud database whose address is written in the code. Hades "
+         "spots it and tests whether it is publicly readable: an open Firebase Realtime Database "
+         "returns ALL the data at the `/.json` address — one of the most common leaks of the "
+         "modern web. Severity: CRITICAL."),
     ]),
 
     ("8 · Comprendre le resultat  /  Understanding the output", [
@@ -405,6 +443,34 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
          "confirmations: launch sqlmap on this parameter, and confirm you are authorised. Only "
          "then does it run sqlmap. Without those confirmations (or without "
          f"{code('--exploit')}), nothing is exploited."),
+        ("sub", "Extraction active = preuve d'impact", "Active extraction = proof of impact"),
+        ("body",
+         f"Avec {code('--exploit')}, db_scan ne se contente plus de signaler : il EXTRAIT de "
+         "vraies donnees pour prouver l'impact — valeurs reelles des cles Redis, documents "
+         "Elasticsearch/CouchDB, et la banniere de la base via une injection SQL « in-band » "
+         "(sans sqlmap). Tout est sauvegarde comme PREUVE dans le dossier "
+         f"{code('loot/<hote>_<date>/')}.",
+         f"With {code('--exploit')}, db_scan no longer just reports: it EXTRACTS real data to "
+         "prove impact — actual Redis key values, Elasticsearch/CouchDB documents, and the "
+         "database banner via an 'in-band' SQL injection (without sqlmap). Everything is saved as "
+         f"EVIDENCE in the {code('loot/<host>_<date>/')} folder."),
+        ("sub", "Reutilisation d'identifiants", "Credential reuse"),
+        ("body",
+         "Si Hades a trouve des identifiants de base (dans un .env ou une chaine de connexion), il "
+         "les REJOUE contre les serveurs de base de donnees decouverts pour verifier s'ils "
+         "fonctionnent vraiment — confirmant un acces total. Le mot de passe reste masque dans le "
+         "rapport.",
+         "If Hades found database credentials (in a .env or a connection string), it REPLAYS them "
+         "against the discovered database servers to verify whether they actually work — "
+         "confirming full access. The password stays masked in the report."),
+        ("sub", "Rapport red-team (MITRE ATT&CK)", "Red-team report (MITRE ATT&CK)"),
+        ("body",
+         "Chaque etape du plan d'attaque est etiquetee avec une technique MITRE ATT&CK (ex. T1190, "
+         "T1078) — le langage standard des equipes de securite — et pointe vers le fichier de "
+         "preuve correspondant. Cela transforme le scan en un vrai compte-rendu d'engagement.",
+         "Each attack-path step is tagged with a MITRE ATT&CK technique (e.g. T1190, T1078) — the "
+         "standard language of security teams — and points to the matching evidence file. This "
+         "turns the scan into a real engagement report."),
     ]),
 
     ("10 · Glossaire  /  Glossary", [

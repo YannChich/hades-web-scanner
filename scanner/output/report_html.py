@@ -357,14 +357,19 @@ def _db_section_html(findings: list[Finding]) -> str:
     loot = collect_loot(findings)
     attack_html = ""
     if plan:
-        steps = "".join(
-            f'<li><span class="sev-badge" style="--sev-color:{_SEV_COLOR.get(s["severity"], "#c9d1d9")};'
-            f'--sev-bg:{_SEV_BG.get(s["severity"], "transparent")};">{s["severity"].upper()}</span> '
-            f'{_e(s["title"])}<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
-            f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
-            f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre></li>'
-            for s in plan
-        )
+        def _step_html(s: dict) -> str:
+            attack = (f'<span style="margin-left:8px;color:#bc8cff;font:600 11px ui-monospace,'
+                      f'monospace;">⟦{_e(s["attack"])}⟧</span>' if s.get("attack") else "")
+            evidence = (f'<div style="margin-top:4px;color:#39d353;font:12px ui-monospace,'
+                        f'monospace;">⧉ evidence: {_e(s["evidence"])}</div>' if s.get("evidence") else "")
+            return (
+                f'<li><span class="sev-badge" style="--sev-color:{_SEV_COLOR.get(s["severity"], "#c9d1d9")};'
+                f'--sev-bg:{_SEV_BG.get(s["severity"], "transparent")};">{s["severity"].upper()}</span> '
+                f'{_e(s["title"])}{attack}<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
+                f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
+                f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre>{evidence}</li>'
+            )
+        steps = "".join(_step_html(s) for s in plan)
         attack_html += (
             '<div class="section-title" style="font-size:16px;margin-top:18px;">'
             '⚔ Attack Path — Exploitation Commands</div>'

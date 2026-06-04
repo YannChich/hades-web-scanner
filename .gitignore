@@ -24,6 +24,7 @@ htmlcov/
 logs/
 reports/
 screenshots/
+loot/
 
 # Secrets / local config
 .env

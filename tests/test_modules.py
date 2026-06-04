@@ -1758,6 +1758,195 @@ class TestDbSecurity:
         loot = d.collect_loot(findings)
         assert any("Redis keys" in item for item in loot)
 
+    # --- Offensive red-team layer -------------------------------------------------
+
+    def test_attack_tag_attached_to_finding(self):
+        from scanner.db import db_security as d
+        f = d._f("Unauthenticated Redis", "x", Severity.CRITICAL, "r", "unauth", host="h", port=6379)
+        assert f.raw.get("attack", "").startswith("T1190")
+
+    def test_header_sqli_via_user_agent(self):
+        from scanner.db import db_security as d
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                ua = request.headers.get("user-agent", "")
+                if "'" in ua:
+                    return httpx.Response(200, text="You have an error in your SQL syntax near ''")
+                return httpx.Response(200, text="<html>ok</html>")
+
+        eng = ScanEngine("http://hdr.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        findings = d._check_injection_headers(eng, safe=False)
+        assert findings and findings[0].severity == Severity.CRITICAL
+        assert findings[0].raw["parameter"] == "User-Agent"
+        # Safe mode skips header injection entirely.
+        assert d._check_injection_headers(eng, safe=True) == []
+
+    def test_header_sqli_negative(self):
+        from scanner.db import db_security as d
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                return httpx.Response(200, text="<html>nothing reflected</html>")
+
+        eng = ScanEngine("http://hdr.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        assert d._check_injection_headers(eng, safe=False) == []
+
+    def test_nosql_authbypass_on_login_form(self):
+        from scanner.db import db_security as d
+        from scanner.crawler import CrawlResult, Form
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if b'"$ne"' in request.content:
+                    return httpx.Response(200, text="<html>welcome admin</html>",
+                                          headers={"set-cookie": "session=abc123; Path=/"})
+                return httpx.Response(200, text="<html>invalid login</html>")
+
+        form = Form(action="http://app.test/login", method="post",
+                    fields={"username": "x", "password": "y"}, source_url="http://app.test/login")
+        eng = ScanEngine("http://app.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = d._check_nosql_authbypass(eng, safe=False)
+        assert findings and findings[0].raw["db_category"] == "authbypass"
+        assert findings[0].severity == Severity.CRITICAL
+
+    def test_cloud_db_firebase_open(self):
+        from scanner.db import db_security as d
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.host == "myproj.firebaseio.com":
+                    return httpx.Response(200, text='{"users":{"1":{"email":"a@b.c"}}}')
+                return httpx.Response(404)
+
+        eng = ScanEngine("http://site.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            pages={"http://site.test/app.js": "var c={databaseURL:'https://myproj.firebaseio.com'}"}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = d._check_cloud_db(eng)
+        assert findings and findings[0].severity == Severity.CRITICAL
+        assert findings[0].raw["project"] == "myproj" and findings[0].raw["db_category"] == "cloud_db"
+
+    def test_cloud_db_firebase_locked_is_silent(self):
+        from scanner.db import db_security as d
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.host == "locked.firebaseio.com":
+                    return httpx.Response(401, text='{"error":"Permission denied"}')
+                return httpx.Response(404)
+
+        eng = ScanEngine("http://site.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            pages={"http://site.test/x.js": "databaseURL:'https://locked.firebaseio.com'"}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert d._check_cloud_db(eng) == []
+
+    def test_credential_reuse_success_is_critical(self, monkeypatch):
+        from scanner.db import db_security as d
+        monkeypatch.setattr(d, "_harvest_credentials",
+                            lambda eng: [("mysql", "root", "leakedpw", "10.0.0.9", 3306)])
+        monkeypatch.setattr(d, "_try_db_login", lambda *a: True)
+        findings = d._exploit_cred_reuse(self._engine())
+        assert findings and findings[0].raw["db_category"] == "cred_reuse"
+        assert "leakedpw" not in findings[0].description  # password masked
+
+    def test_active_extraction_gated_by_exploit(self, monkeypatch, tmp_path):
+        from scanner.db import db_security as d
+        monkeypatch.setattr(d, "_resolve", lambda h: "203.0.113.7")
+        monkeypatch.setattr(d, "_is_accept_all", lambda ip, timeout=1.5: False)
+        monkeypatch.setattr(d, "_probe_port",
+                            lambda ip, port, timeout=1.5: (True, "") if port == 6379 else (False, ""))
+        monkeypatch.setattr(d, "_check_tls", lambda *a: [])
+        monkeypatch.setattr(d, "_loot_dir", lambda eng: tmp_path)
+
+        def fake_tcp(host, port, payload, timeout=3.0, read=4096):
+            if b"PING" in payload:
+                return b"+PONG\r\n"
+            if b"INFO" in payload:
+                return b"redis_version:7.0\r\n"
+            if b"DBSIZE" in payload:
+                return b":3\r\n"
+            if b"KEYS" in payload:
+                return b"*1\r\n$4\r\nuser\r\n"
+            if b"TYPE" in payload:
+                return b"+string\r\n"
+            if b"GET" in payload:
+                return b"$5\r\nadmin\r\n"
+            return b""
+
+        monkeypatch.setattr(d, "_tcp_send_recv", fake_tcp)
+
+        passive = self._engine()
+        passive.exploit = False
+        assert not [x for x in d.run(passive) if x.raw.get("db_category") == "extraction"]
+
+        offensive = self._engine()
+        offensive.exploit = True
+        ext = [x for x in d.run(offensive) if x.raw.get("db_category") == "extraction"]
+        assert ext and ext[0].raw.get("evidence_file")
+        assert (tmp_path / "redis_203.0.113.7_6379.txt").exists()
+
+    def test_nosql_not_flagged_on_sql_param(self):
+        # A SQL-injectable param must NOT be double-reported as NoSQL (false positive).
+        from scanner.db import db_security as d
+        base_url = "http://t.test"
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = parse_qs(urlparse(str(req.url)).query).get("id", [""])[0]
+                if val != "1":  # operator payload breaks the SQL query → SQL error
+                    return httpx.Response(200, text="You have an error in your SQL syntax near '{'")
+                return httpx.Response(200, text="<html>row 1</html>")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        from scanner.crawler import CrawlResult
+        eng.get_crawl = MagicMock(return_value=CrawlResult(parametrised_urls=[f"{base_url}/p?id=1"]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        assert d._check_nosql(eng, safe=False) == []
+
+    def test_nosql_authbypass_skips_aspnet_viewstate(self):
+        # ASP.NET WebForms (MSSQL stack) must be skipped — a Mongo bypass is impossible there.
+        from scanner.db import db_security as d
+        from scanner.crawler import CrawlResult, Form
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                # Even if it 'looked' successful, the ViewState skip must prevent a finding.
+                return httpx.Response(200, text="<html>welcome</html>",
+                                      headers={"set-cookie": "ASP.NET_SessionId=xyz"})
+
+        form = Form(action="http://aspnet.test/login.aspx", method="post",
+                    fields={"__VIEWSTATE": "abc", "txtUser": "x", "txtPassword": "y"},
+                    source_url="http://aspnet.test/login.aspx")
+        eng = ScanEngine("http://aspnet.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert d._check_nosql_authbypass(eng, safe=False) == []
+
+    def test_nosql_authbypass_no_failuretransition_is_silent(self):
+        # Both baseline and attempt render the same login page → no bypass, no finding.
+        from scanner.db import db_security as d
+        from scanner.crawler import CrawlResult, Form
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<html><form>Please log in</form></html>",
+                                      headers={"set-cookie": "session=new"})
+
+        form = Form(action="http://app.test/login", method="post",
+                    fields={"username": "x", "password": "y"}, source_url="http://app.test/login")
+        eng = ScanEngine("http://app.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert d._check_nosql_authbypass(eng, safe=False) == []
+
 
 # ---------------------------------------------------------------------------
 # crawler tests

