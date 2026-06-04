@@ -8,6 +8,7 @@ checklist — all presented in two parallel columns: French on the left, English
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -554,7 +555,8 @@ def build_section(title: str, rows: list[tuple[str, str, str]], width: float):
 
 
 def build():
-    doc = BaseDocTemplate("Hades_Database_Security_Manual.pdf", pagesize=A4,
+    doc = BaseDocTemplate(str(Path(__file__).resolve().parent / "Hades_Database_Security_Manual.pdf"),
+                          pagesize=A4,
                           leftMargin=15 * mm, rightMargin=15 * mm,
                           topMargin=15 * mm, bottomMargin=16 * mm,
                           title="Hades — Database Security Manual (FR/EN)", author="Hades")
@@ -610,7 +612,7 @@ def build():
         story.extend(build_section(title, rows, doc.width))
 
     doc.build(story)
-    print("Hades_Database_Security_Manual.pdf written")
+    print(f"{Path(__file__).resolve().parent / 'Hades_Database_Security_Manual.pdf'} written")
 
 
 if __name__ == "__main__":

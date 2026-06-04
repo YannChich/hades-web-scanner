@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from reportlab.lib import colors
+
+_OUT = Path(__file__).resolve().parent / "Hades_Modules_Guide.pdf"
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -278,7 +281,7 @@ OUTPUT = [
 
 
 def build():
-    doc = BaseDocTemplate("Hades_Modules_Guide.pdf", pagesize=A4,
+    doc = BaseDocTemplate(str(_OUT), pagesize=A4,
                           leftMargin=18 * mm, rightMargin=18 * mm,
                           topMargin=16 * mm, bottomMargin=16 * mm,
                           title="Hades — Modules Guide", author="Hades")
@@ -355,7 +358,7 @@ def build():
         story.append(PageBreak())
 
     doc.build(story)
-    print("Hades_Modules_Guide.pdf written")
+    print(f"{_OUT} written")
 
 
 if __name__ == "__main__":

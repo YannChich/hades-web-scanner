@@ -13,7 +13,7 @@ def main() -> None:
 
     if WEBSCAN_DIR.lower() in os.path.normpath(file_path).lower() and file_path.endswith(".py"):
         result = subprocess.run(
-            [sys.executable, "check_imports.py"],
+            [sys.executable, os.path.join("tools", "check_imports.py")],
             cwd=WEBSCAN_DIR,
         )
         sys.exit(result.returncode)

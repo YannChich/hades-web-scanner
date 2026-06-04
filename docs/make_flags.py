@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from reportlab.lib import colors
+
+_OUT = Path(__file__).resolve().parent / "Hades_Flags_Cheatsheet.pdf"
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -97,7 +100,7 @@ def code_block(cmd):
 
 
 def build():
-    doc = BaseDocTemplate("Hades_Flags_Cheatsheet.pdf", pagesize=A4,
+    doc = BaseDocTemplate(str(_OUT), pagesize=A4,
                           leftMargin=15 * mm, rightMargin=15 * mm,
                           topMargin=15 * mm, bottomMargin=15 * mm,
                           title="Hades — CLI Flags Cheat-Sheet", author="Hades")
@@ -171,7 +174,7 @@ def build():
         story.append(Spacer(1, 3 * mm))
 
     doc.build(story)
-    print("Hades_Flags_Cheatsheet.pdf written")
+    print(f"{_OUT} written")
 
 
 if __name__ == "__main__":
