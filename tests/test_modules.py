@@ -2087,3 +2087,325 @@ class TestScorer:
         score, grade = calculate_score(findings)
         assert isinstance(score, int) and isinstance(grade, str)
         assert isinstance(score_findings(findings), int)
+
+
+# ---------------------------------------------------------------------------
+# js_recon tests
+# ---------------------------------------------------------------------------
+
+class TestJsRecon:
+    def test_leaked_aws_key_and_endpoints(self):
+        from scanner.recon import js_recon
+        from scanner.crawler import CrawlResult
+        base = "http://js.test"
+        html = '<html><head><script src="/bundle.js"></script></head></html>'
+        js = ('var cfg={awsKey:"AKIAZ7Q4RXBN2VWPL3KD"};'
+              'fetch("/api/internal/users");axios.get("/admin/config");')
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.path == "/bundle.js":
+                    return httpx.Response(200, text=js,
+                                          headers={"content-type": "application/javascript"})
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine(base, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={base: html}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        findings = js_recon.run(eng)
+        assert any(f.raw.get("type") == "AWS Access Key ID" and f.severity == Severity.CRITICAL
+                   for f in findings)
+        # Secret is redacted, never shown in full.
+        assert all("AKIAZ7Q4RXBN2VWPL3KD" not in f.description for f in findings)
+        eps = next((f for f in findings if f.raw.get("endpoints")), None)
+        assert eps and "/api/internal/users" in eps.raw["endpoints"]
+
+    def test_example_placeholder_is_ignored(self):
+        from scanner.recon import js_recon
+        from scanner.crawler import CrawlResult
+        base = "http://js.test"
+        # The classic AWS *example* key must be filtered as a placeholder.
+        html = '<html><script>var k="AKIAIOSFODNN7EXAMPLE";</script></html>'
+        eng = ScanEngine(base, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={base: html}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        assert not [f for f in js_recon.run(eng) if f.raw.get("type") == "AWS Access Key ID"]
+
+
+# ---------------------------------------------------------------------------
+# cloud_buckets tests
+# ---------------------------------------------------------------------------
+
+class TestCloudBuckets:
+    def test_open_s3_bucket_is_critical(self):
+        from scanner.recon import cloud_buckets
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.host == "buckettest.s3.amazonaws.com":
+                    return httpx.Response(200, text="<ListBucketResult><Contents><Key>"
+                                                    "dump.sql</Key></Contents></ListBucketResult>")
+                return httpx.Response(404, text="<Error><Code>NoSuchBucket</Code></Error>")
+
+        eng = ScanEngine("http://buckettest.com", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = cloud_buckets.run(eng)
+        hit = [f for f in findings if f.severity == Severity.CRITICAL]
+        assert hit and hit[0].raw["bucket"] == "buckettest" and hit[0].raw["provider"] == "Amazon S3"
+        assert "dump.sql" in hit[0].raw["objects"]
+
+    def test_private_bucket_is_low(self):
+        from scanner.recon import cloud_buckets
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.host == "buckettest.s3.amazonaws.com":
+                    return httpx.Response(403, text="<Error><Code>AccessDenied</Code></Error>")
+                return httpx.Response(404, text="<Error><Code>NoSuchBucket</Code></Error>")
+
+        eng = ScanEngine("http://buckettest.com", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = cloud_buckets.run(eng)
+        assert any(f.severity == Severity.LOW and f.raw.get("bucket") == "buckettest" for f in findings)
+
+    def test_no_bucket_is_silent(self):
+        from scanner.recon import cloud_buckets
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(404, text="<Error><Code>NoSuchBucket</Code></Error>")
+
+        eng = ScanEngine("http://buckettest.com", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert cloud_buckets.run(eng) == []
+
+
+# ---------------------------------------------------------------------------
+# jwt_attacks tests
+# ---------------------------------------------------------------------------
+
+def _make_jwt(payload: dict, secret: str = "secret", alg: str = "HS256") -> str:
+    import base64, hmac, hashlib, json as _json
+
+    def b64(d):
+        return base64.urlsafe_b64encode(_json.dumps(d).encode()).rstrip(b"=").decode()
+    signing = f'{b64({"alg": alg, "typ": "JWT"})}.{b64(payload)}'
+    if alg == "none":
+        return signing + "."
+    h = {"HS256": hashlib.sha256, "HS384": hashlib.sha384, "HS512": hashlib.sha512}[alg]
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), signing.encode(), h).digest()).rstrip(b"=").decode()
+    return f"{signing}.{sig}"
+
+
+class TestJwtAttacks:
+    def test_weak_hmac_secret_cracked(self):
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        tok = _make_jwt({"user": "bob", "role": "admin"}, secret="secret")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'var t="{tok}";'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        findings = jwt_attacks.run(eng)
+        assert any(f.raw.get("secret") == "secret" and f.severity == Severity.CRITICAL for f in findings)
+
+    def test_alg_none_is_critical(self):
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        tok = _make_jwt({"role": "admin"}, alg="none")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'token="{tok}"'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        findings = jwt_attacks.run(eng)
+        assert any(f.raw.get("alg") == "none" and f.severity == Severity.CRITICAL for f in findings)
+
+    def test_strong_secret_not_cracked(self):
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        tok = _make_jwt({"role": "admin"}, secret="b7f3c1a9e6d4f8821094aa55cc77ee33longrandom")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'"{tok}"'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        assert not [f for f in jwt_attacks.run(eng) if f.raw.get("secret")]
+
+
+# ---------------------------------------------------------------------------
+# auth_bypass tests
+# ---------------------------------------------------------------------------
+
+class TestAuthBypass:
+    def test_path_mutation_bypass_is_high(self):
+        from scanner.vulns import auth_bypass
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                p = req.url.path
+                if p == "/admin":
+                    return httpx.Response(403, text="Forbidden 403")
+                if p == "/admin/":
+                    return httpx.Response(200, text="<html>Admin dashboard - secret control panel</html>")
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine("http://ab.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = auth_bypass.run(eng)
+        assert findings and findings[0].severity == Severity.HIGH and findings[0].raw["path"] == "/admin"
+
+    def test_no_bypass_is_silent(self):
+        from scanner.vulns import auth_bypass
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.path.startswith("/admin"):
+                    return httpx.Response(403, text="Forbidden")
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine("http://ab.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert auth_bypass.run(eng) == []
+
+
+# ---------------------------------------------------------------------------
+# bruteforce tests (opt-in)
+# ---------------------------------------------------------------------------
+
+class TestBruteforce:
+    def test_disabled_by_default(self):
+        from scanner.vulns import bruteforce
+        from scanner.crawler import CrawlResult, Form
+        form = Form(action="http://bf.test/login", method="post",
+                    fields={"username": "x", "password": "y"}, source_url="http://bf.test/login")
+        eng = ScanEngine("http://bf.test", rate_delay=0)   # bruteforce defaults to False
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=False, verify=False)
+        assert bruteforce.run(eng) == []
+
+    def test_form_spray_finds_admin_admin(self):
+        from scanner.vulns import bruteforce
+        from scanner.crawler import CrawlResult, Form
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                vals = parse_qs(req.content.decode())
+                u, p = vals.get("username", [""])[0], vals.get("password", [""])[0]
+                if u == "admin" and p == "admin":
+                    return httpx.Response(200, text="<html>welcome to your dashboard</html>")
+                return httpx.Response(200, text="<html>invalid credentials</html>")
+
+        form = Form(action="http://bf.test/login", method="post",
+                    fields={"username": "x", "password": "y"}, source_url="http://bf.test/login")
+        eng = ScanEngine("http://bf.test", rate_delay=0, bruteforce=True)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = bruteforce.run(eng)
+        assert findings and findings[0].severity == Severity.CRITICAL
+        assert findings[0].raw["username"] == "admin" and findings[0].raw["password"] == "admin"
+
+    def test_basic_auth_spray(self):
+        import base64 as _b64
+        from scanner.vulns import bruteforce
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.path != "/admin":
+                    return httpx.Response(404, text="nf")
+                auth = req.headers.get("authorization")
+                if auth and _b64.b64decode(auth.split()[1]).decode() == "admin:admin":
+                    return httpx.Response(200, text="ok")
+                return httpx.Response(401, headers={"www-authenticate": 'Basic realm="x"'})
+
+        eng = ScanEngine("http://bf.test", rate_delay=0, bruteforce=True)
+        eng.get_crawl = MagicMock(return_value=CrawlResult())
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = bruteforce.run(eng)
+        assert any(f.raw.get("kind") == "HTTP Basic-Auth" and f.raw["password"] == "admin"
+                   for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# git_dumper tests
+# ---------------------------------------------------------------------------
+
+class TestGitDumper:
+    def _index_blob(self) -> bytes:
+        import struct
+        name = b"app.py"
+        entry = b"\x00" * 60 + struct.pack(">H", len(name)) + name
+        total = 62 + len(name)
+        entry += b"\x00" * (((total // 8) + 1) * 8 - total)
+        return b"DIRC" + struct.pack(">II", 2, 1) + entry
+
+    def test_exposed_git_extracts_creds_and_files(self):
+        from scanner.recon import git_dumper
+        blob = self._index_blob()
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                p = req.url.path
+                if p == "/.git/HEAD":
+                    return httpx.Response(200, text="ref: refs/heads/main\n")
+                if p == "/.git/config":
+                    return httpx.Response(200, text='[remote "origin"]\n\turl = '
+                                          'https://deploy:s3cretpw@github.com/acme/app.git\n')
+                if p == "/.git/logs/HEAD":
+                    return httpx.Response(200, text=("0"*40 + " " + "a"*40 +
+                                          " Joe <joe@acme.com> 1620000000 +0000\tcommit: init\n"))
+                if p == "/.git/index":
+                    return httpx.Response(200, content=blob)
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine("http://gd.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = git_dumper.run(eng)
+        assert findings and findings[0].severity == Severity.CRITICAL
+        assert findings[0].raw["leaked_credentials"]
+        assert "app.py" in findings[0].raw["files"]
+        assert "joe@acme.com" in findings[0].raw["emails"]
+
+    def test_no_git_is_silent(self):
+        from scanner.recon import git_dumper
+        eng = ScanEngine("http://gd.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=False, verify=False)
+        assert git_dumper.run(eng) == []
+
+
+# ---------------------------------------------------------------------------
+# wayback tests
+# ---------------------------------------------------------------------------
+
+class TestWayback:
+    def test_archived_urls_and_params(self):
+        from scanner.recon import wayback
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.host == "web.archive.org":
+                    body = '[["original"],["http://t.test/p?id=1&q=2"],'\
+                           '["http://t.test/admin/backup.sql"]]'
+                    return httpx.Response(200, text=body)
+                return httpx.Response(404)
+
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        findings = wayback.run(eng)
+        info = next((f for f in findings if f.severity == Severity.INFO), None)
+        assert info and "id" in info.raw["parameters"] and "q" in info.raw["parameters"]
+        assert any(f.severity == Severity.MEDIUM and
+                   any("backup.sql" in p for p in f.raw["paths"]) for f in findings)
+
+    def test_no_archive_is_silent(self):
+        from scanner.recon import wayback
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text='[["original"]]')   # header only, no URLs
+
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert wayback.run(eng) == []

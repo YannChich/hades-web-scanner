@@ -48,6 +48,10 @@ _RECON_ALL: list[str] = [
     "scanner.recon.port_scan",
     "scanner.recon.waf_detect",
     "scanner.recon.tech_stack",
+    "scanner.recon.js_recon",
+    "scanner.recon.cloud_buckets",
+    "scanner.recon.git_dumper",
+    "scanner.recon.wayback",
 ]
 
 _WEB_PASSIVE: list[str] = [
@@ -84,6 +88,9 @@ _VULNS: list[str] = [
     "scanner.vulns.lfi_detect",
     "scanner.vulns.open_redirect",
     "scanner.vulns.ssrf_detect",
+    "scanner.vulns.jwt_attacks",
+    "scanner.vulns.auth_bypass",
+    "scanner.vulns.bruteforce",
     "scanner.vulns.cve_mapping",
     "scanner.vulns.default_creds",
 ]

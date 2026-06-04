@@ -1,0 +1,175 @@
+"""
+cloud_buckets — public cloud storage discovery (S3 / GCS / Azure Blob).
+
+A very common real-world breach: a misconfigured object-storage bucket left world-readable.
+This module (1) extracts bucket URLs already referenced in the site's source, and (2) guesses
+likely bucket names from the target domain, then probes each provider:
+
+  * open listing (anonymous read of the file index) → CRITICAL
+  * bucket exists but is access-controlled            → LOW (useful intel for a red team)
+
+Read-only: it never writes/uploads. Bucket guessing uses only the target's own name.
+"""
+from __future__ import annotations
+
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
+
+import httpx
+from loguru import logger
+
+from scanner.engine import Finding, Severity, ScanEngine
+
+MODULE = "cloud_buckets"
+
+_MAX_CANDIDATES = 36
+
+# Bucket references already present in the site source.
+_S3_HOST_RE = re.compile(r"https?://([a-z0-9][a-z0-9.\-]{1,61}[a-z0-9])\.s3[.\-][a-z0-9\-]*\.?amazonaws\.com", re.I)
+_S3_PATH_RE = re.compile(r"https?://s3[.\-][a-z0-9\-]*\.?amazonaws\.com/([a-z0-9][a-z0-9.\-]{1,61}[a-z0-9])", re.I)
+_GCS_HOST_RE = re.compile(r"https?://([a-z0-9][a-z0-9._\-]{1,61})\.storage\.googleapis\.com", re.I)
+_GCS_PATH_RE = re.compile(r"https?://storage\.googleapis\.com/([a-z0-9][a-z0-9._\-]{1,61})", re.I)
+_AZURE_RE = re.compile(r"https?://([a-z0-9]{3,24})\.blob\.core\.windows\.net", re.I)
+
+# Name-mutation affixes used to guess bucket names from the domain label.
+_SUFFIXES = ["", "-assets", "-static", "-media", "-uploads", "-upload", "-backup", "-backups",
+             "-data", "-prod", "-production", "-dev", "-staging", "-cdn", "-public", "-private",
+             "-files", "-images", "-img", "-logs", "-web", "-www", "-storage", "-s3"]
+_PREFIXES = ["assets-", "static-", "cdn-", "backup-", "media-", "www-"]
+
+
+def _domain_label(host: str) -> str:
+    host = host.lower().lstrip("www.")
+    parts = host.split(".")
+    return parts[0] if parts else host
+
+
+def _candidate_names(engine: ScanEngine) -> set[str]:
+    host = urlparse(engine.url).hostname or ""
+    label = _domain_label(host)
+    names: set[str] = set()
+    if label:
+        for suf in _SUFFIXES:
+            names.add(label + suf)
+        for pre in _PREFIXES:
+            names.add(pre + label)
+        names.add(host.replace(".", "-"))
+        names.add(host.replace(".", ""))
+    # Buckets referenced directly in the source are highest-value.
+    try:
+        blob = "\n".join(engine.get_crawl().pages.values())
+        for rx in (_S3_HOST_RE, _S3_PATH_RE, _GCS_HOST_RE, _GCS_PATH_RE, _AZURE_RE):
+            names.update(m.lower() for m in rx.findall(blob))
+    except Exception:  # noqa: BLE001
+        pass
+    return {n for n in names if 3 <= len(n) <= 63}
+
+
+# ---------------------------------------------------------------------------
+# Provider probes
+# ---------------------------------------------------------------------------
+
+def _get(engine: ScanEngine, url: str) -> "httpx.Response | None":
+    try:
+        return engine.request("GET", url, timeout=8.0)
+    except httpx.HTTPError:
+        return None
+
+
+def _probe_bucket(engine: ScanEngine, name: str) -> list[Finding]:
+    findings: list[Finding] = []
+
+    # --- Amazon S3 ---
+    r = _get(engine, f"https://{name}.s3.amazonaws.com/")
+    if r is not None:
+        if r.status_code == 200 and ("<ListBucketResult" in r.text or "<Contents>" in r.text):
+            findings.append(_open_finding("Amazon S3", name, f"https://{name}.s3.amazonaws.com/", r.text))
+        elif r.status_code == 403 and "AccessDenied" in r.text:
+            findings.append(_private_finding("Amazon S3", name, f"https://{name}.s3.amazonaws.com/"))
+        if findings:
+            return findings
+
+    # --- Google Cloud Storage ---
+    r = _get(engine, f"https://storage.googleapis.com/{name}")
+    if r is not None:
+        if r.status_code == 200 and "<ListBucketResult" in r.text:
+            findings.append(_open_finding("Google Cloud Storage", name,
+                                          f"https://storage.googleapis.com/{name}", r.text))
+        elif r.status_code == 403 and ("AccessDenied" in r.text or "permission" in r.text.lower()):
+            findings.append(_private_finding("Google Cloud Storage", name,
+                                             f"https://storage.googleapis.com/{name}"))
+        if findings:
+            return findings
+
+    # --- Azure Blob (storage-account names are alphanumeric, <=24 chars) ---
+    if name.isalnum() and len(name) <= 24:
+        url = f"https://{name}.blob.core.windows.net/?comp=list"
+        r = _get(engine, url)
+        if r is not None and r.status_code == 200 and "EnumerationResults" in r.text:
+            findings.append(_open_finding("Azure Blob", name, url, r.text))
+    return findings
+
+
+def _sample_keys(body: str) -> list[str]:
+    return re.findall(r"<Key>([^<]+)</Key>", body)[:8] or re.findall(r"<Name>([^<]+)</Name>", body)[:8]
+
+
+def _open_finding(provider: str, name: str, url: str, body: str) -> Finding:
+    keys = _sample_keys(body)
+    sample = (" Sample objects: " + ", ".join(keys[:6]) + ".") if keys else ""
+    return Finding(
+        module=MODULE,
+        title=f"Open {provider} Bucket — World-Readable: {name}",
+        description=(
+            f"The {provider} bucket '{name}' allows anonymous listing/reading at {url}. "
+            f"Anyone can download its contents.{sample}"
+        ),
+        severity=Severity.CRITICAL,
+        recommendation=(
+            "Block public access on the bucket, enforce least-privilege bucket policies, and "
+            "review the exposed objects for sensitive data."
+        ),
+        raw={"provider": provider, "bucket": name, "url": url, "proof_url": url,
+             "objects": keys, "confidence": "high", "attack": "T1530 Data from Cloud Storage",
+             "exploit_cmd": f"aws s3 ls s3://{name} --no-sign-request"
+             if provider == "Amazon S3" else f"curl '{url}'"},
+    )
+
+
+def _private_finding(provider: str, name: str, url: str) -> Finding:
+    return Finding(
+        module=MODULE,
+        title=f"{provider} Bucket Exists (Access-Controlled): {name}",
+        description=(
+            f"The {provider} bucket '{name}' exists but denies anonymous access ({url}). "
+            "Useful intel: the name is valid and may be brute-forced for objects or targeted "
+            "with credential-based access."
+        ),
+        severity=Severity.LOW,
+        recommendation="Confirm the bucket policy denies public access and audit IAM grants.",
+        raw={"provider": provider, "bucket": name, "url": url, "confidence": "high",
+             "attack": "T1580 Cloud Infrastructure Discovery"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def run(engine: ScanEngine) -> list[Finding]:
+    candidates = sorted(_candidate_names(engine))[:_MAX_CANDIDATES]
+    if not candidates:
+        return []
+    findings: list[Finding] = []
+    with ThreadPoolExecutor(max_workers=min(engine.threads, 12)) as pool:
+        futures = {pool.submit(_probe_bucket, engine, n): n for n in candidates}
+        for fut in as_completed(futures):
+            try:
+                findings.extend(fut.result())
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"cloud_buckets: probe {futures[fut]} failed: {exc}")
+    _order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    findings.sort(key=lambda f: _order.get(f.severity.value, 9))
+    logger.info(f"cloud_buckets: tested {len(candidates)} candidate(s), {len(findings)} finding(s)")
+    return findings

@@ -40,6 +40,10 @@
 - [x] Port scan — open port discovery with accept-all (honeypot/WAF) detection
 - [x] WAF / CDN detection — Cloudflare, CloudFront, Akamai, Sucuri, Imperva, Fastly…
 - [x] Technology stack — server, language, framework, JS libraries, CMS (Wappalyzer-style)
+- [x] **JS recon** — mines JavaScript for leaked secrets (AWS/Google/Stripe/GitHub/Slack/private keys) and hidden API endpoints
+- [x] **Cloud buckets** — discovers open/existing S3, GCS and Azure Blob storage buckets
+- [x] **Git dumper** — extracts remotes, committer emails and the tracked-file list from an exposed `.git`
+- [x] **Wayback mining** — pulls archived URLs & parameters from the Internet Archive (attack-surface expansion)
 
 ### Web Analysis Modules
 - [x] Security headers — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
@@ -75,6 +79,9 @@ fields from the shared crawler are tested, and each finding carries a clickable 
 - [x] LFI / path traversal — `/etc/passwd`, `win.ini`, PHP wrapper, content-signature confirmed
 - [x] Open redirect — sentinel-URL `Location`/meta/JS confirmation
 - [x] SSRF — in-band (cloud metadata / `file://`) detection
+- [x] **JWT attacks** — `alg:none`, weak HMAC secret cracking (offline wordlist), sensitive-claim disclosure
+- [x] **Auth bypass** — 401/403 bypass via path mutations, `X-Original-URL`/`X-Forwarded-For` headers, verb tampering
+- [x] **Credential spraying** — opt-in (`--bruteforce`): sprays common credentials at login forms & HTTP Basic-Auth (authorised targets only)
 - [x] CVE mapping — NVD API lookup for detected software versions
 - [x] Default credentials — advisory only (never submits credentials)
 
@@ -196,6 +203,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` |
 | `--output` | `-o` | — | Export report: `json` `html` `pdf` |
 | `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
+| `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
 | `--proxy` | | — | HTTP/HTTPS proxy URL |
 | `--threads` | `-t` | `10` | Concurrent thread count |
 | `--ignore-robots` | | `false` | Ignore robots.txt restrictions |

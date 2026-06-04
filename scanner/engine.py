@@ -110,6 +110,7 @@ class ScanEngine:
         rate_delay: float = DEFAULT_RATE_DELAY,
         modules: Optional[list[str]] = None,
         exploit: bool = False,
+        bruteforce: bool = False,
     ) -> None:
         self.url          = url.rstrip("/")
         self.profile      = profile
@@ -124,6 +125,8 @@ class ScanEngine:
         # Opt-in offensive mode: when True, modules may actively exploit/extract
         # (gated, authorised targets only). Mirrors the --exploit CLI flag.
         self.exploit      = exploit
+        # Opt-in credential attacks (password spraying). Mirrors the --bruteforce CLI flag.
+        self.bruteforce   = bruteforce
 
         self._rate_limiter = RateLimiter(rate_delay)
         self._client       = self._build_client()
@@ -288,6 +291,7 @@ def run_scan(
     auth_token: Optional[str] = None,
     modules: Optional[list[str]] = None,
     exploit: bool = False,
+    bruteforce: bool = False,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested."""
     with ScanEngine(
@@ -301,6 +305,7 @@ def run_scan(
         auth_token=auth_token,
         modules=modules,
         exploit=exploit,
+        bruteforce=bruteforce,
     ) as engine:
         findings = engine.run_scan()
 

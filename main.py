@@ -223,6 +223,12 @@ def build_parser() -> argparse.ArgumentParser:
              "(requires sqlmap; authorised targets only)",
     )
     parser.add_argument(
+        "--bruteforce",
+        action="store_true",
+        help="Opt-in: actively spray common credentials against login forms and HTTP "
+             "Basic-Auth (authorised targets only; off by default)",
+    )
+    parser.add_argument(
         "--wordlist", "-w",
         metavar="FILE",
         help="Custom wordlist path (overrides built-in lists)",
@@ -287,6 +293,7 @@ def main() -> None:
         auth_token=args.auth_token,
         modules=modules,
         exploit=args.exploit,
+        bruteforce=args.bruteforce,
     )
 
 
