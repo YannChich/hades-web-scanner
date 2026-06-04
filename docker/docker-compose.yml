@@ -1,0 +1,58 @@
+# WebScan — docker-compose
+#
+# ═══════════════════════════════════════════════════════════════════
+#  QUICK-START
+# ═══════════════════════════════════════════════════════════════════
+#
+#  1. Build the image (once, or after dependency changes):
+#       docker compose -f docker/docker-compose.yml build
+#
+#  2. Run an interactive scan (prompted for URL and profile):
+#       docker compose -f docker/docker-compose.yml run --rm webscan
+#
+#  3. Run with CLI flags (non-interactive):
+#       docker compose -f docker/docker-compose.yml run --rm webscan \
+#         --url https://example.com --profile full --output html
+#
+#  4. Pass an NVD API key for CVE lookups:
+#       NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml \
+#         run --rm webscan --url https://example.com
+#
+#  Outputs are written to the host directories:
+#    ./logs/      — timestamped log files
+#    ./reports/   — JSON / HTML / PDF reports
+#
+#  Add custom wordlists to ./wordlists/ before scanning.
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+  webscan:
+    build:
+      context: ..                   # webscan/ directory
+      dockerfile: docker/Dockerfile
+    image: webscan:latest
+
+    # Keep stdin open and allocate a pseudo-TTY so Rich / interactive
+    # prompts work correctly inside the container.
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Optional: set NVD_API_KEY for higher CVE lookup rate limits (50 req/30s vs 5)
+      - NVD_API_KEY=${NVD_API_KEY:-}
+      # Force UTF-8 output
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+
+    volumes:
+      # Persist scan output on the host
+      - ../logs:/app/logs
+      - ../reports:/app/reports
+      # Mount host wordlists so you can add custom lists without rebuilding
+      - ../wordlists:/app/wordlists
+
+    # Resource limits — adjust for your host
+    deploy:
+      resources:
+        limits:
+          memory: 1g

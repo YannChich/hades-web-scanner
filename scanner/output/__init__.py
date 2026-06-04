@@ -1,0 +1,1 @@
+"""WebScan output package."""
