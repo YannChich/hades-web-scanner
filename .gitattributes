@@ -1,0 +1,10 @@
+# Binary assets — never apply text/EOL (LF<->CRLF) conversion, which would corrupt them.
+*.pdf  binary
+*.png  binary
+*.gif  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+
+# Python sources: normalise to LF in the repo regardless of OS.
+*.py   text eol=lf
