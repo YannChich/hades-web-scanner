@@ -254,12 +254,13 @@ python main.py
 
 It then asks for:
 1. **Scan type** — Quick · Full · Single module · Database · AI/LLM · Engagement (auto-pwn)
-2. **Report format** — None · HTML · JSON · PDF
-3. **Active exploitation** — offered for offensive profiles (`db_scan`, `ai_scan`, `full`); `engage`
+2. **Active exploitation** — offered for offensive profiles (`db_scan`, `ai_scan`, `full`); `engage`
    asks for its own authorisation
 
-Any flag you *do* pass (e.g. `--profile`, `--output`, `--exploit`) skips the matching prompt, so
-scripting still works. The flags below are for non-interactive / advanced use.
+**Every scan** (quick → engagement) always generates the rich **HTML report** and **auto-opens it
+in your browser** when it finishes — pass `--no-open` to disable, or `--output json|pdf` to also
+export those formats. Any flag you *do* pass (e.g. `--profile`, `--exploit`) skips the matching
+prompt, so scripting still works.
 
 ### CLI mode
 
@@ -318,7 +319,8 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
 | `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` |
-| `--output` | `-o` | — | Export report: `json` `html` `pdf` |
+| `--output` | `-o` | — | **Extra** report format on top of the always-generated HTML: `json` `pdf` |
+| `--no-open` | | `false` | Don't auto-open the HTML report in a browser when the scan finishes |
 | `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
 | `--proxy` | | — | HTTP/HTTPS proxy URL |

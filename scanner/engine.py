@@ -345,6 +345,17 @@ class ScanEngine:
 # Top-level entry called by main.py
 # ---------------------------------------------------------------------------
 
+def _open_in_browser(path: str) -> None:
+    """Best-effort: open a report file in the default browser (never fails the scan)."""
+    import webbrowser
+    from pathlib import Path
+    try:
+        if webbrowser.open(Path(path).resolve().as_uri()):
+            console.print(f"[dim]  🌐 Opened the HTML report in your browser.[/dim]")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"could not open report in browser: {exc}")
+
+
 def run_scan(
     url: str,
     profile: str = "full",
@@ -358,6 +369,7 @@ def run_scan(
     modules: Optional[list[str]] = None,
     exploit: bool = False,
     bruteforce: bool = False,
+    open_report: bool = True,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested."""
     with ScanEngine(
@@ -407,13 +419,16 @@ def run_scan(
     from scanner.offensive.engage import render_panel as render_engage_panel
     render_engage_panel(findings)
 
-    match output_format:
-        case "json":
-            generate_json(findings, url, score)
-        case "html":
-            generate_html(findings, url, score)
-        case "pdf":
-            generate_pdf(findings, url, score)
+    # The HTML report is the richest, most detailed view — always generate it for every
+    # scan and open it in the browser. JSON/PDF are produced on top only when requested.
+    html_path = generate_html(findings, url, score)
+    if output_format == "json":
+        generate_json(findings, url, score)
+    elif output_format == "pdf":
+        generate_pdf(findings, url, score)
+
+    if open_report and html_path:
+        _open_in_browser(html_path)
 
     # Opt-in exploitation: offer to launch sqlmap against confirmed SQL injections.
     from scanner.exploit import offer as offer_exploitation  # local import avoids a cycle

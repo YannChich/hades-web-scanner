@@ -170,18 +170,6 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "full", None
 
 
-def prompt_report_format() -> Optional[str]:
-    """Interactively choose a report export format (interactive mode, no --output flag)."""
-    console.print("\n[info]Export a report?[/info]")
-    console.print("  [accent]1[/accent]. [ok]None[/ok]   Console output only")
-    console.print("  [accent]2[/accent]. [ok]HTML[/ok]   Styled dark-theme report (recommended)")
-    console.print("  [accent]3[/accent]. [ok]JSON[/ok]   Machine-readable")
-    console.print("  [accent]4[/accent]. [ok]PDF[/ok]    Printable (needs native GTK libs)")
-    console.print()
-    choice = Prompt.ask("[ok]  Report[/ok]", choices=["1", "2", "3", "4"], default="1").strip()
-    return {"1": None, "2": "html", "3": "json", "4": "pdf"}[choice]
-
-
 # Profiles whose --exploit flag can be offered interactively (engage handles its own prompt).
 _EXPLOIT_PROFILES = {"full", "db_scan", "ai_scan"}
 
@@ -267,7 +255,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", "-o",
         choices=OUTPUT_FORMATS,
         metavar="FORMAT",
-        help=f"Export report as: {', '.join(OUTPUT_FORMATS)}",
+        help="Extra report format on top of the always-generated HTML: "
+             f"{', '.join(OUTPUT_FORMATS)}",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not auto-open the HTML report in a browser when the scan finishes",
     )
     parser.add_argument(
         "--proxy",
@@ -350,10 +344,9 @@ def main() -> None:
     else:
         profile, modules = prompt_scan_choice()
 
-    # --- Report format: flag wins, else ask (interactive only) ---
+    # The HTML report is always generated and auto-opened (see run_scan); --output adds
+    # an extra machine/print format (json/pdf) on top.
     output_format = args.output
-    if interactive and not output_format:
-        output_format = prompt_report_format()
 
     # --- Active exploitation ---
     # engage is exploitation-first (its own confirmation); other offensive profiles can be
@@ -381,6 +374,7 @@ def main() -> None:
         modules=modules,
         exploit=exploit,
         bruteforce=args.bruteforce,
+        open_report=not args.no_open,
     )
 
 
