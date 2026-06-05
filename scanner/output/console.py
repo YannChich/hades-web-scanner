@@ -16,22 +16,17 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from scanner.severity import CONSOLE_STYLE as _SEVERITY_STYLE
+from scanner.severity import SEVERITY_ORDER as _SEVERITY_ORDER
+
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
 console = Console()
 
 # ---------------------------------------------------------------------------
-# Severity style map
+# Severity labels (fixed-width, terminal-only)
 # ---------------------------------------------------------------------------
-
-_SEVERITY_STYLE: dict[str, str] = {
-    "critical": "bold red",
-    "high":     "bold orange3",
-    "medium":   "bold yellow",
-    "low":      "bold green",
-    "info":     "bold cyan",
-}
 
 _SEVERITY_LABEL: dict[str, str] = {
     "critical": "CRITICAL",
@@ -40,8 +35,6 @@ _SEVERITY_LABEL: dict[str, str] = {
     "low":      "LOW     ",
     "info":     "INFO    ",
 }
-
-_SEVERITY_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
 
 # Findings from these modules get a clickable "verify" link in the table so the
 # user can Ctrl+click to open the exact URL in a browser and confirm it manually.

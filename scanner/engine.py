@@ -39,6 +39,7 @@ from config import (
     SEVERITY_CVSS,
     USER_AGENT,
 )
+from scanner.severity import sort_by_severity
 from scanner.output.console import print_findings, print_playbooks, print_summary, print_verification_links
 from scanner.output.scorer import score_findings
 from scanner.output.report_json import generate_json
@@ -59,8 +60,6 @@ class Severity(str, Enum):
     HIGH     = "high"
     CRITICAL = "critical"
 
-
-_SEVERITY_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
 
 # Matches MITRE ATT&CK technique IDs, with optional sub-technique (e.g. T1078.001).
 _MITRE_RE = re.compile(r"T\d{4}(?:\.\d{3})?")
@@ -325,10 +324,7 @@ class ScanEngine:
                     finally:
                         progress.advance(task_id)
 
-        self.findings = sorted(
-            findings,
-            key=lambda f: _SEVERITY_ORDER.index(f.severity.value),
-        )
+        self.findings = sort_by_severity(findings)
         return self.findings
 
     # ------------------------------------------------------------------

@@ -20,6 +20,9 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from scanner.severity import CONSOLE_STYLE as _SEV_STYLE
+from scanner.severity import severity_rank
+
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
@@ -80,9 +83,6 @@ _MODULE_PHASE: dict[str, str] = {
     "port_scan": "Discovery", "subdomain_scan": "Reconnaissance", "js_recon": "Reconnaissance",
 }
 
-_SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-_SEV_STYLE = {"critical": "bold red", "high": "bold orange3", "medium": "bold yellow",
-              "low": "bold green", "info": "cyan"}
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def build_attack_path(findings: list["Finding"], base_url: str = "") -> list[dic
         phase_steps = [s for s in steps if s["phase"] == phase]
         if not phase_steps:
             continue
-        phase_steps.sort(key=lambda s: _SEV_ORDER.get(s["severity"], 9))
+        phase_steps.sort(key=lambda s: severity_rank(s["severity"]))
         groups.append({"phase": phase, "tactic": tactic, "steps": phase_steps})
 
     n = 1

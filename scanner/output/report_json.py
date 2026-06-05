@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from scanner.output.attack_path import build_attack_path
 from scanner.output.scorer import calculate_score
+from scanner.severity import severity_counts
 
 
 def generate_json(
@@ -31,10 +32,7 @@ def generate_json(
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    # Severity counts
-    counts: dict[str, int] = {s: 0 for s in ("critical", "high", "medium", "low", "info")}
-    for f in findings:
-        counts[f.severity.value] += 1
+    counts = severity_counts(findings)
 
     payload = {
         "scan_date":       now.isoformat(),

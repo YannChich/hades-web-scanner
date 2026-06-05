@@ -22,6 +22,8 @@ import httpx
 from loguru import logger
 
 from scanner.engine import Finding, Severity, ScanEngine
+from scanner.severity import CONSOLE_STYLE as _SEV_STYLE
+from scanner.severity import severity_rank, sort_by_severity
 from scanner.vulns._common import is_safe_mode
 
 MODULE = "llm_recon"
@@ -296,17 +298,13 @@ def run(engine: ScanEngine) -> list[Finding]:
     guard(_check_ai_uis, engine)
     guard(_check_prompt_injection, engine, safe)
 
-    findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
+    findings.sort(key=lambda f: severity_rank(f.severity.value))
     return findings
 
 
 # ---------------------------------------------------------------------------
 # Dedicated console panel (called from engine.run_scan)
 # ---------------------------------------------------------------------------
-
-_SEV_STYLE = {"critical": "bold red", "high": "bold orange3", "medium": "bold yellow",
-              "low": "bold green", "info": "cyan"}
-
 
 def render_panel(findings: list[Finding]) -> None:
     """Render the AI/LLM Exposure panel. No-op if no llm_recon findings."""
@@ -326,7 +324,7 @@ def render_panel(findings: list[Finding]) -> None:
     table.add_column("Finding", ratio=1)
     table.add_column("OWASP-LLM / ATLAS", width=22, no_wrap=True)
 
-    for f in sorted(ai, key=lambda x: ["critical", "high", "medium", "low", "info"].index(x.severity.value)):
+    for f in sort_by_severity(ai):
         sev = f.severity.value
         ref = " · ".join(p for p in (f.owasp.split(" ")[0] if f.owasp else "", " ".join(f.mitre)) if p)
         table.add_row(f"[{_SEV_STYLE.get(sev, 'white')}]{sev.upper()}[/]", f.title, ref)

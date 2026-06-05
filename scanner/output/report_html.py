@@ -16,33 +16,18 @@ if TYPE_CHECKING:
     from scanner.engine import Finding
 
 from scanner.output.scorer import calculate_score
+from scanner.severity import HTML_BG as _SEV_BG
+from scanner.severity import HTML_COLOR as _SEV_COLOR
+from scanner.severity import SEVERITY_ORDER as _SEV_ORDER
 
 # ---------------------------------------------------------------------------
 # Style constants
 # ---------------------------------------------------------------------------
 
-_SEV_COLOR: dict[str, str] = {
-    "critical": "#ff2d55",
-    "high":     "#ff6b35",
-    "medium":   "#ffd700",
-    "low":      "#34d399",
-    "info":     "#60a5fa",
-}
-
-_SEV_BG: dict[str, str] = {
-    "critical": "rgba(255,45,85,0.08)",
-    "high":     "rgba(255,107,53,0.08)",
-    "medium":   "rgba(255,215,0,0.08)",
-    "low":      "rgba(52,211,153,0.08)",
-    "info":     "rgba(96,165,250,0.06)",
-}
-
 _GRADE_COLOR: dict[str, str] = {
     "A": "#34d399", "B": "#60a5fa",
     "C": "#ffd700", "D": "#ff6b35", "F": "#ff2d55",
 }
-
-_SEV_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
 
 
 # ---------------------------------------------------------------------------

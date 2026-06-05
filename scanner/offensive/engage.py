@@ -23,6 +23,7 @@ from urllib.parse import unquote, urlparse
 from loguru import logger
 
 from scanner.engine import Finding, Severity, ScanEngine
+from scanner.severity import severity_rank
 from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
 from scanner.db.db_security import _loot_dir, _save_evidence  # reuse the loot/evidence convention
 
@@ -185,7 +186,7 @@ def run(engine: ScanEngine) -> list[Finding]:
             "not authorised (answer 'attack' at the prompt, or pass --exploit). Doing so reads files / "
             "executes commands / pulls cloud metadata to prove impact and collects evidence under loot/.",
             Severity.INFO, "", "info"))
-        findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
+        findings.sort(key=lambda f: severity_rank(f.severity.value))
         return findings
 
     # 2. Active exploitation — prove impact with benign payloads, capture evidence.
@@ -222,17 +223,13 @@ def run(engine: ScanEngine) -> list[Finding]:
         sev, "Treat every proven foothold as a breach; remediate the root-cause injection.",
         "result", footholds=footholds, loot_dir=str(loot)))
 
-    findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
+    findings.sort(key=lambda f: severity_rank(f.severity.value))
     return findings
 
 
 # ---------------------------------------------------------------------------
 # Dedicated console panel (called from engine.run_scan)
 # ---------------------------------------------------------------------------
-
-_SEV_STYLE = {"critical": "bold red", "high": "bold orange3", "medium": "bold yellow",
-              "low": "bold green", "info": "cyan"}
-
 
 def render_panel(findings: list[Finding]) -> None:
     """Render the Engagement panel (proven footholds + loot). No-op if engage didn't run."""

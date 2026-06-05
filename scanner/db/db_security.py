@@ -27,6 +27,8 @@ from loguru import logger
 
 from config import PROJECT_ROOT
 from scanner.engine import Finding, Severity, ScanEngine
+from scanner.severity import CONSOLE_STYLE as _SEV_COLOR
+from scanner.severity import severity_rank
 from scanner.recon.port_scan import _is_accept_all, _probe_port, _resolve  # reuse connect/banner/accept-all
 from scanner.vulns._common import Injector, get, inject_param, is_safe_mode, iter_injectors
 
@@ -1257,16 +1259,13 @@ def run(engine: ScanEngine) -> list[Finding]:
                        "credentials, admin interfaces, dumps, and TLS posture.",
                        Severity.INFO, "", "score", score=score, grade=grade))
 
-    findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
+    findings.sort(key=lambda f: severity_rank(f.severity.value))
     return findings
 
 
 # ---------------------------------------------------------------------------
 # Red-team attack plan + loot extraction
 # ---------------------------------------------------------------------------
-
-_SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-
 
 def build_playbook(findings: list[Finding]) -> list[dict]:
     """Ordered, copy-paste exploitation steps assembled from confirmed DB findings.
@@ -1276,7 +1275,7 @@ def build_playbook(findings: list[Finding]) -> list[dict]:
     """
     db = [f for f in findings if f.module == MODULE]
     plan: list[dict] = []
-    for f in sorted(db, key=lambda x: _SEV_ORDER.get(x.severity.value, 9)):
+    for f in sorted(db, key=lambda x: severity_rank(x.severity.value)):
         cmd = f.raw.get("sqlmap") or f.raw.get("exploit_cmd")
         if not cmd:
             continue
@@ -1327,8 +1326,6 @@ def collect_loot(findings: list[Finding]) -> list[str]:
 # Dedicated console panel (called from engine.run_scan)
 # ---------------------------------------------------------------------------
 
-_SEV_COLOR = {"critical": "bold red", "high": "bold orange3", "medium": "bold yellow",
-              "low": "bold green", "info": "cyan"}
 _GRADE_COLOR = {"SECURE": "bold green", "AT RISK": "bold yellow",
                 "EXPOSED": "bold orange3", "CRITICAL": "bold red"}
 

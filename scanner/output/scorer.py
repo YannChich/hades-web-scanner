@@ -12,13 +12,10 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from config import SCORE_CONFIDENCE, SCORE_DIMINISHING, SEVERITY_PENALTY
+from scanner.severity import severity_rank
 
 if TYPE_CHECKING:
     from scanner.engine import Finding
-
-_SEVERITY_RANK: dict[str, int] = {
-    "critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0,
-}
 
 _GRADES: list[tuple[int, str]] = [
     (90, "A"),
@@ -58,8 +55,7 @@ def calculate_score(findings: list[Finding]) -> tuple[int, str]:
         # Most severe first so diminishing returns hit the lesser findings.
         ranked = sorted(
             module_findings,
-            key=lambda f: _SEVERITY_RANK.get(f.severity.value, 0),
-            reverse=True,
+            key=lambda f: severity_rank(f.severity.value),
         )
         for i, f in enumerate(ranked):
             base = SEVERITY_PENALTY.get(f.severity.value, 0.0)
