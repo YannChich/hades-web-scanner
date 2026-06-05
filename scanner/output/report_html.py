@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -215,6 +216,55 @@ a:hover { text-decoration: underline; }
 .desc-cell  { color: #8b949e; max-width: 420px; }
 .rec-cell   { color: #60a5fa; max-width: 260px; font-size: 0.78rem; }
 
+/* ── Framework reference pills (ID / CVSS / CWE / OWASP / ATT&CK) ── */
+.refs { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; }
+.ref-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.64rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #8b949e;
+  white-space: nowrap;
+}
+.ref-id    { color: #c9d1d9; border-color: #484f58; }
+.ref-cvss  { color: var(--sev-color); border-color: var(--sev-color); }
+.ref-cwe   { color: #d2a8ff; border-color: #6e40c9; }
+.ref-owasp { color: #ffa657; border-color: #bb8009; }
+.ref-mitre { color: #79c0ff; border-color: #1f6feb; }
+.ref-tool  { color: #e3b341; border-color: #9e6a03; background: #1c1808; }
+.ref-play  { color: #d2a8ff; border-color: #8957e5; background: #1d162e; }
+a.ref-play:hover { text-decoration: none; background: #2d2150; }
+/* Recommended-playbooks section */
+.play-list { list-style: none; }
+.play-list li {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-left: 3px solid #8957e5;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+}
+.play-list .play-name { color: #d2a8ff; font-weight: bold; font-size: 0.9rem; }
+.play-list .play-meta { color: #79c0ff; font-size: 0.7rem; letter-spacing: 1px; margin: 3px 0; }
+.play-list .play-desc { color: #8b949e; font-size: 0.82rem; }
+.poc-block {
+  margin-top: 6px;
+  padding: 6px 9px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-left: 3px solid #39d353;
+  border-radius: 4px;
+  color: #39d353;
+  font: 0.72rem/1.5 ui-monospace, 'Courier New', monospace;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Recommendations ── */
 .rec-list { list-style: none; }
 .rec-list li {
@@ -282,6 +332,29 @@ def _counts_html(counts: dict[str, int]) -> str:
     return f'<div class="counts-grid">{cards}</div>'
 
 
+def _refs_html(f: Finding, sev_color: str) -> str:
+    """Compact framework-reference pills shown under a finding's title."""
+    pills = [f'<span class="ref-pill ref-id">{_e(f.finding_id)}</span>']
+    if f.cvss is not None:
+        pills.append(f'<span class="ref-pill ref-cvss" style="--sev-color:{sev_color};">'
+                     f'CVSS {f.cvss:g}</span>')
+    if f.cwe:
+        pills.append(f'<span class="ref-pill ref-cwe">{_e(f.cwe)}</span>')
+    if f.owasp:
+        # Show just the OWASP code (e.g. "A03:2021") to keep the pill short.
+        pills.append(f'<span class="ref-pill ref-owasp">{_e(f.owasp.split(" ")[0])}</span>')
+    for tech in f.mitre:
+        pills.append(f'<span class="ref-pill ref-mitre">{_e(tech)}</span>')
+    for tool in (f.redteam_tools or []):
+        pills.append(f'<span class="ref-pill ref-tool" title="See the RedTeam-Tools PDF">'
+                     f'🛠 {_e(tool)}</span>')
+    for s in (f.skill_refs or []):
+        href = Path(s.get("path", "")).as_uri() if s.get("path") else "#"
+        pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" '
+                     f'title="Open the full playbook">📘 {_e(s["name"])}</a>')
+    return f'<div class="refs">{"".join(pills)}</div>'
+
+
 def _findings_table_html(findings: list[Finding]) -> str:
     if not findings:
         return "<p style='color:#8b949e;'>No findings recorded.</p>"
@@ -291,13 +364,18 @@ def _findings_table_html(findings: list[Finding]) -> str:
         sev = f.severity.value
         color = _SEV_COLOR.get(sev, "#c9d1d9")
         bg    = _SEV_BG.get(sev, "transparent")
+        desc = (f'<td class="desc-cell">{_e(f.description[:200])}'
+                f'{"…" if len(f.description) > 200 else ""}')
+        if f.poc:
+            desc += f'<div class="poc-block">$ {_e(f.poc)}</div>'
+        desc += "</td>"
         rows += (
             f'<tr style="--row-bg:{bg};">'
             f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'
             f"{sev.upper()}</span></td>"
             f'<td class="module-tag">{_e(f.module)}</td>'
-            f'<td class="title-cell">{_e(f.title)}</td>'
-            f'<td class="desc-cell">{_e(f.description[:200])}{"…" if len(f.description) > 200 else ""}</td>'
+            f'<td class="title-cell">{_e(f.title)}{_refs_html(f, color)}</td>'
+            f'{desc}'
             f'<td class="rec-cell">{_e(f.recommendation[:160])}{"…" if len(f.recommendation) > 160 else ""}</td>'
             f"</tr>"
         )
@@ -414,6 +492,84 @@ def _db_section_html(findings: list[Finding]) -> str:
 """
 
 
+def _attack_path_html(findings: list[Finding], base_url: str) -> str:
+    """Unified kill-chain attack path: ordered, copy-paste exploitation steps by ATT&CK phase."""
+    from scanner.output.attack_path import build_attack_path  # noqa: PLC0415
+
+    groups = build_attack_path(findings, base_url)
+    if not groups:
+        return ""
+
+    total = sum(len(g["steps"]) for g in groups)
+    blocks = ""
+    for g in groups:
+        steps = ""
+        for s in g["steps"]:
+            sev = s["severity"]
+            mitre = "".join(f'<span class="ref-pill ref-mitre">{_e(t)}</span>' for t in s["mitre"])
+            cmd = (f'<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
+                   f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
+                   f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre>'
+                   if s["command"] else "")
+            play = (f'<div style="margin-top:4px;color:#d2a8ff;font-size:0.78rem;">'
+                    f'📘 {_e(s["playbook"])}</div>' if s["playbook"] else "")
+            tools = (f'<div style="margin-top:4px;color:#e3b341;font-size:0.78rem;">'
+                     f'🛠 tools: {_e(", ".join(s["tools"]))}</div>' if s["tools"] else "")
+            evid = (f'<div style="margin-top:4px;color:#39d353;font:12px ui-monospace,monospace;">'
+                    f'⧉ evidence: {_e(s["evidence"])}</div>' if s["evidence"] else "")
+            steps += (
+                f'<li><span style="color:#8b949e;">#{s["n"]}</span> '
+                f'<span class="sev-badge" style="--sev-color:{_SEV_COLOR.get(sev, "#c9d1d9")};'
+                f'--sev-bg:{_SEV_BG.get(sev, "transparent")};">{sev.upper()}</span> '
+                f'<span style="color:#e6edf3;font-weight:bold;">{_e(s["title"])}</span> '
+                f'<span style="color:#8b949e;font-size:0.72rem;">[{_e(s["id"])}]</span> {mitre}'
+                f'{cmd}{play}{tools}{evid}</li>'
+            )
+        blocks += (
+            f'<div class="section-title" style="font-size:15px;margin-top:16px;color:#79c0ff;">'
+            f'▼ {_e(g["phase"])} <span style="color:#484f58;font-size:12px;">{_e(g["tactic"])}</span></div>'
+            f'<ol class="rec-list">{steps}</ol>'
+        )
+
+    return f"""
+  <div class="section-title">Attack Path — Kill Chain</div>
+  <p style="color:#8b949e;font-size:0.8rem;margin-bottom:8px;">
+    {total} actionable step(s) grouped by MITRE ATT&CK tactic in attacker order. Commands are
+    copy-paste — authorised targets only.
+  </p>
+  {blocks}
+"""
+
+
+def _playbooks_html(findings: list[Finding]) -> str:
+    """Consolidated 'Recommended Playbooks' section from the skills-library enrichment."""
+    from scanner.intel.skills_kb import distinct_skills  # noqa: PLC0415
+
+    skills = distinct_skills(findings)
+    if not skills:
+        return ""
+
+    items = ""
+    for s in skills:
+        href = Path(s.get("path", "")).as_uri() if s.get("path") else "#"
+        mitre = " · ".join(s.get("mitre", [])[:4])
+        tags = " · ".join(s.get("tags", [])[:5])
+        meta = " &nbsp;|&nbsp; ".join(p for p in (mitre, tags) if p)
+        items += (
+            f'<li><a class="play-name" href="{_e(href)}">📘 {_e(s["name"])}</a>'
+            f'{f"<div class=\"play-meta\">{_e(meta)}</div>" if meta else ""}'
+            f'<div class="play-desc">{_e((s.get("description") or "").strip())}</div></li>'
+        )
+    return f"""
+  <div class="section-title">Recommended Playbooks</div>
+  <p style="color:#8b949e;font-size:0.8rem;margin-bottom:14px;">
+    Expert procedures matched from the cybersecurity skills library — each link opens the full
+    step-by-step playbook (detection, exploitation, and remediation).
+  </p>
+  <ul class="play-list">{items}</ul>
+"""
+
+
 def _recommendations_html(findings: list[Finding]) -> str:
     seen: set[str] = set()
     recs: list[tuple[str, str]] = []
@@ -496,8 +652,14 @@ def generate_html(
   <div class="section-title">Findings</div>
   {_findings_table_html(sorted_findings)}
 
+  <!-- Unified kill-chain attack path (web/recon/vuln modules) -->
+  {_attack_path_html(findings, url)}
+
   <!-- Database security (only when a db_scan ran) -->
   {_db_section_html(findings)}
+
+  <!-- Recommended playbooks (only when the skills library enriched findings) -->
+  {_playbooks_html(findings)}
 
   <!-- Recommendations -->
   <div class="section-title">Recommendations</div>

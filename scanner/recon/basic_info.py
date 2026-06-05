@@ -48,12 +48,16 @@ def _resolve_ip(hostname: str) -> list[str]:
 def _ping_ttl(host: str) -> int | None:
     """Return the TTL from a single ping reply, or None if ping is unavailable."""
     try:
-        out = subprocess.check_output(
+        # Capture raw bytes and decode ourselves: ping's output is encoded in the
+        # OS locale codepage (e.g. cp1255 on a Hebrew Windows), which can contain
+        # bytes that crash text=True's locale decoder. We only need the ASCII
+        # "ttl=<n>" token, so decode leniently and drop undecodable bytes.
+        raw = subprocess.check_output(
             ["ping", "-n", "1", "-w", "2000", host],
             stderr=subprocess.DEVNULL,
-            text=True,
             timeout=5,
         )
+        out = raw.decode("utf-8", errors="ignore")
         # Windows: "TTL=64"  Linux: "ttl=64"
         match = re.search(r"ttl=(\d+)", out, re.IGNORECASE)
         if match:

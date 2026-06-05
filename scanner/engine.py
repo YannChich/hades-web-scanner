@@ -2,7 +2,9 @@
 WebScan scan engine — module orchestration, threading, rate limiting, and result aggregation.
 """
 
+import hashlib
 import importlib
+import re
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
@@ -27,13 +29,17 @@ from rich.progress import (
 from config import (
     CRAWL_MAX_DEPTH,
     CRAWL_MAX_PAGES,
+    DB_CATEGORY_REDTEAM_MAP,
     DEFAULT_RATE_DELAY,
     DEFAULT_THREADS,
     DEFAULT_TIMEOUT,
+    FINDING_TAXONOMY,
+    MODULE_REDTEAM_MAP,
     PROFILE_MODULES,
+    SEVERITY_CVSS,
     USER_AGENT,
 )
-from scanner.output.console import print_findings, print_summary, print_verification_links
+from scanner.output.console import print_findings, print_playbooks, print_summary, print_verification_links
 from scanner.output.scorer import score_findings
 from scanner.output.report_json import generate_json
 from scanner.output.report_html import generate_html
@@ -56,6 +62,21 @@ class Severity(str, Enum):
 
 _SEVERITY_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
 
+# Matches MITRE ATT&CK technique IDs, with optional sub-technique (e.g. T1078.001).
+_MITRE_RE = re.compile(r"T\d{4}(?:\.\d{3})?")
+
+
+def _make_finding_id(module: str, title: str) -> str:
+    """Stable, human-readable finding ID, e.g. 'SQLI-3F9A'.
+
+    Deterministic: the same (module, title) always yields the same ID across runs,
+    so reports can be diffed and findings cross-referenced. The prefix comes from
+    the module name; the suffix is a short hash of module+title.
+    """
+    prefix = "".join(c for c in module.split("_")[0].upper() if c.isalnum())[:6] or "HADES"
+    digest = hashlib.sha1(f"{module}|{title}".encode("utf-8")).hexdigest()[:4].upper()
+    return f"{prefix}-{digest}"
+
 
 @dataclass
 class Finding:
@@ -65,6 +86,55 @@ class Finding:
     severity:       Severity
     recommendation: str = ""
     raw:            dict = field(default_factory=dict)
+    # ── Framework mapping (auto-filled in __post_init__ from config.FINDING_TAXONOMY;
+    #    a module may set any of these explicitly to override the default) ──
+    cwe:        str = ""                              # e.g. "CWE-89"
+    owasp:      str = ""                              # e.g. "A03:2021 Injection"
+    mitre:      list[str] = field(default_factory=list)   # e.g. ["T1190"]
+    cvss:       Optional[float] = None                # representative base score
+    finding_id: str = ""                              # stable ID, e.g. "SQLI-3F9A"
+    poc:        str = ""                              # reproducible proof (curl / HTTP request)
+    # Matched expert playbooks from the skills library (filled by scanner.intel.skills_kb).
+    skill_refs: list = field(default_factory=list)
+    # Relevant RedTeam-Tools entries by name (client-facing; details in the bundled PDF).
+    redteam_tools: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        sev = self.severity.value if isinstance(self.severity, Severity) else str(self.severity)
+        raw = self.raw if isinstance(self.raw, dict) else {}
+
+        # Module-level framework defaults (never clobber an explicit value).
+        tax = FINDING_TAXONOMY.get(self.module)
+        if tax:
+            self.cwe = self.cwe or str(tax.get("cwe", ""))
+            self.owasp = self.owasp or str(tax.get("owasp", ""))
+            if not self.mitre and tax.get("mitre"):
+                self.mitre = list(tax["mitre"])  # type: ignore[arg-type]
+
+        # ATT&CK technique from a raw["attack"] string (db_security per-category).
+        if not self.mitre and raw.get("attack"):
+            self.mitre = _MITRE_RE.findall(str(raw["attack"]))
+
+        # Representative CVSS from severity (info → none) unless set explicitly.
+        if self.cvss is None:
+            self.cvss = SEVERITY_CVSS.get(sev)
+
+        # Proof-of-concept: reuse a proof/verify URL when the module recorded one.
+        if not self.poc:
+            proof = raw.get("proof_url") or raw.get("url")
+            if proof:
+                self.poc = f"curl -sk \"{proof}\""
+
+        # Relevant RedTeam-Tools by name (skip context-only INFO findings, like playbooks).
+        if not self.redteam_tools and sev != "info":
+            if self.module == "db_security":
+                self.redteam_tools = list(DB_CATEGORY_REDTEAM_MAP.get(raw.get("db_category", ""), []))
+            else:
+                self.redteam_tools = list(MODULE_REDTEAM_MAP.get(self.module, []))
+
+        # Stable identifier last, so it is always present.
+        if not self.finding_id:
+            self.finding_id = _make_finding_id(self.module, self.title)
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +379,33 @@ def run_scan(
     ) as engine:
         findings = engine.run_scan()
 
+    # Knowledge-base enrichment: attach matching expert playbooks from the skills
+    # library (optional — silently no-ops if the library isn't present).
+    try:
+        from scanner.intel.skills_kb import enrich as enrich_skills  # local import avoids a cycle
+        n = enrich_skills(findings)
+        if n:
+            console.print(f"[dim]  📚 Enriched {n} finding(s) with expert playbooks from the skills library.[/dim]")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"skills enrichment skipped: {exc}")
+
     print_findings(findings, url)
     print_verification_links(findings, url)
     score = score_findings(findings)
     print_summary(findings, score)
+    print_playbooks(findings)
+
+    # Unified kill-chain attack path (all modules except db_security, which has its own panel).
+    from scanner.output.attack_path import print_attack_path  # local import avoids a cycle
+    print_attack_path(findings, url)
 
     # Dedicated Database Security Audit panel (no-op unless db_security ran).
     from scanner.db.db_security import render_panel  # local import avoids a cycle
     render_panel(findings)
+
+    # Dedicated AI/LLM Exposure panel (no-op unless llm_recon ran).
+    from scanner.ai.llm_recon import render_panel as render_ai_panel
+    render_ai_panel(findings)
 
     match output_format:
         case "json":

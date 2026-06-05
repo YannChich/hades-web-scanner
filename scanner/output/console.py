@@ -51,6 +51,19 @@ _VERIFIABLE_MODULES: set[str] = {"dir_scan", "sensitive_files", "admin_panel",
                                  "ssti_detect", "lfi_detect", "open_redirect", "ssrf_detect"}
 
 
+def _format_refs(finding: "Finding") -> str:
+    """Compact one-line framework reference: ID · CVSS · CWE · OWASP code · ATT&CK."""
+    parts: list[str] = [finding.finding_id] if finding.finding_id else []
+    if finding.cvss is not None:
+        parts.append(f"CVSS {finding.cvss:g}")
+    if finding.cwe:
+        parts.append(finding.cwe)
+    if finding.owasp:
+        parts.append(finding.owasp.split(" ")[0])  # just the "A03:2021" code
+    parts.extend(finding.mitre)
+    return " · ".join(parts)
+
+
 def _verify_url(finding: "Finding", base_url: str) -> str | None:
     """Return the URL to verify for a verifiable finding, or None."""
     if finding.module not in _VERIFIABLE_MODULES:
@@ -146,8 +159,18 @@ def print_findings(findings: list[Finding], url: str) -> None:
         style = _SEVERITY_STYLE.get(sev, "white")
         label = _SEVERITY_LABEL.get(sev, sev.upper())
 
-        # Build the description, appending a clickable verify link when available.
+        # Build the description, appending framework refs + a verify link.
         description = Text(f.description)
+        refs = _format_refs(f)
+        if refs:
+            description.append(f"\n⟦ {refs} ⟧", style="dim")
+        skills = getattr(f, "skill_refs", None)
+        if skills:
+            names = ", ".join(s["name"] for s in skills[:2])
+            description.append(f"\n📘 playbook → {names}", style="magenta")
+        tools = getattr(f, "redteam_tools", None)
+        if tools:
+            description.append(f"\n🛠 tools → {', '.join(tools)}", style="yellow")
         verify = _verify_url(f, url)
         if verify:
             has_verifiable = True
@@ -219,6 +242,37 @@ def print_verification_links(findings: list[Finding], url: str) -> None:
         f"\n[dim]{len(rows)} link(s). Ctrl+click to open (Windows Terminal / iTerm2), or "
         "copy-paste a URL into your browser to verify the finding manually.[/dim]"
     )
+
+
+# ---------------------------------------------------------------------------
+# Recommended playbooks (skills-library enrichment)
+# ---------------------------------------------------------------------------
+
+def print_playbooks(findings: list[Finding]) -> None:
+    """Print the unique expert playbooks matched across all findings, if any."""
+    from scanner.intel.skills_kb import distinct_skills  # avoid import at module load
+
+    skills = distinct_skills(findings)
+    if not skills:
+        return
+
+    console.print()
+    console.print(Rule("[bold magenta]Recommended Playbooks[/bold magenta]", style="dim magenta"))
+    console.print("[dim]  Matched from the cybersecurity skills library — open the path for the full procedure.[/dim]\n")
+
+    table = Table(box=box.SIMPLE_HEAD, show_header=True, header_style="bold bright_white",
+                  expand=True, padding=(0, 1))
+    table.add_column("Playbook", style="bold magenta", width=42, no_wrap=True)
+    table.add_column("ATT&CK", style="cyan", width=14, no_wrap=True)
+    table.add_column("What it does", ratio=1)
+
+    for s in skills:
+        mitre = " ".join(s.get("mitre", [])[:2])
+        desc = (s.get("description") or "").strip()
+        table.add_row(s["name"], mitre, desc)
+
+    console.print(table)
+    console.print(f"\n[dim]{len(skills)} playbook(s) available under the skills library.[/dim]")
 
 
 # ---------------------------------------------------------------------------

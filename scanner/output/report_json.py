@@ -13,6 +13,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
+from scanner.output.attack_path import build_attack_path
 from scanner.output.scorer import calculate_score
 
 
@@ -41,13 +42,26 @@ def generate_json(
         "score":           score,
         "grade":           grade,
         "findings_count":  counts,
+        "attack_path":     build_attack_path(findings, url),
         "findings": [
             {
+                "id":             f.finding_id,
                 "module":         f.module,
                 "title":          f.title,
                 "description":    f.description,
                 "severity":       f.severity.value,
+                "cvss":           f.cvss,
+                "cwe":            f.cwe,
+                "owasp":          f.owasp,
+                "mitre_attack":   f.mitre,
                 "recommendation": f.recommendation,
+                "poc":            f.poc,
+                "redteam_tools":  f.redteam_tools,
+                "playbooks":      [
+                    {"name": s.get("name"), "path": s.get("rel_md"),
+                     "mitre": s.get("mitre", [])}
+                    for s in (f.skill_refs or [])
+                ],
                 "raw":            f.raw,
             }
             for f in findings

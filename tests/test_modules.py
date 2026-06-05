@@ -87,6 +87,253 @@ def engine_factory(base_url: str):
 
 
 # ---------------------------------------------------------------------------
+# Finding taxonomy / framework-mapping tests (Axe 1)
+# ---------------------------------------------------------------------------
+
+class TestFindingTaxonomy:
+    def test_autopopulates_framework_tags(self):
+        f = Finding(module="sqli_detect", title="SQL Injection in 'id'",
+                    description="", severity=Severity.CRITICAL)
+        assert f.cwe == "CWE-89"
+        assert f.owasp.startswith("A03:2021")
+        assert "T1190" in f.mitre
+        assert f.cvss == 9.8
+        assert f.finding_id.startswith("SQLI-")
+
+    def test_info_finding_has_no_cvss(self):
+        f = Finding(module="basic_info", title="IP Address",
+                    description="", severity=Severity.INFO)
+        assert f.cvss is None
+
+    def test_finding_id_is_stable_per_module_and_title(self):
+        a = Finding(module="x", title="same title", description="d1", severity=Severity.LOW)
+        b = Finding(module="x", title="same title", description="d2", severity=Severity.HIGH)
+        c = Finding(module="x", title="other title", description="d1", severity=Severity.LOW)
+        assert a.finding_id == b.finding_id      # ID ignores description/severity
+        assert a.finding_id != c.finding_id      # ID changes with the title
+
+    def test_explicit_values_are_not_overridden(self):
+        f = Finding(module="sqli_detect", title="t", description="", severity=Severity.HIGH,
+                    cwe="CWE-999", cvss=1.0, mitre=["T9999"], finding_id="CUSTOM-1")
+        assert f.cwe == "CWE-999"
+        assert f.cvss == 1.0
+        assert f.mitre == ["T9999"]
+        assert f.finding_id == "CUSTOM-1"
+
+    def test_mitre_derived_from_raw_attack(self):
+        # db_security stores its per-category ATT&CK technique in raw["attack"].
+        f = Finding(module="db_security", title="Redis unauth", description="",
+                    severity=Severity.CRITICAL,
+                    raw={"attack": "T1190 Exploit Public-Facing Application"})
+        assert "T1190" in f.mitre
+
+    def test_poc_backfilled_from_proof_url(self):
+        f = Finding(module="sqli_detect", title="t", description="", severity=Severity.CRITICAL,
+                    raw={"proof_url": "https://t/?id=1'"})
+        assert f.poc.startswith("curl ")
+        assert "id=1" in f.poc
+
+    def test_redteam_tools_filled_by_module(self):
+        f = Finding(module="dir_scan", title="Found /admin", description="", severity=Severity.MEDIUM)
+        assert "gobuster" in f.redteam_tools and "feroxbuster" in f.redteam_tools
+
+    def test_redteam_tools_skipped_for_info(self):
+        f = Finding(module="sqli_detect", title="no SQLi", description="", severity=Severity.INFO)
+        assert f.redteam_tools == []
+
+    def test_redteam_tools_by_db_category(self):
+        f = Finding(module="db_security", title="Redis unauth", description="", severity=Severity.CRITICAL,
+                    raw={"db_category": "unauth"})
+        assert "crackmapexec" in f.redteam_tools
+
+    def test_redteam_tools_not_overridden(self):
+        f = Finding(module="dir_scan", title="t", description="", severity=Severity.LOW,
+                    redteam_tools=["custom-tool"])
+        assert f.redteam_tools == ["custom-tool"]
+
+
+# ---------------------------------------------------------------------------
+# Skills-library enrichment tests (Axe 2)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def fake_skills_repo(tmp_path, monkeypatch):
+    """Build a minimal skills library on disk and point skills_kb at it."""
+    import json as _json
+    from scanner.intel import skills_kb
+
+    repo = tmp_path / "skills-lib"
+    (repo / "skills").mkdir(parents=True)
+
+    def _add(name: str, mitre: list[str], tags: list[str]) -> None:
+        d = repo / "skills" / name
+        d.mkdir()
+        fm = "---\nname: {n}\ntags:\n{t}\nmitre_attack:\n{m}\n---\n# {n}\n".format(
+            n=name,
+            t="\n".join(f"- {x}" for x in tags),
+            m="\n".join(f"- {x}" for x in mitre),
+        )
+        (d / "SKILL.md").write_text(fm, encoding="utf-8")
+
+    _add("exploiting-sql-injection-vulnerabilities", ["T1190", "T1078"], ["SQL-injection", "OWASP-A03"])
+    _add("exploiting-sql-injection-with-sqlmap", ["T1190"], ["sqlmap"])
+    _add("performing-second-order-sql-injection", ["T1190"], ["second-order"])
+    _add("exploiting-nosql-injection-vulnerabilities", ["T1190"], ["NoSQL"])
+
+    index = {"skills": [
+        {"name": p.name, "description": f"Test skill {p.name}", "path": f"skills/{p.name}"}
+        for p in sorted((repo / "skills").iterdir())
+    ]}
+    (repo / "index.json").write_text(_json.dumps(index), encoding="utf-8")
+
+    monkeypatch.setenv("HADES_SKILLS_PATH", str(repo))
+    for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+        fn.cache_clear()
+    yield repo
+    for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+        fn.cache_clear()
+
+
+class TestSkillsEnrichment:
+    def test_curated_module_match(self, fake_skills_repo):
+        from scanner.intel.skills_kb import enrich
+        f = Finding(module="sqli_detect", title="SQLi in id", description="", severity=Severity.CRITICAL)
+        assert enrich([f]) == 1
+        names = [s["name"] for s in f.skill_refs]
+        assert "exploiting-sql-injection-vulnerabilities" in names
+        assert "T1190" in f.skill_refs[0]["mitre"]   # parsed from SKILL.md frontmatter
+
+    def test_db_category_routing(self, fake_skills_repo):
+        from scanner.intel.skills_kb import enrich
+        f = Finding(module="db_security", title="NoSQL bypass", description="",
+                    severity=Severity.CRITICAL, raw={"db_category": "nosql"})
+        enrich([f])
+        assert [s["name"] for s in f.skill_refs] == ["exploiting-nosql-injection-vulnerabilities"]
+
+    def test_info_module_not_enriched(self, fake_skills_repo):
+        from scanner.intel.skills_kb import enrich
+        f = Finding(module="basic_info", title="IP Address", description="", severity=Severity.INFO)
+        enrich([f])
+        assert f.skill_refs == []
+
+    def test_info_severity_not_enriched(self, fake_skills_repo):
+        # An INFO finding from an offensive module (e.g. "no SQLi found") gets no playbook.
+        from scanner.intel.skills_kb import enrich
+        f = Finding(module="sqli_detect", title="SQLi testing complete — none found",
+                    description="", severity=Severity.INFO)
+        enrich([f])
+        assert f.skill_refs == []
+
+    def test_graceful_noop_when_repo_absent(self, tmp_path, monkeypatch):
+        from scanner.intel import skills_kb
+        # Neutralise both the env override and the on-disk candidate paths so the
+        # real library (if present in the workspace) is not discovered.
+        monkeypatch.setenv("HADES_SKILLS_PATH", str(tmp_path / "does-not-exist"))
+        monkeypatch.setattr(skills_kb, "SKILLS_REPO_CANDIDATES", [])
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+            fn.cache_clear()
+        f = Finding(module="sqli_detect", title="t", description="", severity=Severity.HIGH)
+        assert skills_kb.enrich([f]) == 0
+        assert f.skill_refs == []
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+            fn.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# AI / LLM recon tests (Axe 4)
+# ---------------------------------------------------------------------------
+
+class _FakeCrawlEngine:
+    def __init__(self, pages: dict[str, str]) -> None:
+        from scanner.crawler import CrawlResult
+        self.url = "https://t"
+        self._cr = CrawlResult(pages=pages)
+    def get_crawl(self):
+        return self._cr
+
+
+class TestLLMRecon:
+    def test_exposed_anthropic_key(self):
+        from scanner.ai import llm_recon
+        eng = _FakeCrawlEngine({"https://t/app.js": "const K='sk-ant-ABCDEFGHIJKLMNOPQRSTUVWX';"})
+        fs = llm_recon._check_exposed_keys(eng)
+        assert fs and fs[0].raw["provider"] == "Anthropic"
+        assert fs[0].severity is Severity.CRITICAL
+        assert fs[0].owasp.startswith("LLM02:2025")
+        assert "T1552.001" in fs[0].mitre
+
+    def test_sdk_signature_detected(self):
+        from scanner.ai import llm_recon
+        eng = _FakeCrawlEngine({"https://t/": "<script src='https://api.openai.com/v1/x'></script>"})
+        fs = llm_recon._check_sdk_signatures(eng)
+        assert fs and "OpenAI" in fs[0].raw["providers"]
+
+    def test_ai_finding_keeps_atlas_and_maps_to_phase(self):
+        from scanner.output.attack_path import build_attack_path
+        f = Finding(module="llm_recon", title="Prompt-Injection Surface", description="",
+                    severity=Severity.MEDIUM, owasp="LLM01:2025 Prompt Injection",
+                    mitre=["AML.T0051"], raw={"ai_category": "prompt_injection_surface",
+                                              "proof_url": "https://t/chat"})
+        assert f.mitre == ["AML.T0051"]                 # ATLAS tag preserved (Axe 1)
+        assert "garak" in f.redteam_tools               # AI tools wired (Axe 4)
+        groups = build_attack_path([f])
+        assert groups[0]["phase"] == "Initial Access"   # routed by ai_category (Axe 3)
+
+    def test_ai_scan_profile_registered(self):
+        from config import PROFILE_MODULES
+        assert PROFILE_MODULES["ai_scan"] == ["scanner.ai.llm_recon"]
+
+
+# ---------------------------------------------------------------------------
+# Attack-path / kill-chain tests (Axe 3)
+# ---------------------------------------------------------------------------
+
+class TestAttackPath:
+    def test_groups_ordered_by_kill_chain(self):
+        from scanner.output.attack_path import build_attack_path
+        sqli = Finding(module="sqli_detect", title="SQLi in id", description="",
+                       severity=Severity.CRITICAL,
+                       raw={"sqlmap": "sqlmap -u 'https://t/?id=1' --batch --dbs", "proof_url": "https://t/?id=1'"})
+        port = Finding(module="port_scan", title="Open port 3306", description="",
+                       severity=Severity.LOW, raw={"port": 3306, "ip": "1.2.3.4"})
+        groups = build_attack_path([port, sqli])
+        phases = [g["phase"] for g in groups]
+        assert phases.index("Initial Access") < phases.index("Discovery")  # attacker order
+        # Steps are numbered globally across phases.
+        nums = [s["n"] for g in groups for s in g["steps"]]
+        assert nums == [1, 2]
+
+    def test_command_prefers_specialised(self):
+        from scanner.output.attack_path import build_attack_path
+        sqli = Finding(module="sqli_detect", title="SQLi", description="", severity=Severity.CRITICAL,
+                       raw={"sqlmap": "sqlmap -u X --dbs", "proof_url": "https://t/?id=1'"})
+        port = Finding(module="port_scan", title="Open 3306", description="", severity=Severity.LOW,
+                       raw={"port": 3306, "ip": "1.2.3.4"})
+        steps = {s["module"]: s for g in build_attack_path([sqli, port]) for s in g["steps"]}
+        assert steps["sqli_detect"]["command"].startswith("sqlmap")
+        assert steps["port_scan"]["command"] == "nmap -sV -p 3306 1.2.3.4"
+
+    def test_hardening_and_db_findings_excluded(self):
+        from scanner.output.attack_path import build_attack_path
+        headers = Finding(module="headers_check", title="Missing CSP", description="", severity=Severity.MEDIUM)
+        db = Finding(module="db_security", title="Redis unauth", description="", severity=Severity.CRITICAL,
+                     raw={"attack": "T1190 ...", "exploit_cmd": "redis-cli ..."})
+        groups = build_attack_path([headers, db])
+        modules = {s["module"] for g in groups for s in g["steps"]}
+        assert "headers_check" not in modules   # hardening gap, not a step
+        assert "db_security" not in modules      # has its own panel
+
+    def test_playbook_crosslink_carried(self):
+        from scanner.output.attack_path import build_attack_path
+        f = Finding(module="lfi_detect", title="LFI in file", description="", severity=Severity.HIGH,
+                    raw={"url": "https://t/?file=/etc/passwd"})
+        f.skill_refs = [{"name": "performing-directory-traversal-testing", "mitre": ["T1083"]}]
+        step = build_attack_path([f])[0]["steps"][0]
+        assert step["playbook"] == "performing-directory-traversal-testing"
+        assert step["command"].startswith("curl ")
+
+
+# ---------------------------------------------------------------------------
 # headers_check tests
 # ---------------------------------------------------------------------------
 

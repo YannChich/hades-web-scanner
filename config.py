@@ -112,6 +112,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
     ],
     "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS,
     "db_scan": ["scanner.db.db_security"],
+    "ai_scan": ["scanner.ai.llm_recon"],
 }
 
 # ---------------------------------------------------------------------------
@@ -161,4 +162,183 @@ SCORE_CONFIDENCE: dict[str, float] = {
     "low":    0.5,
     "medium": 0.8,
     "high":   1.0,
+}
+
+# ---------------------------------------------------------------------------
+# Finding taxonomy — framework mapping applied to every Finding (see engine.py).
+# Per-severity representative CVSS base score (a sensible default a module can
+# override by passing cvss=... explicitly).
+# ---------------------------------------------------------------------------
+SEVERITY_CVSS: dict[str, float] = {
+    "critical": 9.8,
+    "high":     7.5,
+    "medium":   5.3,
+    "low":      3.1,
+    # "info" intentionally absent → no CVSS for informational findings.
+}
+
+# Module → default framework tags. Finding.__post_init__ fills cwe/owasp/mitre
+# from this table when a module does not set them explicitly, so the whole tool
+# gains CWE / OWASP Top 10 / MITRE ATT&CK coverage from one place. db_security is
+# omitted on purpose: its findings are heterogeneous and derive their ATT&CK
+# technique per-category from raw["attack"].
+FINDING_TAXONOMY: dict[str, dict[str, object]] = {
+    # ── Injection / active vulns ──
+    "sqli_detect":       {"cwe": "CWE-89",  "owasp": "A03:2021 Injection",                          "mitre": ["T1190"]},
+    "xss_detect":        {"cwe": "CWE-79",  "owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
+    "command_injection": {"cwe": "CWE-78",  "owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
+    "ssti_detect":       {"cwe": "CWE-1336","owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
+    "lfi_detect":        {"cwe": "CWE-22",  "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1083"]},
+    "open_redirect":     {"cwe": "CWE-601", "owasp": "A01:2021 Broken Access Control",              "mitre": []},
+    "ssrf_detect":       {"cwe": "CWE-918", "owasp": "A10:2021 Server-Side Request Forgery",        "mitre": ["T1190"]},
+    "jwt_attacks":       {"cwe": "CWE-347", "owasp": "A02:2021 Cryptographic Failures",             "mitre": ["T1212"]},
+    "auth_bypass":       {"cwe": "CWE-287", "owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1212"]},
+    "bruteforce":        {"cwe": "CWE-307", "owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1110"]},
+    "default_creds":     {"cwe": "CWE-1392","owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1078.001"]},
+    "cve_mapping":       {"cwe": "CWE-1035","owasp": "A06:2021 Vulnerable and Outdated Components",  "mitre": ["T1190"]},
+    # ── Web hardening / exposure ──
+    "headers_check":     {"cwe": "CWE-693", "owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
+    "cookie_analysis":   {"cwe": "CWE-614", "owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
+    "cors_check":        {"cwe": "CWE-942", "owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
+    "clickjacking":      {"cwe": "CWE-1021","owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
+    "dir_listing":       {"cwe": "CWE-548", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1083"]},
+    "http_methods":      {"cwe": "CWE-650", "owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
+    "dir_scan":          {"cwe": "CWE-538", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1083"]},
+    "admin_panel":       {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
+    # ── Information disclosure / secrets ──
+    "sensitive_files":   {"cwe": "CWE-538", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1552.001"]},
+    "backup_files":      {"cwe": "CWE-530", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
+    "git_dumper":        {"cwe": "CWE-527", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
+    "js_recon":          {"cwe": "CWE-615", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
+    "cloud_buckets":     {"cwe": "CWE-732", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1530"]},
+    "email_exposure":    {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1589.002"]},
+    # ── Transport / crypto ──
+    "ssl_check":         {"cwe": "CWE-326", "owasp": "A02:2021 Cryptographic Failures",             "mitre": []},
+}
+
+# ---------------------------------------------------------------------------
+# Skills knowledge base (Axe 2) — wire Hades findings to the external
+# Anthropic-Cybersecurity-Skills library (754 expert playbooks). Optional: if the
+# repo is not found next to the project, enrichment silently no-ops.
+# Override the location with the HADES_SKILLS_PATH environment variable.
+# ---------------------------------------------------------------------------
+SKILLS_REPO_ENV: str = "HADES_SKILLS_PATH"
+
+# Candidate locations searched (first existing wins). Resolved in skills_kb.py.
+SKILLS_REPO_CANDIDATES: list[str] = [
+    str(PROJECT_ROOT.parent.parent / "Anthropic-Cybersecurity-Skills"),  # …/Hades/<repo>
+    str(PROJECT_ROOT.parent / "Anthropic-Cybersecurity-Skills"),
+    str(PROJECT_ROOT / "Anthropic-Cybersecurity-Skills"),
+]
+
+# Hades module → relevant skill folder name(s). The first listed skill is the
+# primary playbook; the rest are companions. Names must match folders under
+# <repo>/skills/. Modules without a clean offensive skill are left out (a
+# conservative keyword fallback in skills_kb.py may still match them).
+MODULE_SKILL_MAP: dict[str, list[str]] = {
+    "sqli_detect":      ["exploiting-sql-injection-vulnerabilities",
+                         "exploiting-sql-injection-with-sqlmap",
+                         "performing-second-order-sql-injection"],
+    "xss_detect":       ["testing-for-xss-vulnerabilities",
+                         "testing-for-xss-vulnerabilities-with-burpsuite"],
+    "ssti_detect":      ["exploiting-template-injection-vulnerabilities"],
+    "lfi_detect":       ["performing-directory-traversal-testing"],
+    "open_redirect":    ["testing-for-open-redirect-vulnerabilities"],
+    "ssrf_detect":      ["exploiting-server-side-request-forgery",
+                         "performing-blind-ssrf-exploitation",
+                         "performing-ssrf-vulnerability-exploitation"],
+    "jwt_attacks":      ["testing-for-json-web-token-vulnerabilities",
+                         "exploiting-jwt-algorithm-confusion-attack",
+                         "performing-jwt-none-algorithm-attack"],
+    "cors_check":       ["testing-cors-misconfiguration"],
+    "clickjacking":     ["performing-clickjacking-attack-test"],
+    "headers_check":    ["performing-security-headers-audit"],
+    "llm_recon":        ["detecting-ai-model-prompt-injection-attacks",
+                         "implementing-llm-guardrails-for-security"],
+    "subdomain_scan":   ["performing-subdomain-enumeration-with-subfinder"],
+    "port_scan":        ["scanning-network-with-nmap-advanced"],
+    "ssl_check":        ["performing-ssl-tls-security-assessment"],
+    "cloud_buckets":    ["auditing-aws-s3-bucket-permissions",
+                         "analyzing-cloud-storage-access-patterns"],
+    "cve_mapping":      ["performing-cve-prioritization-with-kev-catalog"],
+    "dns_check":        ["performing-dns-enumeration-and-zone-transfer"],
+    "waf_detect":       ["performing-web-application-firewall-bypass"],
+    "command_injection":["exploiting-api-injection-vulnerabilities"],
+}
+
+# ---------------------------------------------------------------------------
+# RedTeam-Tools cross-reference — name the relevant offensive tools per finding so
+# a client report is self-contained (the tools' details live in the bundled
+# Hades_RedTeam_Tools_Reference.pdf). Names match entries in the RedTeam-Tools repo.
+# ---------------------------------------------------------------------------
+REDTEAM_REPO_CANDIDATES: list[str] = [
+    str(PROJECT_ROOT.parent.parent / "RedTeam-Tools"),   # …/Hades/RedTeam-Tools
+    str(PROJECT_ROOT.parent / "RedTeam-Tools"),
+    str(PROJECT_ROOT / "RedTeam-Tools"),
+]
+
+# Hades module → relevant RedTeam-Tools entries (exact names from that repo).
+MODULE_REDTEAM_MAP: dict[str, list[str]] = {
+    # ── Recon ──
+    "basic_info":      ["Dismap", "Shodan.io"],
+    "tech_stack":      ["Dismap"],
+    "dns_check":       ["dnsrecon", "AORT (All in One Recon Tool)"],
+    "subdomain_scan":  ["subzy", "reconftw", "crt.sh -> httprobe -> EyeWitness"],
+    "port_scan":       ["skanuvaty", "Shodan.io"],
+    "waf_detect":      ["nuclei"],
+    "js_recon":        ["jsendpoints", "truffleHog"],
+    "git_dumper":      ["GitHarvester", "Gitrob", "truffleHog"],
+    "cloud_buckets":   ["AWSBucketDump", "CloudBrute"],
+    "screenshot":      ["gowitness"],
+    "email_exposure":  ["smtp-user-enum", "spoofcheck"],
+    # ── Web content discovery ──
+    "dir_scan":        ["gobuster", "feroxbuster"],
+    "admin_panel":     ["gobuster", "feroxbuster"],
+    "sensitive_files": ["feroxbuster", "nuclei"],
+    "backup_files":    ["feroxbuster"],
+    # ── Web vulnerabilities (nuclei = templated webapp scanning) ──
+    "sqli_detect":       ["nuclei"],
+    "xss_detect":        ["nuclei"],
+    "command_injection": ["nuclei"],
+    "ssti_detect":       ["nuclei"],
+    "lfi_detect":        ["nuclei"],
+    "open_redirect":     ["nuclei"],
+    "ssrf_detect":       ["nuclei"],
+    "cors_check":        ["nuclei"],
+    "clickjacking":      ["nuclei"],
+    "headers_check":     ["nuclei"],
+    "cve_mapping":       ["nuclei"],
+    "jwt_attacks":       ["nuclei"],
+    # ── Credential attacks ──
+    "bruteforce":      ["Hydra", "crackmapexec"],
+    "default_creds":   ["Hydra"],
+    "auth_bypass":     ["nuclei"],
+    # ── AI / LLM (external red-team tools — not in the RedTeam-Tools catalogue) ──
+    "llm_recon":       ["garak", "PyRIT", "promptfoo"],
+}
+
+# Tools named by Hades that are NOT in the bundled RedTeam-Tools PDF (AI red-team
+# tooling). Flagged with a footnote in the PDF cross-reference so the client knows.
+AI_EXTERNAL_TOOLS: set[str] = {"garak", "PyRIT", "promptfoo"}
+
+# db_security categories → RedTeam tools (one module, many attack categories).
+DB_CATEGORY_REDTEAM_MAP: dict[str, list[str]] = {
+    "sqli":       ["nuclei"],
+    "nosql":      ["nuclei"],
+    "authbypass": ["nuclei"],
+    "unauth":     ["crackmapexec", "nuclei"],
+    "admin_200":  ["gobuster", "feroxbuster"],
+    "creds_leak": ["truffleHog"],
+    "cloud_db":   ["AWSBucketDump"],
+}
+
+# db_security is one module spanning many categories — map by raw["db_category"].
+DB_CATEGORY_SKILL_MAP: dict[str, list[str]] = {
+    "sqli":      ["exploiting-sql-injection-vulnerabilities",
+                  "exploiting-sql-injection-with-sqlmap"],
+    "nosql":     ["exploiting-nosql-injection-vulnerabilities"],
+    "authbypass":["exploiting-nosql-injection-vulnerabilities"],
+    "graphql":   ["performing-graphql-introspection-attack",
+                  "performing-graphql-security-assessment"],
+    "cloud_db":  ["analyzing-cloud-storage-access-patterns"],
 }

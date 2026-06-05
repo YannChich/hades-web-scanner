@@ -26,6 +26,9 @@ reports/
 screenshots/
 loot/
 
+# Large generated reference PDF (22 MB; regenerate via docs/make_redteam_tools.py)
+docs/Hades_RedTeam_Tools_Reference.pdf
+
 # Secrets / local config
 .env
 .env.*
