@@ -113,6 +113,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
     "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS,
     "db_scan": ["scanner.db.db_security"],
     "ai_scan": ["scanner.ai.llm_recon"],
+    "engage": ["scanner.offensive.engage"],
 }
 
 # ---------------------------------------------------------------------------
@@ -255,6 +256,7 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "headers_check":    ["performing-security-headers-audit"],
     "llm_recon":        ["detecting-ai-model-prompt-injection-attacks",
                          "implementing-llm-guardrails-for-security"],
+    "engage":           ["performing-web-application-penetration-test"],
     "subdomain_scan":   ["performing-subdomain-enumeration-with-subfinder"],
     "port_scan":        ["scanning-network-with-nmap-advanced"],
     "ssl_check":        ["performing-ssl-tls-security-assessment"],
@@ -315,6 +317,8 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "auth_bypass":     ["nuclei"],
     # ── AI / LLM (external red-team tools — not in the RedTeam-Tools catalogue) ──
     "llm_recon":       ["garak", "PyRIT", "promptfoo"],
+    # ── Active exploitation engagement ──
+    "engage":          ["nuclei", "Metasploit Framework", "msfvenom"],
 }
 
 # Tools named by Hades that are NOT in the bundled RedTeam-Tools PDF (AI red-team

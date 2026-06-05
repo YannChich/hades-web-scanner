@@ -285,6 +285,48 @@ class TestLLMRecon:
 
 
 # ---------------------------------------------------------------------------
+# Active engagement (auto-pwn) tests
+# ---------------------------------------------------------------------------
+
+class TestEngage:
+    def test_profile_registered(self):
+        from config import PROFILE_MODULES
+        assert PROFILE_MODULES["engage"] == ["scanner.offensive.engage"]
+
+    def test_engage_finding_enriched(self):
+        from scanner.offensive.engage import _f
+        f = _f("RCE", "d", Severity.CRITICAL, "rec", "rce",
+               cwe="CWE-78", owasp="A03:2021 Injection", mitre=["T1059"])
+        assert f.cwe == "CWE-78"
+        assert "nuclei" in f.redteam_tools            # from MODULE_REDTEAM_MAP['engage']
+        assert f.raw["engage_category"] == "rce"
+
+    def test_exploit_cmd_captures_rce(self):
+        from scanner.vulns._common import Injector
+        from scanner.offensive.engage import _exploit_cmd
+
+        class _Resp:
+            text = "result: uid=0(root) gid=0(root) groups=0(root)"
+            status_code = 200
+
+        inj = Injector(label="URL parameter 'q'", param="q",
+                       inject=lambda p: _Resp(), proof=lambda p: "https://t/?q=" + p,
+                       url="https://t/?q=1")
+        res = _exploit_cmd(inj, None)            # loot=None → evidence skipped, no crash
+        assert res is not None
+        assert res.raw["engage_category"] == "rce"
+        assert "T1059" in res.mitre
+
+    def test_engage_rce_maps_to_execution_phase(self):
+        from scanner.output.attack_path import build_attack_path
+        f = Finding(module="engage", title="RCE Confirmed", description="", severity=Severity.CRITICAL,
+                    cwe="CWE-78", owasp="A03:2021 Injection", mitre=["T1059"],
+                    raw={"engage_category": "rce", "exploit_cmd": "curl x", "parameter": "q"})
+        groups = build_attack_path([f])
+        assert groups[0]["phase"] == "Execution"
+
+
+# ---------------------------------------------------------------------------
 # Attack-path / kill-chain tests (Axe 3)
 # ---------------------------------------------------------------------------
 

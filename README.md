@@ -121,6 +121,19 @@ ignore — mapped to the **OWASP LLM Top 10 (2025)** and **MITRE ATLAS**:
 - [x] **Prompt-injection surface** — flags live chat/inference endpoints; with `--exploit`, sends a **benign canary** to actively confirm prompt injection (and probe system-prompt leakage)
 - [x] Findings carry an **AI/LLM Exposure panel** plus OWASP-LLM + ATLAS tags, so they flow through the same scoring, playbook, attack-path and report machinery — detection-only by default
 
+### Active Engagement (`--profile engage`) — auto-pwn
+A dedicated orchestrator (`scanner/offensive/engage.py`) that turns Hades from a scanner into an
+**auto-exploitation engine**. It runs the active injection arsenal to confirm bugs, then — only
+with `--exploit` on an authorised target — actively **proves impact** with *benign* payloads and
+writes evidence files under `loot/<host>_<timestamp>/`:
+
+- [x] **Command injection → RCE proof** — runs a harmless command (`id`, `uname -a`) and captures the output
+- [x] **LFI / path traversal → arbitrary file read** — reads and saves `/etc/passwd`
+- [x] **SSRF → internal/cloud access** — fetches cloud-metadata / `file://` and saves the response
+- [x] SQL injection continues through the dedicated **sqlmap launcher** (auto-offered with `--exploit`)
+- [x] Emits a **💀 Active Engagement panel** (proven footholds + loot + evidence paths) and an engagement score; every step joins the kill-chain Attack Path
+- [x] **Detection-only by default** — nothing is exploited without `--exploit` + the authorisation confirmation. No destructive actions, no persistence/backdoor, no DoS — proof of impact only
+
 ### Intelligence & Reporting Layer
 Every finding (across all profiles) is enriched into an actionable, client-ready record:
 
@@ -200,6 +213,9 @@ python main.py --url https://example.com --profile ai_scan --output html
 # AI audit with active prompt-injection confirmation (canary; authorised targets only)
 python main.py --url https://example.com --profile ai_scan --exploit
 
+# Active engagement (auto-pwn): confirm vulns, then actively prove impact + collect loot
+python main.py --url https://example.com --profile engage --exploit
+
 # Database audit AND auto-launch sqlmap on any confirmed SQLi (authorised targets only)
 python main.py --url http://testaspnet.vulnweb.com --profile db_scan --exploit
 
@@ -233,7 +249,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` |
+| `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` |
 | `--output` | `-o` | — | Export report: `json` `html` `pdf` |
 | `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
@@ -256,6 +272,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | `full` | 🔥 Thorough | Everything (default) | All 45+ modules incl. injection arsenal |
 | `db_scan` | 🛢 Red team | Database security audit | `scanner/db/db_security.py` only |
 | `ai_scan` | 🤖 Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) | `scanner/ai/llm_recon.py` only |
+| `engage` | 💀 Offensive | Active engagement — auto-exploit confirmed vulns (RCE/LFI/SSRF) | `scanner/offensive/engage.py` only |
 
 ---
 
@@ -317,6 +334,7 @@ webscan/
 │   ├── vulns/               # Injection arsenal + CVE / default-cred modules
 │   ├── db/                  # db_scan profile — red-team database audit
 │   ├── ai/                  # ai_scan profile — AI/LLM attack-surface audit (llm_recon.py)
+│   ├── offensive/           # engage profile — active exploitation engagement (engage.py)
 │   ├── intel/               # Skills-library enrichment (skills_kb.py)
 │   └── output/              # Console, scoring, report generation, kill-chain attack_path.py
 ├── wordlists/               # Directory, admin path, and subdomain lists

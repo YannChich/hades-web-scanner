@@ -62,7 +62,7 @@ _ATTACK_PATH_MODULES: set[str] = {
     "open_redirect", "ssrf_detect", "jwt_attacks", "auth_bypass", "bruteforce",
     "default_creds", "cve_mapping",
     "sensitive_files", "backup_files", "dir_scan", "dir_listing", "admin_panel",
-    "llm_recon",
+    "llm_recon", "engage",
 }
 
 # AI/LLM finding category → kill-chain phase (ATLAS techniques don't map to _TECHNIQUE_PHASE).
@@ -91,6 +91,9 @@ _SEV_STYLE = {"critical": "bold red", "high": "bold orange3", "medium": "bold ye
 
 def _is_step(f: "Finding") -> bool:
     if f.module not in _ATTACK_PATH_MODULES:
+        return False
+    # The engagement summary is a roll-up, not an exploitation step.
+    if f.module == "engage" and (f.raw or {}).get("engage_category") in ("result", "info"):
         return False
     if f.severity.value == "info":
         return f.module in _KEEP_INFO_MODULES

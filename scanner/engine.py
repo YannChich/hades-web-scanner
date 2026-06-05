@@ -407,6 +407,10 @@ def run_scan(
     from scanner.ai.llm_recon import render_panel as render_ai_panel
     render_ai_panel(findings)
 
+    # Dedicated Active Engagement panel (no-op unless the engage profile ran).
+    from scanner.offensive.engage import render_panel as render_engage_panel
+    render_engage_panel(findings)
+
     match output_format:
         case "json":
             generate_json(findings, url, score)

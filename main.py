@@ -61,7 +61,7 @@ DISCLAIMER = (
     "The author assumes no liability for misuse."
 )
 
-PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan")
+PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage")
 OUTPUT_FORMATS = ("json", "html", "pdf")
 
 
@@ -149,9 +149,10 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]3[/accent]. [ok]Single module[/ok]      Run just one tool of your choice")
     console.print("  [accent]4[/accent]. [ok]Database Security[/ok]  Dedicated DB audit (ports, auth, SQLi, dumps, score)")
     console.print("  [accent]5[/accent]. [ok]AI / LLM Security[/ok]   AI attack surface (prompt injection, exposed keys & LLM servers)")
+    console.print("  [accent]6[/accent]. [ok]Engagement (auto-pwn)[/ok] Actively exploit confirmed vulns (RCE/LFI/SSRF) — use with --exploit")
     console.print()
 
-    choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5"], default="2").strip()
+    choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5", "6"], default="2").strip()
 
     match choice:
         case "1":
@@ -163,6 +164,8 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "db_scan", None
         case "5":
             return "ai_scan", None
+        case "6":
+            return "engage", None
         case _:
             return "full", None
 

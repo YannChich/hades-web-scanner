@@ -65,6 +65,7 @@ _FINDING_TITLES: dict[str, str] = {
     "cors_check":        "CORS Misconfiguration",
     "clickjacking":      "Clickjacking — Missing X-Frame-Options / CSP",
     "llm_recon":         "AI/LLM: Prompt Injection / Exposed Key / LLM Server",
+    "engage":            "Active Engagement: RCE / Arbitrary File Read / SSRF (proven)",
     "email_exposure":    "Exposed Email Address: {email}",
     "waf_detect":        "WAF / CDN Detected: {vendor}",
     "tech_stack":        "Technology Detected: {technology}",
