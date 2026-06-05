@@ -35,3 +35,9 @@ mmh3>=4.1.0
 
 # Port scanning (used by scanner/recon/port_scan.py)
 python-nmap>=0.7.1
+
+# Markdown -> HTML for the RedTeam-Tools reference PDF (docs/make_redteam_tools.py)
+markdown>=3.6
+
+# Test runner (dev) — run: pytest tests/
+pytest>=8.0

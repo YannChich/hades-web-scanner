@@ -4,6 +4,11 @@
 > Performs 45+ automated checks across recon, web analysis, and vulnerability detection —
 > plus an **offensive injection arsenal** with active verification and an opt-in **sqlmap launcher** —
 > all from a single command.
+>
+> Every finding is mapped to **CWE / OWASP / MITRE ATT&CK** (with a CVSS score and a stable ID),
+> linked to a step-by-step **expert playbook** and the relevant **RedTeam tools**, and woven into a
+> single copy-paste **kill-chain attack path**. Ships a dedicated **AI/LLM security audit**
+> (`ai_scan`) and a red-team **database audit** (`db_scan`).
 
 ```
  ██╗  ██╗ █████╗ ██████╗ ███████╗███████╗
@@ -105,12 +110,34 @@ The `--exploit` flag turns `db_scan` from detection into a **red-team engagement
 - [x] Launches the real **sqlmap** against confirmed SQL injections (from both the injection arsenal and `db_scan`) after a per-target authorisation confirmation
 - [x] **Detection-only by default** — nothing is extracted or exploited without `--exploit` + confirmation
 
+### AI / LLM Security Audit (`--profile ai_scan`)
+A dedicated module (`scanner/ai/llm_recon.py`) that audits the AI attack surface most scanners
+ignore — mapped to the **OWASP LLM Top 10 (2025)** and **MITRE ATLAS**:
+
+- [x] **AI technology fingerprinting** — detects LLM SDKs/providers in the page & JS (OpenAI, Anthropic, LangChain, LlamaIndex, HuggingFace, Cohere, Gemini, Vercel AI SDK, Gradio, Streamlit, Flowise, Ollama)
+- [x] **Exposed AI API keys** — provider-specific patterns (`sk-ant-…`, `sk-…`, `hf_…`, `AIza…`, Replicate, Cohere), redacted in the report
+- [x] **Unauthenticated local LLM servers** — Ollama (11434), LM Studio, vLLM, LocalAI, text-generation-webui — with model enumeration
+- [x] **Exposed AI dev UIs / inference APIs** — Flowise, Gradio, open `/v1/models`
+- [x] **Prompt-injection surface** — flags live chat/inference endpoints; with `--exploit`, sends a **benign canary** to actively confirm prompt injection (and probe system-prompt leakage)
+- [x] Findings carry an **AI/LLM Exposure panel** plus OWASP-LLM + ATLAS tags, so they flow through the same scoring, playbook, attack-path and report machinery — detection-only by default
+
+### Intelligence & Reporting Layer
+Every finding (across all profiles) is enriched into an actionable, client-ready record:
+
+- [x] **Framework mapping** — each finding carries a **CWE**, an **OWASP** category, **MITRE ATT&CK** technique(s), a representative **CVSS** score, a **stable finding ID** (diffable across runs), and a reproducible **PoC** command
+- [x] **Expert playbooks** — findings are matched to step-by-step procedures from a local clone of the [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills) library (optional; silently skipped if absent). Set `HADES_SKILLS_PATH` to point at it
+- [x] **RedTeam tools per finding** — each finding names the relevant offensive tools (`nuclei`, `gobuster`, `sqlmap`, `subzy`, `garak`…), so the report is self-contained for clients
+- [x] **Unified kill-chain Attack Path** — all actionable findings are assembled into an ordered, copy-paste exploitation plan grouped by **MITRE ATT&CK tactic** (Reconnaissance → … → Impact), in console, JSON, and HTML
+- [x] **RedTeam-Tools reference PDF** — `docs/make_redteam_tools.py` bundles the entire [RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools) catalogue (150+ tools) into a single self-contained PDF with a *"Hades finding → RedTeam tools"* cross-reference, so a client needs no repo access
+
 ### Output
 - [x] Rich terminal UI — coloured findings, progress bars, ASCII banner
 - [x] Risk scorer — weighted 0–100 score with severity grade (INFO never affects the score)
 - [x] Clickable verification/proof links for confirmed findings
-- [x] JSON report export
-- [x] HTML report export — dark Kali-inspired theme, CSS gauges, DB attack-path & loot section
+- [x] Per-finding **framework badges** (CWE / OWASP / ATT&CK / CVSS), **playbook** links, and **RedTeam tool** references
+- [x] **Kill-chain Attack Path** section (console + JSON + HTML)
+- [x] JSON report export (findings, framework mapping, playbooks, attack path)
+- [x] HTML report export — dark Kali-inspired theme, CSS gauges, attack-path, playbooks, DB & AI panels
 - [x] PDF report export
 - [x] Timestamped log files via loguru
 
@@ -167,6 +194,12 @@ python main.py --url https://example.com --profile quick
 # Dedicated database security audit (red-team DB module)
 python main.py --url https://example.com --profile db_scan --output html
 
+# Dedicated AI/LLM security audit (prompt injection, exposed keys & LLM servers)
+python main.py --url https://example.com --profile ai_scan --output html
+
+# AI audit with active prompt-injection confirmation (canary; authorised targets only)
+python main.py --url https://example.com --profile ai_scan --exploit
+
 # Database audit AND auto-launch sqlmap on any confirmed SQLi (authorised targets only)
 python main.py --url http://testaspnet.vulnweb.com --profile db_scan --exploit
 
@@ -200,7 +233,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` |
+| `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` |
 | `--output` | `-o` | — | Export report: `json` `html` `pdf` |
 | `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
@@ -222,6 +255,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | `cms` | 🎯 Targeted | CMS-focused | CMS detect, admin panels, CVE mapping |
 | `full` | 🔥 Thorough | Everything (default) | All 45+ modules incl. injection arsenal |
 | `db_scan` | 🛢 Red team | Database security audit | `scanner/db/db_security.py` only |
+| `ai_scan` | 🤖 Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) | `scanner/ai/llm_recon.py` only |
 
 ---
 
@@ -234,11 +268,16 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | HTML report | `reports/webscan_report_YYYYMMDD_HHMMSS.html` | `--output html` |
 | PDF report | `reports/webscan_report_YYYYMMDD_HHMMSS.pdf` | `--output pdf` |
 
-There are also three reference PDFs under `docs/`, regenerated by their scripts:
+There are also reference PDFs under `docs/`, regenerated by their scripts:
 `docs/Hades_Modules_Guide.pdf` (`python docs/make_guide.py`), `docs/Hades_Flags_Cheatsheet.pdf`
 (`python docs/make_flags.py`), and a complete **bilingual (FR/EN) Database Security manual**
 `docs/Hades_Database_Security_Manual.pdf` (`python docs/make_db_manual.py`) — a beginner-friendly,
 two-column guide to the `db_scan` module.
+
+A self-contained **RedTeam-Tools reference PDF** is produced by `python docs/make_redteam_tools.py`
+(`docs/Hades_RedTeam_Tools_Reference.pdf`, ~22 MB) — the full 150+ tool catalogue plus a
+*"Hades finding → RedTeam tools"* cross-reference. It is **git-ignored** (large, regenerable);
+run the script to (re)create it on demand.
 
 ---
 
@@ -252,7 +291,8 @@ two-column guide to the `db_scan` module.
 | [python-whois](https://pypi.org/project/python-whois/) | WHOIS lookups |
 | [cryptography](https://cryptography.io/) | SSL/TLS certificate parsing |
 | [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/) | HTML parsing |
-| [Playwright](https://playwright.dev/python/) | Headless browser screenshots |
+| [Playwright](https://playwright.dev/python/) | Headless browser screenshots + RedTeam-Tools reference PDF |
+| [Markdown](https://pypi.org/project/Markdown/) | Renders the RedTeam-Tools README into the reference PDF |
 | [weasyprint](https://weasyprint.org/) | PDF report export (needs native GTK libs; unavailable on Windows) |
 | [reportlab](https://www.reportlab.com/) | PDF generation for the modules guide / flags cheat-sheet |
 | [loguru](https://loguru.readthedocs.io/) | Structured logging with timestamps |
@@ -276,12 +316,15 @@ webscan/
 │   ├── web/                 # Web analysis modules
 │   ├── vulns/               # Injection arsenal + CVE / default-cred modules
 │   ├── db/                  # db_scan profile — red-team database audit
-│   └── output/              # Console, scoring, and report generation
+│   ├── ai/                  # ai_scan profile — AI/LLM attack-surface audit (llm_recon.py)
+│   ├── intel/               # Skills-library enrichment (skills_kb.py)
+│   └── output/              # Console, scoring, report generation, kill-chain attack_path.py
 ├── wordlists/               # Directory, admin path, and subdomain lists
 ├── docs/                    # Reference PDFs + their generator scripts
 │   ├── make_guide.py        # Generates Hades_Modules_Guide.pdf
 │   ├── make_flags.py        # Generates Hades_Flags_Cheatsheet.pdf
-│   └── make_db_manual.py    # Generates Hades_Database_Security_Manual.pdf (bilingual FR/EN)
+│   ├── make_db_manual.py    # Generates Hades_Database_Security_Manual.pdf (bilingual FR/EN)
+│   └── make_redteam_tools.py # Generates Hades_RedTeam_Tools_Reference.pdf (git-ignored, ~22 MB)
 ├── tools/                   # Dev utilities (import-health check)
 ├── hook_check.py            # Claude Code PostToolUse hook entry point
 ├── docker/
