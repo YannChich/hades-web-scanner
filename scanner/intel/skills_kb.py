@@ -76,6 +76,24 @@ def _load_index() -> dict[str, dict]:
     return {s["name"]: s for s in data.get("skills", []) if s.get("name")}
 
 
+@lru_cache(maxsize=1)
+def _load_bundle() -> dict[str, dict]:
+    """Bundled metadata for the skills Hades references (scanner/intel/playbooks.json).
+
+    Shipped with the repo so a plain `git clone` still resolves playbooks (description +
+    framework tags + a GitHub link) even without the full external skills library.
+    """
+    p = Path(__file__).resolve().parent / "playbooks.json"
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning(f"skills_kb: cannot read bundled playbooks.json: {exc}")
+        return {}
+    return {s["name"]: s for s in data if s.get("name")}
+
+
 # ---------------------------------------------------------------------------
 # Minimal SKILL.md frontmatter parsing (no YAML dependency)
 # ---------------------------------------------------------------------------
@@ -99,33 +117,47 @@ def _frontmatter_list(block: str, key: str) -> list[str]:
 
 @lru_cache(maxsize=256)
 def _skill_detail(name: str) -> dict | None:
-    """Resolve a skill name to {name, description, path, rel_md, tags, mitre}. Cached."""
-    index = _load_index()
+    """Resolve a skill name to {name, description, href, tags, mitre}. Cached.
+
+    Prefers the full local library (rich detail + a file:// link to SKILL.md); falls back to
+    the bundled playbooks.json (description + tags + a GitHub link) so enrichment still works
+    on a plain clone. `href` is the clickable link (file:// or https) for reports.
+    """
     repo = find_skills_repo()
-    if repo is None or name not in index:
-        return None
-    entry = index[name]
-    rel_dir = entry.get("path", f"skills/{name}")
-    md_path = repo / rel_dir / "SKILL.md"
-    tags: list[str] = []
-    mitre: list[str] = []
-    description = (entry.get("description") or "").strip()
-    try:
-        text = md_path.read_text(encoding="utf-8")
-        if text.startswith("---"):
-            block = text.split("---", 2)[1]
-            tags = _frontmatter_list(block, "tags")
-            mitre = _frontmatter_list(block, "mitre_attack")
-    except OSError:
-        pass
-    return {
-        "name": name,
-        "description": description,
-        "path": str(md_path),
-        "rel_md": f"{rel_dir}/SKILL.md",
-        "tags": tags,
-        "mitre": mitre,
-    }
+    if repo is not None:
+        index = _load_index()
+        if name in index:
+            entry = index[name]
+            rel_dir = entry.get("path", f"skills/{name}")
+            md_path = repo / rel_dir / "SKILL.md"
+            tags: list[str] = []
+            mitre: list[str] = []
+            try:
+                text = md_path.read_text(encoding="utf-8")
+                if text.startswith("---"):
+                    block = text.split("---", 2)[1]
+                    tags = _frontmatter_list(block, "tags")
+                    mitre = _frontmatter_list(block, "mitre_attack")
+            except OSError:
+                pass
+            return {
+                "name": name,
+                "description": (entry.get("description") or "").strip(),
+                "href": md_path.as_uri() if md_path.is_file() else "",
+                "tags": tags,
+                "mitre": mitre,
+            }
+    # Fallback: bundled metadata shipped with the repo (links to upstream on GitHub).
+    b = _load_bundle().get(name)
+    if b:
+        return {
+            "name": name,
+            "description": b.get("description", ""),
+            "href": b.get("url", ""),
+            "tags": b.get("tags", []),
+            "mitre": b.get("mitre", []),
+        }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -184,9 +216,10 @@ def match_skills(finding: "Finding", limit: int = 3) -> list[dict]:
 def enrich(findings: list["Finding"]) -> int:
     """
     Attach matching skill playbooks to each finding (sets finding.skill_refs).
-    Returns the number of findings enriched. No-op (returns 0) if the library is absent.
+    Returns the number of findings enriched. No-op (returns 0) only when neither the full
+    skills library nor the bundled playbooks.json is available.
     """
-    if find_skills_repo() is None:
+    if find_skills_repo() is None and not _load_bundle():
         return 0
     enriched = 0
     for f in findings:

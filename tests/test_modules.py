@@ -224,18 +224,36 @@ class TestSkillsEnrichment:
         enrich([f])
         assert f.skill_refs == []
 
-    def test_graceful_noop_when_repo_absent(self, tmp_path, monkeypatch):
+    def test_graceful_noop_when_repo_and_bundle_absent(self, tmp_path, monkeypatch):
         from scanner.intel import skills_kb
-        # Neutralise both the env override and the on-disk candidate paths so the
-        # real library (if present in the workspace) is not discovered.
+        # Neutralise the env override, the on-disk candidate paths, AND the bundled JSON,
+        # so nothing is discovered at all.
         monkeypatch.setenv("HADES_SKILLS_PATH", str(tmp_path / "does-not-exist"))
         monkeypatch.setattr(skills_kb, "SKILLS_REPO_CANDIDATES", [])
+        monkeypatch.setattr(skills_kb, "_load_bundle", lambda: {})
         for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
             fn.cache_clear()
         f = Finding(module="sqli_detect", title="t", description="", severity=Severity.HIGH)
         assert skills_kb.enrich([f]) == 0
         assert f.skill_refs == []
         for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+            fn.cache_clear()
+
+    def test_bundle_fallback_when_repo_absent(self, tmp_path, monkeypatch):
+        """No external library, but the shipped bundle still resolves playbooks (GitHub links)."""
+        from scanner.intel import skills_kb
+        monkeypatch.setenv("HADES_SKILLS_PATH", str(tmp_path / "nope"))
+        monkeypatch.setattr(skills_kb, "SKILLS_REPO_CANDIDATES", [])
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+                   skills_kb._skill_detail, skills_kb._load_bundle):
+            fn.cache_clear()
+        f = Finding(module="sqli_detect", title="SQLi", description="", severity=Severity.CRITICAL)
+        assert skills_kb.enrich([f]) == 1                       # works via the bundle
+        ref = f.skill_refs[0]
+        assert ref["name"] == "exploiting-sql-injection-vulnerabilities"
+        assert ref["href"].startswith("https://github.com/")   # links upstream, not a local file
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+                   skills_kb._skill_detail, skills_kb._load_bundle):
             fn.cache_clear()
 
 

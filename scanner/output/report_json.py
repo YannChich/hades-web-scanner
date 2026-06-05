@@ -58,7 +58,7 @@ def generate_json(
                 "poc":            f.poc,
                 "redteam_tools":  f.redteam_tools,
                 "playbooks":      [
-                    {"name": s.get("name"), "path": s.get("rel_md"),
+                    {"name": s.get("name"), "url": s.get("href"),
                      "mitre": s.get("mitre", [])}
                     for s in (f.skill_refs or [])
                 ],

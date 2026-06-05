@@ -77,15 +77,32 @@ def _humanise(module: str) -> str:
     return module.replace("_", " ").title()
 
 
-def _find_readme() -> Path:
+_REDTEAM_RAW_URL = "https://raw.githubusercontent.com/A-poc/RedTeam-Tools/main/README.md"
+
+
+def _load_readme() -> str:
+    """Read RedTeam-Tools/README.md from a local clone, else fetch it from GitHub.
+
+    Makes the PDF reproducible from a plain `git clone` of Hades (no sibling repo required),
+    as long as there is internet access.
+    """
     for cand in REDTEAM_REPO_CANDIDATES:
         p = Path(cand) / "README.md"
         if p.is_file():
-            return p
-    raise FileNotFoundError(
-        "RedTeam-Tools/README.md not found. Searched: "
-        + ", ".join(str(Path(c) / 'README.md') for c in REDTEAM_REPO_CANDIDATES)
-    )
+            print(f"Using local RedTeam-Tools README: {p}")
+            return p.read_text(encoding="utf-8")
+    print("RedTeam-Tools not found locally - fetching the README from GitHub ...")
+    try:
+        import httpx
+        return httpx.get(_REDTEAM_RAW_URL, timeout=30, follow_redirects=True).raise_for_status().text
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(
+            "Could not obtain RedTeam-Tools/README.md.\n"
+            f"  - Fetch from GitHub failed: {exc}\n"
+            "  - Or clone it alongside the project:\n"
+            "      git clone https://github.com/A-poc/RedTeam-Tools\n"
+            "    (or set the path so it sits next to the Hades project folder)."
+        )
 
 
 def _mapping_rows() -> str:
@@ -150,7 +167,7 @@ table.map td.fr { color: #6e40c9; width: 16%; }
 
 
 def build_html() -> str:
-    readme = _find_readme().read_text(encoding="utf-8")
+    readme = _load_readme()
     body = markdown.markdown(
         readme,
         extensions=["tables", "fenced_code", "sane_lists", "toc", "attr_list", "md_in_html"],

@@ -8,7 +8,6 @@ from __future__ import annotations
 import html
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -349,7 +348,7 @@ def _refs_html(f: Finding, sev_color: str) -> str:
         pills.append(f'<span class="ref-pill ref-tool" title="See the RedTeam-Tools PDF">'
                      f'🛠 {_e(tool)}</span>')
     for s in (f.skill_refs or []):
-        href = Path(s.get("path", "")).as_uri() if s.get("path") else "#"
+        href = s.get("href") or "#"
         pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" '
                      f'title="Open the full playbook">📘 {_e(s["name"])}</a>')
     return f'<div class="refs">{"".join(pills)}</div>'
@@ -551,7 +550,7 @@ def _playbooks_html(findings: list[Finding]) -> str:
 
     items = ""
     for s in skills:
-        href = Path(s.get("path", "")).as_uri() if s.get("path") else "#"
+        href = s.get("href") or "#"
         mitre = " · ".join(s.get("mitre", [])[:4])
         tags = " · ".join(s.get("tags", [])[:5])
         meta = " &nbsp;|&nbsp; ".join(p for p in (mitre, tags) if p)

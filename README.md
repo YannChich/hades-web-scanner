@@ -188,6 +188,32 @@ docker compose -f docker/docker-compose.yml run --rm webscan
 
 ---
 
+## Optional integrations (works offline by default)
+
+Hades references two external knowledge bases. **A plain `git clone` needs neither** — everything
+degrades gracefully:
+
+| Capability | After a plain clone | For the richest experience |
+|------------|--------------------|----------------------------|
+| Scan, profiles, framework mapping, attack path | ✅ Fully works | — |
+| **RedTeam tool references** (🛠 per finding) | ✅ Names are built in | — |
+| **Playbook references** (📘 per finding) | ✅ Resolve via the bundled `scanner/intel/playbooks.json` (links to the skills on GitHub) | Clone the skills library for full local skill text + offline `file://` links |
+| **RedTeam-Tools reference PDF** | ✅ `make_redteam_tools.py` fetches the catalogue from GitHub | Clone RedTeam-Tools for an offline build |
+
+To enable the **full local** experience, clone the two repos next to the project and (optionally)
+point Hades at the skills library:
+
+```bash
+git clone https://github.com/mukul975/Anthropic-Cybersecurity-Skills
+git clone https://github.com/A-poc/RedTeam-Tools
+export HADES_SKILLS_PATH=/path/to/Anthropic-Cybersecurity-Skills   # optional; sibling paths auto-detected
+
+# Refresh the bundled playbook index from the full library (maintainers only):
+python tools/build_playbooks_bundle.py
+```
+
+---
+
 ## Usage
 
 ### Interactive mode (prompts for URL and profile)
