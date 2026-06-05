@@ -285,6 +285,64 @@ class TestLLMRecon:
 
 
 # ---------------------------------------------------------------------------
+# SSRF accuracy — a reflected payload must NOT be a false positive
+# ---------------------------------------------------------------------------
+
+# Acuforum-style login page: reflects the injected URL in a RetURL param and carries
+# Dreamweaver "InstanceBegin" template comments — both tripped the old loose heuristics.
+_REFLECTED_PAGE = (
+    '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">\n'
+    '<html><!-- InstanceBegin template="/Templates/Main.dwt.asp" -->\n'
+    '<head><!-- InstanceBeginEditable name="doctitle" --><title>acuforum login</title>\n'
+    '<!-- InstanceEndEditable --></head><body>\n'
+    '<a href="./Login.asp?RetURL=http%3A%2F%2F169%2E254%2E169%2E254%2Flatest%2Fmeta%2Ddata%2F">login</a>\n'
+    '</body><!-- InstanceEnd --></html>'
+)
+_REAL_AWS_META = "ami-id\nami-launch-index\nhostname\ninstance-id\nlocal-ipv4\npublic-keys/\n"
+
+
+def _resp(text: str, status: int = 200):
+    return type("_R", (), {"text": text, "status_code": status})()
+
+
+class TestSSRFAccuracy:
+    def test_ssrf_detect_ignores_reflected_payload(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.ssrf_detect import _test
+        inj = Injector(label="URL parameter 'RetURL'", param="RetURL",
+                       inject=lambda p: _resp(_REFLECTED_PAGE),
+                       proof=lambda p: "https://t/?RetURL=" + p, url="https://t/?RetURL=1")
+        assert _test(inj) is None       # a reflected URL is NOT SSRF
+
+    def test_ssrf_detect_flags_real_metadata(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.ssrf_detect import _test, _PAYLOADS
+        aws_payload = _PAYLOADS[0][0]
+        inj = Injector(label="URL parameter 'url'", param="url",
+                       inject=lambda p: _resp(_REAL_AWS_META if p == aws_payload else "", 200),
+                       proof=lambda p: "https://t/?url=" + p, url="https://t/?url=1")
+        f = _test(inj)
+        assert f is not None and "AWS" in f.raw["signal"]
+
+    def test_engage_ssrf_ignores_reflected_page(self):
+        from scanner.vulns._common import Injector
+        from scanner.offensive.engage import _exploit_ssrf
+        inj = Injector(label="URL parameter 'RetURL'", param="RetURL",
+                       inject=lambda p: _resp(_REFLECTED_PAGE),
+                       proof=lambda p: "https://t/?RetURL=" + p, url="https://t/?RetURL=1")
+        assert _exploit_ssrf(inj, None) is None
+
+    def test_engage_ssrf_proves_on_real_metadata(self):
+        from scanner.vulns._common import Injector
+        from scanner.offensive.engage import _exploit_ssrf
+        inj = Injector(label="URL parameter 'url'", param="url",
+                       inject=lambda p: _resp("ami-id\ninstance-id\nlocal-ipv4\niam/security-credentials/role"),
+                       proof=lambda p: "https://t/?url=" + p, url="https://t/?url=1")
+        res = _exploit_ssrf(inj, None)
+        assert res is not None and res.raw["engage_category"] == "ssrf_read"
+
+
+# ---------------------------------------------------------------------------
 # Active engagement (auto-pwn) tests
 # ---------------------------------------------------------------------------
 

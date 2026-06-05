@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import unquote
 
 from scanner.engine import Finding, Severity, ScanEngine
 from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
@@ -24,12 +25,17 @@ _URL_HINTS = ("url", "uri", "link", "src", "source", "dest", "redirect", "callba
               "domain", "host", "site", "page", "feed", "data", "target", "next")
 
 # (payload, signature regex, what it proves)
+# Signatures must match content ONLY a real metadata/file response contains — never a
+# substring of the payload itself (e.g. "meta-data", "computeMetadata"), or a reflected
+# payload would false-positive. The injected payload is stripped from the body before
+# matching as a second safeguard (see _test).
 _PAYLOADS: list[tuple[str, "re.Pattern[str]", str]] = [
     ("http://169.254.169.254/latest/meta-data/",
-     re.compile(r"ami-id|instance-id|iam/|public-keys|local-ipv4|meta-data", re.I),
+     re.compile(r"ami-id|instance-id|iam/security-credentials|public-keys/|local-ipv4|reservation-id",
+                re.I),
      "AWS instance metadata"),
     ("http://metadata.google.internal/computeMetadata/v1/",
-     re.compile(r"computeMetadata|/instance/|service-accounts", re.I),
+     re.compile(r"service-accounts/|numeric-project-id|attributes/|hostname\b", re.I),
      "GCP instance metadata"),
     ("file:///etc/passwd",
      re.compile(r"root:.*?:0:0:", re.I),
@@ -59,10 +65,24 @@ def _finding(inj: Injector, payload: str, signal: str) -> Finding:
     )
 
 
+def _strip_reflection(text: str, payload: str) -> str:
+    """Remove the injected payload (URL-decoded) from the response so a mere reflection
+    of our own URL can't be mistaken for a fetched metadata/file response."""
+    decoded = unquote(text)
+    return decoded.replace(payload, "").replace(unquote(payload), "")
+
+
 def _test(inj: Injector) -> Finding | None:
     for payload, sig_re, signal in _PAYLOADS:
         resp = inj.inject(payload)
-        if resp is not None and sig_re.search(resp.text):
+        if resp is None:
+            continue
+        body = _strip_reflection(resp.text, payload)
+        # An HTML document is the app reflecting our input, not a metadata/file body.
+        low = body.lower()
+        if "<html" in low or "<!doctype" in low:
+            continue
+        if sig_re.search(body):
             return _finding(inj, payload, signal)
     return None
 
