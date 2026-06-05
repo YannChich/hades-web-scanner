@@ -354,9 +354,8 @@ webscan/
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/new-module`
-3. Follow the coding standards in `CLAUDE.md`
-4. Add at least one test in `tests/test_modules.py`
-5. Open a pull request with a clear description of what the module detects
+3. Add at least one test in `tests/test_modules.py`
+4. Open a pull request with a clear description of what the module detects
 
 New scan modules must follow the `run(engine: ScanEngine) -> list[Finding]` signature and handle all exceptions gracefully without crashing the engine. Active injection modules must reuse `scanner/vulns/_common.py` (crawler params/forms, safe-mode check, proof URLs).
 
