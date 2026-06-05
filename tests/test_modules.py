@@ -325,6 +325,53 @@ class TestEngage:
         groups = build_attack_path([f])
         assert groups[0]["phase"] == "Execution"
 
+    def test_engage_end_to_end_rce(self, monkeypatch, tmp_path):
+        """Full chain: mock a command-injection endpoint, run engage --exploit, assert RCE + evidence."""
+        from scanner.engine import ScanEngine
+        from scanner.offensive import engage
+
+        # The injectable parameter lives on the target URL itself, so iter_injectors picks
+        # it up without depending on link crawling. The endpoint reflects command output.
+        rce_out = "uid=0(root) gid=0(root) groups=0(root)"
+        responses = {
+            "https://example.com/run": httpx.Response(200, text=rce_out,
+                                                      headers={"content-type": "text/html"}),
+        }
+        eng = ScanEngine("https://example.com/run?cmd=ls", rate_delay=0, exploit=True)
+        eng._client = httpx.Client(transport=MockTransport(responses), follow_redirects=True, verify=False)
+        # Keep evidence writes inside the test's tmp dir (no project loot/ pollution).
+        monkeypatch.setattr(engage, "_loot_dir", lambda e: tmp_path)
+
+        findings = engage.run(eng)
+
+        # Detection confirmed the command injection…
+        assert any(f.module == "command_injection" and f.severity is Severity.CRITICAL
+                   for f in findings)
+        # …and engage actively proved RCE and wrote evidence.
+        rce = [f for f in findings if f.module == "engage" and f.raw.get("engage_category") == "rce"]
+        assert rce, "engage should have proven RCE"
+        assert rce[0].raw.get("evidence_file"), "evidence file should be written"
+        assert (tmp_path / "rce_cmd.txt").exists()
+        result = next(f for f in findings if f.raw.get("engage_category") == "result")
+        assert result.raw["footholds"] >= 1
+
+    def test_engage_exploit_clean_target_creates_no_loot(self, monkeypatch):
+        """--exploit on a target with nothing exploitable must not create a loot dir."""
+        from scanner.engine import ScanEngine
+        from scanner.offensive import engage
+
+        def _fail_loot(_e):
+            raise AssertionError("loot dir must not be created when nothing is exploitable")
+
+        monkeypatch.setattr(engage, "_loot_dir", _fail_loot)
+        eng = ScanEngine("https://example.com/run?cmd=ls", rate_delay=0, exploit=True)
+        eng._client = httpx.Client(transport=MockTransport({}, default_status=404),
+                                   follow_redirects=True, verify=False)
+        findings = engage.run(eng)                       # must not raise
+        result = next(f for f in findings if f.raw.get("engage_category") == "result")
+        assert result.raw["footholds"] == 0
+        assert result.severity is Severity.INFO
+
 
 # ---------------------------------------------------------------------------
 # Attack-path / kill-chain tests (Axe 3)

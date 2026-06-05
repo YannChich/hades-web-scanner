@@ -48,7 +48,9 @@ _EXPLOITABLE = {
 
 # Benign proof payloads (read-only / informational — never destructive).
 _RCE_CMDS = ["id", "uname -a"]
-_CMD_WRAPPERS = ["; {c}", "| {c}", "&& {c}", "`{c}`", "$({c})", "%0a{c}"]
+# A real newline is URL-encoded correctly by the injector (→ %0A); a literal "%0a"
+# would be double-encoded, so use "\n" to mirror the command_injection payloads.
+_CMD_WRAPPERS = ["; {c}", "| {c}", "&& {c}", "`{c}`", "$({c})", "\n{c}"]
 _RCE_SIG = re.compile(r"uid=\d+\(|gid=\d+\(|Linux \S+ \d|Darwin Kernel")
 
 _LFI_PAYLOADS = ["/etc/passwd", "../../../../../../../../etc/passwd",
@@ -84,9 +86,12 @@ def _exploit_cmd(inj: Injector, loot) -> Finding | None:
         for wrapper in _CMD_WRAPPERS:
             payload = wrapper.format(c=cmd)
             resp = inj.inject(payload)
-            if resp is None or not _RCE_SIG.search(resp.text):
+            if resp is None:
                 continue
-            snippet = _RCE_SIG.search(resp.text).group(0)
+            m = _RCE_SIG.search(resp.text)
+            if not m:
+                continue
+            snippet = m.group(0)
             proof = inj.proof(payload) if inj.proof else inj.url or ""
             evidence = _save_evidence(loot, f"rce_{inj.param}.txt", resp.text[:4000])
             return _f(
@@ -177,18 +182,19 @@ def run(engine: ScanEngine) -> list[Finding]:
         return findings
 
     # 2. Active exploitation — prove impact with benign payloads, capture evidence.
-    loot = _loot_dir(engine)
-    injectors = {inj.param: inj for inj in iter_injectors(engine)}
+    # Confirmed bugs only (skip the INFO "none detected" notes that share a module name).
+    confirmed = [f for f in findings if f.module in _EXPLOITABLE
+                 and f.severity.value != "info" and (f.raw or {}).get("parameter")]
+    loot = _loot_dir(engine) if confirmed else None
+    injectors = {inj.param: inj for inj in iter_injectors(engine)} if confirmed else {}
     done: set[tuple[str, str]] = set()
     footholds = 0
 
-    for f in list(findings):
-        category = _EXPLOITABLE.get(f.module)
-        param = (f.raw or {}).get("parameter")
-        if not category or not param or param not in injectors:
-            continue
+    for f in confirmed:
+        category = _EXPLOITABLE[f.module]
+        param = f.raw["parameter"]
         key = (category, param)
-        if key in done:
+        if key in done or param not in injectors:
             continue
         done.add(key)
         try:
@@ -226,7 +232,8 @@ def render_panel(findings: list[Finding]) -> None:
     eng = [f for f in findings if f.module == MODULE
            and f.raw.get("engage_category") not in (None, "info", "result")]
     result = next((f for f in findings if f.raw.get("engage_category") == "result"), None)
-    if not eng and result is None:
+    # Only show the panel when there is at least one proven foothold.
+    if not eng:
         return
 
     from rich.console import Console
