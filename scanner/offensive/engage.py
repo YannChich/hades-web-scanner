@@ -173,10 +173,10 @@ def run(engine: ScanEngine) -> list[Finding]:
 
     if not active:
         findings.append(_f(
-            "Engagement — Detection Only (re-run with --exploit to prove impact)",
-            "Vulnerabilities above were confirmed but not exploited. Re-run with --exploit on an "
-            "authorised target to actively read files / execute commands / pull cloud metadata and "
-            "collect evidence under loot/.",
+            "Engagement — Detection Only (exploitation not authorised)",
+            "Vulnerabilities above were confirmed but not exploited because active exploitation was "
+            "not authorised (answer 'attack' at the prompt, or pass --exploit). Doing so reads files / "
+            "executes commands / pulls cloud metadata to prove impact and collects evidence under loot/.",
             Severity.INFO, "", "info"))
         findings.sort(key=lambda f: ["critical", "high", "medium", "low", "info"].index(f.severity.value))
         return findings

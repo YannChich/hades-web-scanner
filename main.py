@@ -149,7 +149,7 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]3[/accent]. [ok]Single module[/ok]      Run just one tool of your choice")
     console.print("  [accent]4[/accent]. [ok]Database Security[/ok]  Dedicated DB audit (ports, auth, SQLi, dumps, score)")
     console.print("  [accent]5[/accent]. [ok]AI / LLM Security[/ok]   AI attack surface (prompt injection, exposed keys & LLM servers)")
-    console.print("  [accent]6[/accent]. [ok]Engagement (auto-pwn)[/ok] Actively exploit confirmed vulns (RCE/LFI/SSRF) — use with --exploit")
+    console.print("  [accent]6[/accent]. [ok]Engagement (auto-pwn)[/ok] Actively EXPLOIT confirmed vulns (RCE/LFI/SSRF) — asks for authorisation")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5", "6"], default="2").strip()
@@ -168,6 +168,39 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "engage", None
         case _:
             return "full", None
+
+
+def confirm_engagement(already_authorised: bool) -> bool:
+    """
+    The 'engage' profile is exploitation-first: it actively attacks confirmed vulnerabilities.
+    Require an explicit authorisation here (unless --exploit already gave it). Returns True to
+    run active exploitation, False to fall back to detection-only.
+    """
+    if already_authorised:
+        return True
+    # No interactive terminal (piped / CI): can't prompt — stay safe (detection-only).
+    if not sys.stdin.isatty():
+        console.print("[warn]  Engagement needs authorisation but there is no interactive terminal — "
+                      "running detection-only. Pass --exploit to authorise non-interactively.[/warn]\n")
+        return False
+    console.print(Panel(
+        "[danger]⚔  ENGAGEMENT MODE — ACTIVE EXPLOITATION[/danger]\n\n"
+        "This profile does not just detect: it [danger]actively exploits[/danger] confirmed "
+        "vulnerabilities (command execution, arbitrary file read, SSRF) on the target and writes "
+        "the captured evidence to [accent]loot/[/accent].\n\n"
+        "Only continue on systems you are [accent]explicitly authorised[/accent] to attack.",
+        border_style="danger", title="[danger]! Authorisation required[/danger]", padding=(1, 2)))
+    try:
+        answer = Prompt.ask(
+            "[danger]  Type 'attack' to authorise active exploitation[/danger]",
+            default="no",
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "no"
+    if answer in ("attack", "yes", "y"):
+        return True
+    console.print("[warn]  Not authorised — running the engagement in detection-only mode.[/warn]\n")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +316,12 @@ def main() -> None:
     else:
         profile, modules = prompt_scan_choice()
 
+    # The engagement profile is exploitation-first: selecting it authorises active
+    # exploitation (after confirmation), so --exploit is implied, not required.
+    exploit = args.exploit
+    if profile == "engage":
+        exploit = confirm_engagement(args.exploit)
+
     scope = f"module=[ok]{profile}[/ok]" if modules else f"profile=[ok]{profile}[/ok]"
     console.print(f"\n[accent]>>  Starting scan[/accent]  target=[ok]{url}[/ok]  {scope}")
     console.print(f"[info]    Log: {log_path}[/info]\n")
@@ -298,7 +337,7 @@ def main() -> None:
         cookies=args.cookies,
         auth_token=args.auth_token,
         modules=modules,
-        exploit=args.exploit,
+        exploit=exploit,
         bruteforce=args.bruteforce,
     )
 

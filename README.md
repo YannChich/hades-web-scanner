@@ -123,16 +123,17 @@ ignore — mapped to the **OWASP LLM Top 10 (2025)** and **MITRE ATLAS**:
 
 ### Active Engagement (`--profile engage`) — auto-pwn
 A dedicated orchestrator (`scanner/offensive/engage.py`) that turns Hades from a scanner into an
-**auto-exploitation engine**. It runs the active injection arsenal to confirm bugs, then — only
-with `--exploit` on an authorised target — actively **proves impact** with *benign* payloads and
-writes evidence files under `loot/<host>_<timestamp>/`:
+**auto-exploitation engine**. It is **exploitation-first**: picking this profile authorises active
+exploitation (a one-line confirmation prompt — or pass `--exploit`). It runs the active injection
+arsenal to confirm bugs, then actively **proves impact** with *benign* payloads on the authorised
+target and writes evidence files under `loot/<host>_<timestamp>/`:
 
 - [x] **Command injection → RCE proof** — runs a harmless command (`id`, `uname -a`) and captures the output
 - [x] **LFI / path traversal → arbitrary file read** — reads and saves `/etc/passwd`
 - [x] **SSRF → internal/cloud access** — fetches cloud-metadata / `file://` and saves the response
 - [x] SQL injection continues through the dedicated **sqlmap launcher** (auto-offered with `--exploit`)
 - [x] Emits a **💀 Active Engagement panel** (proven footholds + loot + evidence paths) and an engagement score; every step joins the kill-chain Attack Path
-- [x] **Detection-only by default** — nothing is exploited without `--exploit` + the authorisation confirmation. No destructive actions, no persistence/backdoor, no DoS — proof of impact only
+- [x] **Gated, not silent** — exploitation only runs after you authorise the engagement (confirmation prompt or `--exploit`); without it, `engage` falls back to detection-only. No destructive actions, no persistence/backdoor, no DoS — proof of impact only
 
 ### Intelligence & Reporting Layer
 Every finding (across all profiles) is enriched into an actionable, client-ready record:
@@ -213,7 +214,9 @@ python main.py --url https://example.com --profile ai_scan --output html
 # AI audit with active prompt-injection confirmation (canary; authorised targets only)
 python main.py --url https://example.com --profile ai_scan --exploit
 
-# Active engagement (auto-pwn): confirm vulns, then actively prove impact + collect loot
+# Active engagement (auto-pwn): picking 'engage' authorises exploitation (asks for confirmation)
+python main.py --url https://example.com --profile engage
+# …or authorise non-interactively (CI / scripts):
 python main.py --url https://example.com --profile engage --exploit
 
 # Database audit AND auto-launch sqlmap on any confirmed SQLi (authorised targets only)
