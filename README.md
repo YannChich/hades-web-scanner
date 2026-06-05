@@ -241,11 +241,25 @@ python tools/build_playbooks_bundle.py
 
 ## Usage
 
-### Interactive mode (prompts for URL and profile)
+### Interactive mode (menu-driven — minimal flags)
+
+Run with just the URL (or nothing) and Hades walks you through the choices, so you rarely need
+flags:
 
 ```bash
+python main.py --url http://testasp.vulnweb.com/
+# or fully interactive (also prompts for the URL):
 python main.py
 ```
+
+It then asks for:
+1. **Scan type** — Quick · Full · Single module · Database · AI/LLM · Engagement (auto-pwn)
+2. **Report format** — None · HTML · JSON · PDF
+3. **Active exploitation** — offered for offensive profiles (`db_scan`, `ai_scan`, `full`); `engage`
+   asks for its own authorisation
+
+Any flag you *do* pass (e.g. `--profile`, `--output`, `--exploit`) skips the matching prompt, so
+scripting still works. The flags below are for non-interactive / advanced use.
 
 ### CLI mode
 

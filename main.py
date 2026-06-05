@@ -170,6 +170,37 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "full", None
 
 
+def prompt_report_format() -> Optional[str]:
+    """Interactively choose a report export format (interactive mode, no --output flag)."""
+    console.print("\n[info]Export a report?[/info]")
+    console.print("  [accent]1[/accent]. [ok]None[/ok]   Console output only")
+    console.print("  [accent]2[/accent]. [ok]HTML[/ok]   Styled dark-theme report (recommended)")
+    console.print("  [accent]3[/accent]. [ok]JSON[/ok]   Machine-readable")
+    console.print("  [accent]4[/accent]. [ok]PDF[/ok]    Printable (needs native GTK libs)")
+    console.print()
+    choice = Prompt.ask("[ok]  Report[/ok]", choices=["1", "2", "3", "4"], default="1").strip()
+    return {"1": None, "2": "html", "3": "json", "4": "pdf"}[choice]
+
+
+# Profiles whose --exploit flag can be offered interactively (engage handles its own prompt).
+_EXPLOIT_PROFILES = {"full", "db_scan", "ai_scan"}
+
+
+def prompt_exploit(profile: str) -> bool:
+    """Offer active exploitation for an offensive profile (interactive mode, no --exploit flag)."""
+    if not sys.stdin.isatty():
+        return False
+    detail = {
+        "db_scan": "extract real data from exposed DBs and replay harvested credentials",
+        "ai_scan": "send a benign canary to confirm prompt injection",
+        "full":    "launch sqlmap against any confirmed SQL injection",
+    }.get(profile, "actively exploit confirmed issues")
+    console.print(f"\n[warn]Active exploitation?[/warn] [info]On an authorised target, Hades can {detail}, "
+                  "and write evidence to loot/.[/info]")
+    answer = Prompt.ask("[ok]  Enable active exploitation[/ok]", choices=["y", "n"], default="n").strip().lower()
+    return answer == "y"
+
+
 def confirm_engagement(already_authorised: bool) -> bool:
     """
     The 'engage' profile is exploitation-first: it actively attacks confirmed vulnerabilities.
@@ -308,6 +339,9 @@ def main() -> None:
         console.print()
 
     # --- Scan scope: explicit flags win, otherwise show the menu ---
+    # "interactive" = the user is choosing from menus (no scope flag given), so we also
+    # prompt for the most useful options instead of requiring more flags.
+    interactive = args.profile is None and args.module is None
     if args.module:
         modules = [resolve_module(args.module)]
         profile: str = args.module
@@ -316,11 +350,19 @@ def main() -> None:
     else:
         profile, modules = prompt_scan_choice()
 
-    # The engagement profile is exploitation-first: selecting it authorises active
-    # exploitation (after confirmation), so --exploit is implied, not required.
+    # --- Report format: flag wins, else ask (interactive only) ---
+    output_format = args.output
+    if interactive and not output_format:
+        output_format = prompt_report_format()
+
+    # --- Active exploitation ---
+    # engage is exploitation-first (its own confirmation); other offensive profiles can be
+    # offered the choice interactively so --exploit isn't required.
     exploit = args.exploit
     if profile == "engage":
         exploit = confirm_engagement(args.exploit)
+    elif interactive and not exploit and profile in _EXPLOIT_PROFILES:
+        exploit = prompt_exploit(profile)
 
     scope = f"module=[ok]{profile}[/ok]" if modules else f"profile=[ok]{profile}[/ok]"
     console.print(f"\n[accent]>>  Starting scan[/accent]  target=[ok]{url}[/ok]  {scope}")
@@ -329,7 +371,7 @@ def main() -> None:
     run_scan(
         url=url,
         profile=profile,
-        output_format=args.output,
+        output_format=output_format,
         proxy=args.proxy,
         threads=args.threads,
         ignore_robots=args.ignore_robots,
