@@ -164,8 +164,8 @@ Every finding (across all profiles) is enriched into an actionable, client-ready
 **Requirements:** Python 3.10+
 
 ```bash
-git clone https://github.com/yourname/webscan.git
-cd webscan
+git clone https://github.com/YannChich/hades-web-scanner.git
+cd hades-web-scanner
 
 pip install -r requirements.txt
 
@@ -175,6 +175,31 @@ playwright install chromium
 # Optional — only needed for the --exploit sqlmap launcher
 pip install sqlmap
 ```
+
+> ### ⭐ Recommended — clone the two cross-reference repos for 100% functionality
+>
+> Hades cross-references two external knowledge bases. **Clone them *next to* the project first**
+> so every **📘 playbook link** and the **RedTeam-Tools PDF** resolve locally with no missing links:
+>
+> ```bash
+> # run these in the PARENT folder, alongside hades-web-scanner/
+> git clone https://github.com/mukul975/Anthropic-Cybersecurity-Skills   # 📘 expert playbooks
+> git clone https://github.com/A-poc/RedTeam-Tools                        # 🛠 red-team tool catalogue
+> ```
+>
+> Resulting layout:
+>
+> ```
+> <parent>/
+> ├── hades-web-scanner/                # this project
+> ├── Anthropic-Cybersecurity-Skills/   # playbook library (auto-detected)
+> └── RedTeam-Tools/                    # tool catalogue (auto-detected)
+> ```
+>
+> Both are auto-detected from sibling paths (or point Hades at the skills library explicitly with
+> `export HADES_SKILLS_PATH=/path/to/Anthropic-Cybersecurity-Skills`). Without them Hades still runs —
+> playbook references fall back to GitHub links and the PDF is fetched from GitHub — but cloning them
+> first gives the full local, offline experience with zero broken links.
 
 ### Docker
 
@@ -188,27 +213,27 @@ docker compose -f docker/docker-compose.yml run --rm webscan
 
 ---
 
-## Optional integrations (works offline by default)
+## Cross-referenced integrations
 
-Hades references two external knowledge bases. **A plain `git clone` needs neither** — everything
-degrades gracefully:
+Hades cross-references two external knowledge bases —
+**[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)** (📘 playbooks)
+and **[RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools)** (🛠 tools + PDF).
 
-| Capability | After a plain clone | For the richest experience |
-|------------|--------------------|----------------------------|
-| Scan, profiles, framework mapping, attack path | ✅ Fully works | — |
-| **RedTeam tool references** (🛠 per finding) | ✅ Names are built in | — |
-| **Playbook references** (📘 per finding) | ✅ Resolve via the bundled `scanner/intel/playbooks.json` (links to the skills on GitHub) | Clone the skills library for full local skill text + offline `file://` links |
-| **RedTeam-Tools reference PDF** | ✅ `make_redteam_tools.py` fetches the catalogue from GitHub | Clone RedTeam-Tools for an offline build |
+> 👉 **For 100% functionality, `git clone` both repos *before* running Hades** — see the
+> [Installation](#installation) section's *Recommended* setup. This guarantees every playbook link
+> and the PDF resolve locally, with no broken links.
 
-To enable the **full local** experience, clone the two repos next to the project and (optionally)
-point Hades at the skills library:
+A plain clone still runs — here is exactly what changes if you skip cloning them:
+
+| Capability | Both repos cloned (100%) | Plain clone (graceful fallback) |
+|------------|--------------------------|---------------------------------|
+| Scan, profiles, framework mapping, attack path | ✅ | ✅ |
+| **RedTeam tool references** (🛠 per finding) | ✅ | ✅ (names are built in) |
+| **Playbook references** (📘 per finding) | ✅ full local skill text + `file://` links | ✅ via bundled `scanner/intel/playbooks.json` → **GitHub** links |
+| **RedTeam-Tools reference PDF** | ✅ offline build | ✅ README fetched from GitHub |
 
 ```bash
-git clone https://github.com/mukul975/Anthropic-Cybersecurity-Skills
-git clone https://github.com/A-poc/RedTeam-Tools
-export HADES_SKILLS_PATH=/path/to/Anthropic-Cybersecurity-Skills   # optional; sibling paths auto-detected
-
-# Refresh the bundled playbook index from the full library (maintainers only):
+# (maintainers) refresh the bundled playbook index from the full skills library:
 python tools/build_playbooks_bundle.py
 ```
 
@@ -405,6 +430,22 @@ webscan/
 4. Open a pull request with a clear description of what the module detects
 
 New scan modules must follow the `run(engine: ScanEngine) -> list[Finding]` signature and handle all exceptions gracefully without crashing the engine. Active injection modules must reuse `scanner/vulns/_common.py` (crawler params/forms, safe-mode check, proof URLs).
+
+---
+
+## Credits & Cross-Referenced Projects
+
+Hades cross-references two excellent open-source knowledge bases. **Clone them alongside the
+project** (see the [Installation](#installation) section) to unlock 100% of the playbook/tool
+references locally:
+
+- **[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)** —
+  the expert **playbook** library Hades links each finding to (the 📘 references). Community project
+  by [@mukul975](https://github.com/mukul975).
+- **[RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools)** — the **red-team tool catalogue** Hades
+  maps findings to (the 🛠 references and the bundled reference PDF). By [@A-poc](https://github.com/A-poc).
+
+All credit for those catalogues goes to their respective authors; Hades only references and links to them.
 
 ---
 
