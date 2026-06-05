@@ -19,6 +19,8 @@ from loguru import logger
 
 # cloudflared prints the assigned URL (to stderr/stdout) — match it as bytes (locale-safe).
 _CF_URL_RE = re.compile(rb"https://[a-z0-9][a-z0-9.\-]*\.trycloudflare\.com")
+# cloudflared logs this once the tunnel is actually established at Cloudflare's edge.
+_CF_READY = (b"registered tunnel connection", b"connection registered")
 
 
 class Tunnel:
@@ -47,24 +49,32 @@ class Tunnel:
             logger.debug(f"tunnel: cloudflared failed to launch: {exc}")
             return False
 
-        found: dict[str, str | None] = {"url": None}
+        state: dict[str, object] = {"url": None, "ready": False}
 
         def _reader() -> None:
             assert self._proc and self._proc.stdout
             for raw in self._proc.stdout:          # bytes — no locale decode (Windows-safe)
-                m = _CF_URL_RE.search(raw)
-                if m:
-                    found["url"] = m.group(0).decode("ascii")
+                if state["url"] is None:
+                    m = _CF_URL_RE.search(raw)
+                    if m:
+                        state["url"] = m.group(0).decode("ascii")
+                low = raw.lower()
+                if any(sig in low for sig in _CF_READY):
+                    state["ready"] = True
                     break
 
         threading.Thread(target=_reader, daemon=True).start()
         deadline = time.time() + timeout
-        while time.time() < deadline and found["url"] is None and self._proc.poll() is None:
+        # Wait for the URL and, ideally, the edge-registration line (returns early once both seen).
+        while time.time() < deadline and self._proc.poll() is None:
+            if state["url"] and state["ready"]:
+                break
             time.sleep(0.3)
 
-        if found["url"]:
-            self.url, self.tool = found["url"], "cloudflared"
-            logger.info(f"tunnel: cloudflared quick tunnel up at {self.url}")
+        if state["url"]:
+            self.url, self.tool = str(state["url"]), "cloudflared"
+            extra = "" if state["ready"] else " (edge registration not confirmed in time — may need a few more seconds)"
+            logger.info(f"tunnel: cloudflared quick tunnel up at {self.url}{extra}")
             return True
         self.stop()
         return False
