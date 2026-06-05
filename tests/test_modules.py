@@ -383,6 +383,12 @@ class TestOOB:
         finally:
             lis.stop()
 
+    def test_tunnel_returns_none_without_tools(self, monkeypatch):
+        from scanner.oob import tunnel as tmod
+        monkeypatch.setattr(tmod.shutil, "which", lambda name: None)   # no cloudflared/ngrok
+        t = tmod.Tunnel()
+        assert t.start(12345, timeout=1.0) is None
+
     def test_detects_blind_ssrf_via_callback(self):
         """A target that fetches the injected URL (blind SSRF) triggers an OAST callback."""
         from urllib.parse import parse_qs, urlparse

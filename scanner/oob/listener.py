@@ -82,10 +82,13 @@ class _Handler(BaseHTTPRequestHandler):
 class OOBListener:
     """Self-hosted OAST callback server. Start it, mint tokens/URLs, then read the hits."""
 
-    def __init__(self, public_host: str | None = None, port: int = 0, bind: str = "0.0.0.0") -> None:
+    def __init__(self, public_host: str | None = None, port: int = 0, bind: str = "0.0.0.0",
+                 external_base: str | None = None) -> None:
         self.public_host = public_host or primary_ip()
         self.bind = bind
         self.port = port
+        # When set (e.g. a public tunnel URL), callbacks use this base instead of host:port.
+        self.external_base = external_base
         self.hits: dict[str, list[Interaction]] = {}
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -110,6 +113,8 @@ class OOBListener:
 
     @property
     def base_url(self) -> str:
+        if self.external_base:
+            return self.external_base.rstrip("/")
         return f"http://{self.public_host}:{self.port}"
 
     def new_token(self) -> str:

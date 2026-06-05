@@ -145,7 +145,12 @@ trace in the HTTP response** — the ones most scanners miss — by making the *
 - [x] **Blind / stored XSS** — `<script src=<oast>>` / `<img src=<oast>>` beacons (fire when the payload is later rendered)
 - [x] **Token correlation** — every payload carries a unique token, so a callback pinpoints the exact injection point (and the callback's source IP is the target itself)
 - [x] Confirmed blind bugs are mapped (CWE/OWASP/ATT&CK), linked to the `performing-blind-ssrf-exploitation` playbook, and join the kill-chain Attack Path
-- [x] The listener address is auto-detected (host primary IP); override with `--oob-host` (public IP / tunnel) when behind NAT. The target must be able to reach it
+- [x] **Works behind NAT** — if `cloudflared` (free, no account) or `ngrok` is installed, Hades auto-starts a **public tunnel** to the listener so a remote target can call back from anywhere. Otherwise it uses the host's LAN IP; override with `--oob-host` (public IP / tunnel)
+
+> **Reachability:** the target must reach the listener. On a workstation behind a router, `localhost`
+> / `192.168.x.x` won't work — install [`cloudflared`](https://github.com/cloudflare/cloudflared)
+> (`cloudflared tunnel --url` quick tunnels need no account) and Hades will auto-expose the listener,
+> or pass `--oob-host` with a public address (VPS / domain / ngrok / cloudflared tunnel).
 
 ### Intelligence & Reporting Layer
 Every finding (across all profiles) is enriched into an actionable, client-ready record:

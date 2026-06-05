@@ -19,6 +19,7 @@ from loguru import logger
 
 from scanner.engine import Finding, Severity, ScanEngine
 from scanner.oob.listener import OOBListener
+from scanner.oob.tunnel import Tunnel
 from scanner.severity import sort_by_severity
 from scanner.vulns._common import is_safe_mode, iter_injectors
 
@@ -92,53 +93,75 @@ def run(engine: ScanEngine) -> list[Finding]:
                    "Set --oob-port to a free port (and --oob-host to a reachable address).",
                    Severity.INFO, "", "info")]
 
+    # Make the listener reachable by the target. Priority: explicit --oob-host > public tunnel
+    # (cloudflared/ngrok, no account needed) > the host's local IP (LAN-only).
+    tunnel: Tunnel | None = None
+    if not host and getattr(engine, "oob_tunnel", True):
+        tunnel = Tunnel()
+        turl = tunnel.start(listener.port)
+        if turl:
+            listener.external_base = turl
+
+    if tunnel and tunnel.tool:
+        reach = (f"reachable from anywhere via a {tunnel.tool} tunnel. (The callback source IP will be "
+                 "the tunnel's, not the target's.)")
+    elif host:
+        reach = "reachable at the address you provided (--oob-host)."
+    else:
+        reach = ("only reachable on this host's local network. Behind NAT, install cloudflared "
+                 "(free, no account) for an automatic public tunnel, or pass --oob-host with a "
+                 "public/tunnel address — otherwise the target cannot call back.")
+
     findings: list[Finding] = []
-    findings.append(_f(
-        f"OOB Callback Listener Active — {listener.base_url}",
-        f"Hades is listening for out-of-band callbacks at {listener.base_url}. The target must be "
-        "able to reach this address for blind bugs to be confirmed; if it sits behind NAT, expose "
-        "the listener or pass --oob-host with a reachable (public/tunnel) address. No callbacks may "
-        "mean 'not vulnerable' OR 'listener not reachable'.",
-        Severity.INFO, "", "info", listener=listener.base_url))
-
-    # Inject every class into every input, one unique token per (input, class).
-    pending: list[tuple[str, str, str, str]] = []   # (token, vclass, label, callback_url)
-    for inj in injectors[:_MAX_INJECTORS]:
-        for vclass in _CLASS_META:
-            token = listener.new_token()
-            url = listener.url_for(token)
-            for payload in _payloads_for(vclass, url):
-                try:
-                    inj.inject(payload)
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug(f"oob_detect: inject {vclass} into {inj.param} failed: {exc}")
-            pending.append((token, vclass, inj.label, url))
-
-    # Give the server time to call back (immediate for SSRF/RCE; stored XSS may never fire in-scan).
-    time.sleep(float(getattr(engine, "oob_wait", _GRACE)))
-
-    seen: set[tuple[str, str]] = set()
-    for token, vclass, label, url in pending:
-        hits = listener.hits_for(token)
-        if not hits:
-            continue
-        key = (vclass, label)
-        if key in seen:
-            continue
-        seen.add(key)
-        title_base, sev, cwe, owasp, mitre, category = _CLASS_META[vclass]
-        hit = hits[0]
+    try:
         findings.append(_f(
-            f"{title_base}: {label}",
-            f"A callback from {hit.source_ip} confirmed {title_base.split(' (')[0].lower()} on {label}. "
-            f"The server fetched the unique OAST URL {url} (method {hit.method}), proving the input is "
-            "processed out-of-band — a blind bug that leaves no trace in the HTTP response.",
-            sev, "Validate/allow-list inputs, block outbound to untrusted hosts, and never pass input "
-            "to a shell or URL fetcher.", category, cwe=cwe, owasp=owasp, mitre=mitre,
-            parameter=getattr(hit, "token", ""), proof_url=url, source_ip=hit.source_ip,
-            exploit_cmd=f"curl -sk \"{url}\""))
+            f"OOB Callback Listener Active — {listener.base_url}",
+            f"Hades is listening for out-of-band callbacks at {listener.base_url}, {reach} "
+            "No callbacks may mean 'not vulnerable' OR 'listener not reachable'.",
+            Severity.INFO, "", "info", listener=listener.base_url,
+            tunnel=(tunnel.tool if tunnel else "")))
 
-    listener.stop()
+        # Inject every class into every input, one unique token per (input, class).
+        pending: list[tuple[str, str, str, str]] = []   # (token, vclass, label, callback_url)
+        for inj in injectors[:_MAX_INJECTORS]:
+            for vclass in _CLASS_META:
+                token = listener.new_token()
+                url = listener.url_for(token)
+                for payload in _payloads_for(vclass, url):
+                    try:
+                        inj.inject(payload)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"oob_detect: inject {vclass} into {inj.param} failed: {exc}")
+                pending.append((token, vclass, inj.label, url))
+
+        # Give the server time to call back (immediate for SSRF/RCE; stored XSS may never fire in-scan).
+        time.sleep(float(getattr(engine, "oob_wait", _GRACE)))
+
+        seen: set[tuple[str, str]] = set()
+        for token, vclass, label, url in pending:
+            hits = listener.hits_for(token)
+            if not hits:
+                continue
+            key = (vclass, label)
+            if key in seen:
+                continue
+            seen.add(key)
+            title_base, sev, cwe, owasp, mitre, category = _CLASS_META[vclass]
+            hit = hits[0]
+            findings.append(_f(
+                f"{title_base}: {label}",
+                f"A callback from {hit.source_ip} confirmed {title_base.split(' (')[0].lower()} on {label}. "
+                f"The server fetched the unique OAST URL {url} (method {hit.method}), proving the input is "
+                "processed out-of-band — a blind bug that leaves no trace in the HTTP response.",
+                sev, "Validate/allow-list inputs, block outbound to untrusted hosts, and never pass input "
+                "to a shell or URL fetcher.", category, cwe=cwe, owasp=owasp, mitre=mitre,
+                parameter=getattr(hit, "token", ""), proof_url=url, source_ip=hit.source_ip,
+                exploit_cmd=f"curl -sk \"{url}\""))
+    finally:
+        listener.stop()
+        if tunnel:
+            tunnel.stop()
+
     blind = sum(1 for f in findings if f.raw.get("oob_category") not in (None, "info"))
     logger.info(f"oob_detect: {blind} blind vuln(s) confirmed via OAST")
     return sort_by_severity(findings)
