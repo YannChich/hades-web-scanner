@@ -65,7 +65,7 @@ _ATTACK_PATH_MODULES: set[str] = {
     "open_redirect", "ssrf_detect", "jwt_attacks", "auth_bypass", "bruteforce",
     "default_creds", "cve_mapping",
     "sensitive_files", "backup_files", "dir_scan", "dir_listing", "admin_panel",
-    "llm_recon", "engage",
+    "llm_recon", "engage", "oob_detect",
 }
 
 # AI/LLM finding category → kill-chain phase (ATLAS techniques don't map to _TECHNIQUE_PHASE).

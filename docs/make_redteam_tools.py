@@ -66,6 +66,7 @@ _FINDING_TITLES: dict[str, str] = {
     "clickjacking":      "Clickjacking — Missing X-Frame-Options / CSP",
     "llm_recon":         "AI/LLM: Prompt Injection / Exposed Key / LLM Server",
     "engage":            "Active Engagement: RCE / Arbitrary File Read / SSRF (proven)",
+    "oob_detect":        "Blind / Out-of-Band: blind SSRF / RCE / stored XSS (OAST callback)",
     "email_exposure":    "Exposed Email Address: {email}",
     "waf_detect":        "WAF / CDN Detected: {vendor}",
     "tech_stack":        "Technology Detected: {technology}",

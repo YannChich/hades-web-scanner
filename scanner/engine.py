@@ -180,6 +180,8 @@ class ScanEngine:
         modules: Optional[list[str]] = None,
         exploit: bool = False,
         bruteforce: bool = False,
+        oob_host: Optional[str] = None,
+        oob_port: int = 0,
     ) -> None:
         self.url          = url.rstrip("/")
         self.profile      = profile
@@ -196,6 +198,9 @@ class ScanEngine:
         self.exploit      = exploit
         # Opt-in credential attacks (password spraying). Mirrors the --bruteforce CLI flag.
         self.bruteforce   = bruteforce
+        # Out-of-band (OAST) callback address for the oob_scan profile (auto-detected if None).
+        self.oob_host     = oob_host
+        self.oob_port     = oob_port
 
         self._rate_limiter = RateLimiter(rate_delay)
         self._client       = self._build_client()
@@ -370,6 +375,8 @@ def run_scan(
     exploit: bool = False,
     bruteforce: bool = False,
     open_report: bool = True,
+    oob_host: Optional[str] = None,
+    oob_port: int = 0,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested."""
     with ScanEngine(
@@ -384,6 +391,8 @@ def run_scan(
         modules=modules,
         exploit=exploit,
         bruteforce=bruteforce,
+        oob_host=oob_host,
+        oob_port=oob_port,
     ) as engine:
         findings = engine.run_scan()
 

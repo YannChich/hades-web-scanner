@@ -361,6 +361,57 @@ class TestSSRFAccuracy:
 
 
 # ---------------------------------------------------------------------------
+# Out-of-band / blind-vuln (OAST) tests
+# ---------------------------------------------------------------------------
+
+class TestOOB:
+    def test_profile_registered(self):
+        from config import PROFILE_MODULES
+        assert PROFILE_MODULES["oob_scan"] == ["scanner.oob.oob_detect"]
+
+    def test_listener_records_callback(self):
+        import time
+        from scanner.oob.listener import OOBListener
+        lis = OOBListener(public_host="127.0.0.1", bind="127.0.0.1")
+        lis.start()
+        try:
+            tok = lis.new_token()
+            httpx.get(lis.url_for(tok), timeout=2)
+            time.sleep(0.2)
+            hits = lis.hits_for(tok)
+            assert hits and hits[0].source_ip == "127.0.0.1"
+        finally:
+            lis.stop()
+
+    def test_detects_blind_ssrf_via_callback(self):
+        """A target that fetches the injected URL (blind SSRF) triggers an OAST callback."""
+        from urllib.parse import parse_qs, urlparse
+        from scanner.engine import ScanEngine
+        from scanner.oob import oob_detect
+
+        class _SSRFTarget(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                val = (parse_qs(urlparse(str(request.url)).query).get("cmd") or [""])[0]
+                # Simulate SSRF: the server fetches a bare URL supplied in the parameter.
+                if val.startswith("http://127.0.0.1"):
+                    try:
+                        httpx.get(val, timeout=2)
+                    except Exception:
+                        pass
+                return httpx.Response(200, text="ok")
+
+        eng = ScanEngine("http://target.test/vuln?cmd=1", rate_delay=0,
+                         oob_host="127.0.0.1", oob_port=0)
+        eng._client = httpx.Client(transport=_SSRFTarget(), follow_redirects=True, verify=False)
+        eng.oob_wait = 0.6
+        findings = oob_detect.run(eng)
+        ssrf = [f for f in findings if f.raw.get("oob_category") == "ssrf"]
+        assert ssrf, "blind SSRF should be confirmed via the out-of-band callback"
+        assert ssrf[0].severity is Severity.HIGH
+        assert ssrf[0].raw.get("source_ip")
+
+
+# ---------------------------------------------------------------------------
 # Active engagement (auto-pwn) tests
 # ---------------------------------------------------------------------------
 

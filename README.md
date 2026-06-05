@@ -135,6 +135,18 @@ target and writes evidence files under `loot/<host>_<timestamp>/`:
 - [x] Emits a **💀 Active Engagement panel** (proven footholds + loot + evidence paths) and an engagement score; every step joins the kill-chain Attack Path
 - [x] **Gated, not silent** — exploitation only runs after you authorise the engagement (confirmation prompt or `--exploit`); without it, `engage` falls back to detection-only. No destructive actions, no persistence/backdoor, no DoS — proof of impact only
 
+### Out-of-Band / Blind Vulnerabilities (`--profile oob_scan`) — OAST
+A dedicated module (`scanner/oob/oob_detect.py`) that catches the vulnerabilities which leave **no
+trace in the HTTP response** — the ones most scanners miss — by making the *server* call back to a
+**self-hosted callback listener** (no external dependency):
+
+- [x] **Blind SSRF** — injects a unique OAST URL; a callback proves the server fetched it
+- [x] **Blind OS command injection / RCE** — `;curl <oast>` style payloads that beacon out on execution
+- [x] **Blind / stored XSS** — `<script src=<oast>>` / `<img src=<oast>>` beacons (fire when the payload is later rendered)
+- [x] **Token correlation** — every payload carries a unique token, so a callback pinpoints the exact injection point (and the callback's source IP is the target itself)
+- [x] Confirmed blind bugs are mapped (CWE/OWASP/ATT&CK), linked to the `performing-blind-ssrf-exploitation` playbook, and join the kill-chain Attack Path
+- [x] The listener address is auto-detected (host primary IP); override with `--oob-host` (public IP / tunnel) when behind NAT. The target must be able to reach it
+
 ### Intelligence & Reporting Layer
 Every finding (across all profiles) is enriched into an actionable, client-ready record:
 
@@ -255,7 +267,7 @@ python main.py
 It then asks for:
 1. **Scan type** — Quick · Full · Single module · Database · AI/LLM · Engagement (auto-pwn)
 2. **Active exploitation** — offered for offensive profiles (`db_scan`, `ai_scan`, `full`); `engage`
-   asks for its own authorisation
+   asks for its own authorisation; `oob_scan` catches blind bugs via out-of-band callbacks
 
 **Every scan** (quick → engagement) always generates the rich **HTML report** and **auto-opens it
 in your browser** when it finishes — pass `--no-open` to disable, or `--output json|pdf` to also
@@ -284,6 +296,9 @@ python main.py --url https://example.com --profile ai_scan --exploit
 python main.py --url https://example.com --profile engage
 # …or authorise non-interactively (CI / scripts):
 python main.py --url https://example.com --profile engage --exploit
+
+# Out-of-band (OAST) detection of blind SSRF/RCE/XSS — set a reachable callback host if behind NAT
+python main.py --url https://example.com --profile oob_scan --oob-host 203.0.113.10
 
 # Database audit AND auto-launch sqlmap on any confirmed SQLi (authorised targets only)
 python main.py --url http://testaspnet.vulnweb.com --profile db_scan --exploit
@@ -321,6 +336,8 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` |
 | `--output` | `-o` | — | **Extra** report format on top of the always-generated HTML: `json` `pdf` |
 | `--no-open` | | `false` | Don't auto-open the HTML report in a browser when the scan finishes |
+| `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel when behind NAT) |
+| `--oob-port` | | `0` | Port for the OAST callback listener (`0` = auto-pick a free port) |
 | `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
 | `--proxy` | | — | HTTP/HTTPS proxy URL |
@@ -343,6 +360,7 @@ NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm websca
 | `db_scan` | 🛢 Red team | Database security audit | `scanner/db/db_security.py` only |
 | `ai_scan` | 🤖 Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) | `scanner/ai/llm_recon.py` only |
 | `engage` | 💀 Offensive | Active engagement — auto-exploit confirmed vulns (RCE/LFI/SSRF) | `scanner/offensive/engage.py` only |
+| `oob_scan` | 📡 Offensive | Out-of-band detection of **blind** SSRF/RCE/XSS via OAST callbacks | `scanner/oob/oob_detect.py` only |
 
 ---
 

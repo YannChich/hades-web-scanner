@@ -61,7 +61,7 @@ DISCLAIMER = (
     "The author assumes no liability for misuse."
 )
 
-PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage")
+PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage", "oob_scan")
 OUTPUT_FORMATS = ("json", "html", "pdf")
 
 
@@ -150,9 +150,10 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]4[/accent]. [ok]Database Security[/ok]  Dedicated DB audit (ports, auth, SQLi, dumps, score)")
     console.print("  [accent]5[/accent]. [ok]AI / LLM Security[/ok]   AI attack surface (prompt injection, exposed keys & LLM servers)")
     console.print("  [accent]6[/accent]. [ok]Engagement (auto-pwn)[/ok] Actively EXPLOIT confirmed vulns (RCE/LFI/SSRF) — asks for authorisation")
+    console.print("  [accent]7[/accent]. [ok]OOB / Blind vulns[/ok]   Out-of-band detection of blind SSRF/RCE/XSS via callbacks")
     console.print()
 
-    choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5", "6"], default="2").strip()
+    choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5", "6", "7"], default="2").strip()
 
     match choice:
         case "1":
@@ -166,6 +167,8 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "ai_scan", None
         case "6":
             return "engage", None
+        case "7":
+            return "oob_scan", None
         case _:
             return "full", None
 
@@ -262,6 +265,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-open",
         action="store_true",
         help="Do not auto-open the HTML report in a browser when the scan finishes",
+    )
+    parser.add_argument(
+        "--oob-host",
+        metavar="HOST",
+        help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
+    )
+    parser.add_argument(
+        "--oob-port",
+        type=int,
+        default=0,
+        metavar="PORT",
+        help="Port for the out-of-band callback listener (oob_scan; 0 = auto-pick a free port)",
     )
     parser.add_argument(
         "--proxy",
@@ -375,6 +390,8 @@ def main() -> None:
         exploit=exploit,
         bruteforce=args.bruteforce,
         open_report=not args.no_open,
+        oob_host=args.oob_host,
+        oob_port=args.oob_port,
     )
 
 

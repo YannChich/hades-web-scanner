@@ -114,6 +114,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
     "db_scan": ["scanner.db.db_security"],
     "ai_scan": ["scanner.ai.llm_recon"],
     "engage": ["scanner.offensive.engage"],
+    "oob_scan": ["scanner.oob.oob_detect"],
 }
 
 # ---------------------------------------------------------------------------
@@ -257,6 +258,8 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "llm_recon":        ["detecting-ai-model-prompt-injection-attacks",
                          "implementing-llm-guardrails-for-security"],
     "engage":           ["performing-web-application-penetration-test"],
+    "oob_detect":       ["performing-blind-ssrf-exploitation",
+                         "exploiting-server-side-request-forgery"],
     "subdomain_scan":   ["performing-subdomain-enumeration-with-subfinder"],
     "port_scan":        ["scanning-network-with-nmap-advanced"],
     "ssl_check":        ["performing-ssl-tls-security-assessment"],
@@ -319,6 +322,8 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "llm_recon":       ["garak", "PyRIT", "promptfoo"],
     # ── Active exploitation engagement ──
     "engage":          ["nuclei", "Metasploit Framework", "msfvenom"],
+    # ── Out-of-band / blind detection ──
+    "oob_detect":      ["nuclei"],
 }
 
 # Tools named by Hades that are NOT in the bundled RedTeam-Tools PDF (AI red-team
