@@ -39,6 +39,7 @@ python main.py --url https://target.tld
 - [Why Hades](#why-hades)
 - [Features](#features)
 - [Reports Preview](#reports-preview)
+- [Understanding the Report Badges](#understanding-the-report-badges)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Scan Profiles](#scan-profiles)
@@ -135,6 +136,48 @@ gauge, the kill-chain attack path, matched playbooks, and the DB/AI panels).
 
 > Terminal capture coming soon. To generate your own demo, scan an authorised test target such as
 > `http://rest.vulnweb.com` and the HTML report opens automatically.
+
+---
+
+## Understanding the Report Badges
+
+Every finding in the HTML report is tagged with a row of small **badges** that turn a raw result into
+context you can act on. **Every badge is a clickable link** to its authoritative reference page (opens
+in a new tab) — so one click takes you from a finding to the definition of the weakness, the scoring
+calculator, or the attacker technique. Here is how to read each one.
+
+**Score & grade (top of the report)**
+
+| Indicator | Looks like | Meaning |
+|-----------|------------|---------|
+| Security score | a `0–100` gauge | Weighted risk score — **higher is safer**. Only actionable findings count; INFO items never lower it. |
+| Grade | `A` … `F` | Letter grade derived from the score (A green &rarr; F red). |
+
+**Severity badge** — one per finding, on the left
+
+| Badge | Meaning | Lowers the score? |
+|-------|---------|-------------------|
+| `CRITICAL` | Directly exploitable now — confirmed injection, exposed secret/`.env`, world-readable bucket. | Yes |
+| `HIGH` | Serious; a likely path to compromise — LFI, reflected XSS, exposed admin panel or `.git`. | Yes |
+| `MEDIUM` | Worth fixing; helps an attacker or leaks info — missing CSP/HSTS, in-band SSRF, open redirect. | Yes |
+| `LOW` | Minor hardening gap, little direct risk on its own. | Yes (slightly) |
+| `INFO` | Context only — load time, detected technology, "none found". | **No** |
+
+**Reference badges** — the coloured pills under each finding title (each one is a link)
+
+| Badge | Looks like | What it tells you | Click opens |
+|-------|------------|-------------------|-------------|
+| ID / CVE | `SQLI-3F9A` or `CVE-2021-23017` | A stable Hades ID for the finding (`MODULE-XXXX`) — or, for CVE findings, the **real CVE number**. | The NVD page for the CVE |
+| CVSS | `CVSS 9.8` | Industry severity score 0–10 (&ge;9 critical, &ge;7 high, &ge;4 medium). Coloured to match the finding. | The FIRST CVSS calculator (pre-filled with the vector when known) |
+| CWE | `CWE-79` | The **class** of weakness (CWE-79 = Cross-Site Scripting). The root-cause category. | cwe.mitre.org definition |
+| OWASP | `A03:2021` | The **OWASP Top 10 (2021)** category the issue falls under. | owasp.org Top 10 page |
+| ATT&CK | `T1190` | The **MITRE ATT&CK** technique an attacker uses to exploit it — the finding mapped to real adversary behaviour. | attack.mitre.org technique |
+| Tool | `🛠 sqlmap` | The offensive **tool** best suited to verify or exploit this finding. | The tool's GitHub repository |
+| Playbook | `📘 <name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook |
+
+> **How to read a finding at a glance:** the **severity** badge says *how urgent*; **CWE / OWASP** say
+> *what kind of bug*; **CVSS** says *how severe in the abstract*; **ATT&CK** says *how it's abused*; and
+> the **tool + playbook** badges say *what to do next*. Click any badge to open its reference.
 
 ---
 
