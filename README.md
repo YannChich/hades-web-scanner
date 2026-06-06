@@ -89,8 +89,12 @@ evidence**, and every piece of evidence comes with the next move.
 - `db_scan` — database exposure audit: port/banner fingerprint, unauthenticated access with live data
   extraction, SQL/NoSQL injection, secret-file and connection-string hunting, exposed admin GUIs, a DB
   Exposure Score and an exploitation Attack Path.
-- `ai_scan` — AI/LLM attack surface mapped to the OWASP LLM Top 10 and MITRE ATLAS: SDK fingerprinting,
-  exposed AI keys, unauthenticated local LLM servers (Ollama, vLLM, LM Studio), and prompt-injection.
+- `ai_scan` — offensive AI/LLM attack surface mapped to the OWASP LLM Top 10 (2025) and MITRE ATLAS:
+  SDK/framework fingerprinting, exposed AI keys (20+ providers), unauthenticated local LLM servers
+  (Ollama, vLLM, LM Studio, Open WebUI, Triton…), exposed AI UIs and agent/plugin manifests, and the
+  prompt-injection surface. With `--exploit` it proves impact with benign payloads — confirmed prompt
+  injection, **system-prompt leakage**, **jailbreak**, LLM-driven XSS and free inference — with an AI
+  Exposure Score, an ATLAS attack path and evidence in `loot/`.
 - `engage` — exploitation-first engagement that actively proves impact with benign payloads (RCE proof
   via `id`, arbitrary file read, SSRF to cloud metadata) and writes evidence files.
 - `oob_scan` — out-of-band (OAST) detection of blind SSRF / RCE / stored XSS via a self-hosted callback

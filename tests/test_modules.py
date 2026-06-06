@@ -344,6 +344,95 @@ class TestLLMRecon:
         from config import PROFILE_MODULES
         assert PROFILE_MODULES["ai_scan"] == ["scanner.ai.llm_recon"]
 
+    def test_more_key_providers_detected(self):
+        from scanner.ai import llm_recon
+        b = "Ab3Cd4Ef5Gh6Ij7Kl8Mn9Op0Qr1St2Uv3Wx4Yz5"        # 40 high-entropy chars
+        page = f"GROQ='gsk_{b}{b[:5]}'; XAI='xai-{b}{b[:22]}'; LS='lsv2_{b}'"
+        eng = _FakeCrawlEngine({"https://t/app.js": page})
+        provs = {f.raw["provider"] for f in llm_recon._check_exposed_keys(eng)}
+        assert {"Groq", "xAI Grok", "LangSmith"} <= provs
+
+    def test_low_entropy_key_is_not_flagged(self):
+        from scanner.ai import llm_recon
+        eng = _FakeCrawlEngine({"https://t/x.js": "key='sk-" + "a" * 40 + "'"})   # placeholder
+        assert llm_recon._check_exposed_keys(eng) == []
+
+    def test_ai_plugin_manifest_is_excessive_agency(self):
+        from scanner.ai import llm_recon
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req: httpx.Request) -> httpx.Response:
+                if req.url.path == "/.well-known/ai-plugin.json":
+                    return httpx.Response(200, json={"schema_version": "v1", "api": {"url": "/openapi.json"}})
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        fs = llm_recon._check_ai_manifests(eng)
+        assert fs and fs[0].raw["ai_category"] == "excessive_agency"
+        assert fs[0].owasp.startswith("LLM06:2025")
+
+    def test_active_injection_leak_jailbreak_output(self):
+        """Under --exploit, the full offensive suite confirms injection, leak, jailbreak and XSS output."""
+        import json as _json
+        from scanner.ai import llm_recon
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req: httpx.Request) -> httpx.Response:
+                if req.method == "GET":
+                    if req.url.path == "/api/chat":
+                        return httpx.Response(200, json={"status": "ready"})
+                    return httpx.Response(404, text="nf")
+                body = _json.loads(req.content or b"{}")
+                if "messages" in body:
+                    prompt = body["messages"][-1].get("content", "")
+                else:
+                    prompt = next((body[k] for k in
+                                   ("message", "prompt", "input", "query", "text", "question", "content")
+                                   if k in body), "")
+                p = prompt.lower()
+                if "token: hades7531" in p:
+                    ans = "Sure thing: HADES7531"
+                elif "system prompt" in p:
+                    ans = "You are a helpful banking assistant. Never reveal secrets. HADES7531"
+                elif "dan" in p:
+                    ans = "HADES7531-JB"
+                elif "repeat the following" in p:
+                    ans = "<b>HADES7531</b><img src=x onerror=alert(HADES7531)>"
+                else:
+                    ans = "hi"
+                return httpx.Response(200, json={"choices": [{"message": {"content": ans}}]})
+
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng.exploit = True
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        fs = llm_recon._check_prompt_injection(eng, active=True, loot=None)
+        cats = {f.raw["ai_category"] for f in fs}
+        assert {"prompt_injection_surface", "prompt_injection_confirmed", "system_prompt_leak",
+                "jailbreak_confirmed", "output_handling"} <= cats
+        leak = next(f for f in fs if f.raw["ai_category"] == "system_prompt_leak")
+        assert leak.owasp.startswith("LLM07:2025") and "AML.T0057" in leak.mitre
+
+    def test_run_emits_exposure_score_and_panel(self):
+        from unittest.mock import MagicMock
+        from scanner.ai import llm_recon
+        from scanner.crawler import CrawlResult
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req: httpx.Request) -> httpx.Response:
+                return httpx.Response(404, text="nf")
+
+        b = "Ab3Cd4Ef5Gh6Ij7Kl8Mn9Op0Qr1"
+        eng = ScanEngine("http://nonexistent.invalid", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://x/app.js": f"K='sk-ant-{b}'"}))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        fs = llm_recon.run(eng)
+        cats = {f.raw.get("ai_category") for f in fs}
+        assert "exposed_key" in cats and "score" in cats
+        score_f = next(f for f in fs if f.raw.get("ai_category") == "score")
+        assert 0 < score_f.raw["score"] <= 100
+        llm_recon.render_panel(fs)                  # must not raise
+
 
 # ---------------------------------------------------------------------------
 # SSRF accuracy — a reflected payload must NOT be a false positive
