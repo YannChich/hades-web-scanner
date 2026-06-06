@@ -52,15 +52,24 @@ def _path_variants(path: str) -> list[str]:
             p + "/~", p.upper(), p + "%20", "/%2e" + p, p + "?" + _rand(4) + "=1"]
 
 
-def _is_success(orig: httpx.Response, attempt: "httpx.Response | None") -> bool:
-    """A bypass works if a previously-forbidden path now returns real 200 content."""
+def _is_success(orig: httpx.Response, attempt: "httpx.Response | None", home_text: str = "") -> bool:
+    """A bypass works if a previously-forbidden path now returns real 200 content.
+
+    The 200 body must differ from the original 403/401 page AND must not just be the site's generic
+    homepage — many path mutations (/admin%20, /ADMIN…) route to the app root, which would otherwise
+    be mistaken for a successful bypass.
+    """
     if attempt is None or attempt.status_code != 200:
         return False
     body = attempt.text.strip()
     if not body:
         return False
-    # Must differ from the original 403/401 body (not just the same error page with a 200).
-    return abs(len(body) - len(orig.text)) > 32 or "403" not in body
+    home = home_text.strip()
+    # Routed to the homepage (identical body, or near-identical length for a substantial page) → not a bypass.
+    if home and (body == home or (len(home) > 100 and abs(len(body) - len(home)) <= max(16, len(home) // 40))):
+        return False
+    # Must differ meaningfully from the original forbidden page.
+    return abs(len(body) - len(orig.text.strip())) > 32
 
 
 def _try_path(engine: ScanEngine, variant: str) -> "httpx.Response | None":
@@ -88,18 +97,19 @@ def _try_verb(engine: ScanEngine, path: str, method: str) -> "httpx.Response | N
         return None
 
 
-def _attempt_bypass(engine: ScanEngine, path: str, orig: httpx.Response) -> "Finding | None":
+def _attempt_bypass(engine: ScanEngine, path: str, orig: httpx.Response,
+                    home_text: str = "") -> "Finding | None":
     # Path mutations
     for variant in _path_variants(path):
-        if _is_success(orig, _try_path(engine, variant)):
+        if _is_success(orig, _try_path(engine, variant), home_text):
             return _finding(path, f"path mutation '{variant}'")
     # Header spoofing
     for header_set in _BYPASS_HEADER_SETS:
-        if _is_success(orig, _try_header(engine, path, header_set)):
+        if _is_success(orig, _try_header(engine, path, header_set), home_text):
             return _finding(path, f"header {list(header_set)[0]}")
     # Verb tampering
     for method in ("POST", "HEAD", "OPTIONS"):
-        if _is_success(orig, _try_verb(engine, path, method)):
+        if _is_success(orig, _try_verb(engine, path, method), home_text):
             return _finding(path, f"verb tampering ({method})")
     return None
 
@@ -139,6 +149,12 @@ def run(engine: ScanEngine) -> list[Finding]:
         logger.info("auth_bypass: catch-all server (200s everything) — skipping")
         return []
 
+    # The homepage is the baseline that path mutations may accidentally route to.
+    try:
+        home_text = engine.get().text
+    except httpx.HTTPError:
+        home_text = ""
+
     # Find which curated paths are actually protected (401/403).
     protected: list[tuple[str, httpx.Response]] = []
     with ThreadPoolExecutor(max_workers=min(engine.threads, 10)) as pool:
@@ -151,7 +167,7 @@ def run(engine: ScanEngine) -> list[Finding]:
     findings: list[Finding] = []
     for path, orig in protected[:6]:
         try:
-            hit = _attempt_bypass(engine, path, orig)
+            hit = _attempt_bypass(engine, path, orig, home_text)
             if hit:
                 findings.append(hit)
         except Exception as exc:  # noqa: BLE001

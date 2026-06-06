@@ -3210,6 +3210,25 @@ class TestAuthBypass:
         eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
         assert auth_bypass.run(eng) == []
 
+    def test_homepage_routing_is_not_a_bypass(self):
+        """A path mutation that just routes to the generic homepage (200) is not a real bypass."""
+        from scanner.vulns import auth_bypass
+
+        home = "<html><body>Welcome home — lots of normal marketing content here.</body></html>"
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req: httpx.Request) -> httpx.Response:
+                p = req.url.path
+                if p == "/admin":
+                    return httpx.Response(403, text="Forbidden")
+                if p == "/" or p.lower().startswith("/admin"):
+                    return httpx.Response(200, text=home)     # mutations route to the homepage
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine("http://ab.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        assert auth_bypass.run(eng) == []
+
 
 # ---------------------------------------------------------------------------
 # bruteforce tests (opt-in)
