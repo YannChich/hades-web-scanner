@@ -26,10 +26,40 @@ from scanner.severity import sort_by_severity
 
 MODULE = "cve_vulnerability"
 
-# Cap NVD queries per scan (rate-limited, no key) and limit unknown-version noise.
-_MAX_PRODUCTS = 8
+# Cap NVD queries per scan (rate-limited, no key) and limit unknown-version noise. The cap only
+# applies to on-demand mode; with the full offline corpus present, matching is uncapped (no network).
+_MAX_PRODUCTS = 16
 _NVD_DELAY = 1.5
 _POSSIBLE_TOP = 10
+
+# Product + version extracted from service banners (port scan) — SSH/FTP/mail/DB exposure.
+# Each name here must have an alias entry so it resolves to a CPE.
+_BANNER_SIGS: list[tuple[str, str]] = [
+    ("OpenSSH",       r"OpenSSH[_/ ]([0-9][\w.]*?)(?:[ \-,]|$)"),
+    ("nginx",         r"nginx/([0-9][0-9.]+)"),
+    ("Apache",        r"Apache(?:/| )([0-9][0-9.]+)"),
+    ("Microsoft-IIS", r"Microsoft-IIS/([0-9][0-9.]+)"),
+    ("lighttpd",      r"lighttpd/([0-9][0-9.]+)"),
+    ("ProFTPD",       r"ProFTPD ([0-9][0-9.]+)"),
+    ("Pure-FTPd",     r"Pure-FTPd"),
+    ("vsftpd",        r"vsftpd[ )]([0-9][0-9.]+)"),
+    ("Exim",          r"Exim ([0-9][0-9.]+)"),
+    ("Postfix",       r"\bPostfix\b"),
+    ("Dovecot",       r"\bDovecot\b"),
+    ("MariaDB",       r"([0-9][0-9.]+)-MariaDB"),
+    ("PostgreSQL",    r"PostgreSQL ([0-9][0-9.]+)"),
+]
+
+
+def _parse_banner(banner: str) -> list[tuple[str, str]]:
+    """Extract (product, version) pairs from a service banner; version '' when not present."""
+    out: list[tuple[str, str]] = []
+    for name, pat in _BANNER_SIGS:
+        m = re.search(pat, banner, re.IGNORECASE)
+        if m:
+            ver = next((g for g in (m.groups() or ()) if g), "") if m.lastindex else ""
+            out.append((name, ver))
+    return out
 
 
 def _info(title: str, desc: str) -> Finding:
@@ -78,6 +108,19 @@ def _collect_tech(engine: ScanEngine) -> list[DetectedTech]:
                     0.9 if ver else 0.6, f.title)
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"cve: {modpath} collection failed: {exc}")
+
+    # Service banners from a port scan expose non-HTTP products (SSH/FTP/mail/DB) with versions.
+    try:
+        for f in importlib.import_module("scanner.recon.port_scan").run(engine):
+            r = f.raw or {}
+            banner = (r.get("banner") or "").strip()
+            if not banner:
+                continue
+            for name, ver in _parse_banner(banner):
+                add(name, ver, "service", f"port {r.get('port', '')}/{r.get('service', '')} banner",
+                    0.9 if ver else 0.5, f"Banner: {banner[:120]}")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"cve: port_scan collection failed: {exc}")
 
     return list(techs.values())
 

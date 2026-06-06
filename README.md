@@ -95,7 +95,8 @@ evidence**, and every piece of evidence comes with the next move.
 - `oob_scan` — out-of-band (OAST) detection of blind SSRF / RCE / stored XSS via a self-hosted callback
   listener, with an automatic public tunnel (cloudflared / ngrok) so it works behind NAT.
 - `cve_scan` (interactive **menu option 8**) — CVE Vulnerability Intelligence: fingerprints the target's
-  stack, matches it to real CVEs from a local vulnerability database, and ranks each by a Hades CVE
+  stack broadly (HTTP headers, JS/CSS/CMS/framework signatures, and SSH/FTP/mail/DB service banners),
+  matches it to real CVEs from a local vulnerability database, and ranks each by a Hades CVE
   Priority Score that fuses CVSS, FIRST EPSS exploit probability and the CISA KEV catalog. 100% free,
   no API key — built from CISA KEV, FIRST EPSS and the NVD 2.0 API; the local SQLite database is
   auto-created and auto-refreshed. Run `python tools/build_vulndb.py` once to bulk-load the **entire

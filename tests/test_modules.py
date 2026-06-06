@@ -435,6 +435,20 @@ class TestCVE:
         vendors = {c.vendor for c in cands}
         assert {"nginx", "f5"} <= vendors
 
+    def test_expanded_alias_coverage(self):
+        """Newly-mapped web/service products must resolve to their NVD-verified CPEs."""
+        from scanner.cve.cpe_matcher import candidates
+        from scanner.cve.models import DetectedTech
+        expect = {
+            "OpenSSH": "openbsd:openssh", "PrestaShop": "prestashop:prestashop",
+            "Symfony": "sensiolabs:symfony", "OpenCart": "opencart:opencart",
+            "Jenkins": "jenkins:jenkins", "MariaDB": "mariadb:mariadb",
+            "Varnish": "varnish-cache:varnish", "Exim": "exim:exim", "vsftpd": "beasts:vsftpd",
+        }
+        for name, prefix in expect.items():
+            cands = candidates(DetectedTech(name=name, source="banner", evidence=name))
+            assert cands and any(c.cpe_prefix == f"cpe:2.3:a:{prefix}" for c in cands), name
+
     def test_apache_http_vs_tomcat_ambiguity(self):
         from scanner.cve.cpe_matcher import candidates
         from scanner.cve.models import DetectedTech
@@ -540,6 +554,15 @@ class TestCVE:
         cves = [f for f in findings if f.module == "cve_vulnerability" and f.raw.get("cve_id")]
         assert any(f.raw["cve_id"] == "CVE-2021-23017" and f.raw["kev"] for f in cves)
         assert any(f.raw["cve_confidence"] == "CONFIRMED" for f in cves)
+
+    def test_service_banner_parsing(self):
+        from scanner.cve.detector import _parse_banner
+        assert ("OpenSSH", "8.2p1") in _parse_banner("SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5")
+        assert ("ProFTPD", "1.3.5") in _parse_banner("220 ProFTPD 1.3.5 Server ready")
+        assert ("vsftpd", "3.0.3") in _parse_banner("220 (vsFTPd 3.0.3)")
+        assert any(n == "Exim" and v == "4.94" for n, v in _parse_banner("220 mail ESMTP Exim 4.94"))
+        assert ("Postfix", "") in _parse_banner("220 mail.example.com ESMTP Postfix")
+        assert _parse_banner("HTTP/1.1 200 OK") == []        # no false product from a protocol token
 
     def test_nvd_date_windows(self):
         from datetime import datetime, timezone
