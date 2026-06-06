@@ -143,9 +143,20 @@ def run(engine: ScanEngine) -> list[Finding]:
                         Severity.INFO, "", {"confidence": "high"})]
 
     labels = _load_labels()
-    wildcard_ips = _resolve(f"{_rand_label()}.{domain}")
+
+    # Wildcard DNS: probe several random labels and union their answers. A single probe misses
+    # CDN/round-robin wildcards that rotate IPs, which then leak guessed labels (dev, admin, git…)
+    # as bogus "sensitive subdomains". A name is the wildcard if ALL its IPs are in that set.
+    wildcard_ips: set[str] = set()
+    for _ in range(3):
+        probe = _resolve(f"{_rand_label()}.{domain}")
+        if probe:
+            wildcard_ips |= probe
     if wildcard_ips:
-        logger.info(f"subdomain_scan: wildcard DNS for {domain} — only distinct IPs reported")
+        logger.info(f"subdomain_scan: wildcard DNS for {domain} — wildcard-matching names suppressed")
+
+    def _is_wildcard(ips: set[str]) -> bool:
+        return bool(wildcard_ips) and ips <= wildcard_ips
 
     # --- Active brute force ---
     found: dict[str, set[str]] = {}
@@ -154,7 +165,7 @@ def run(engine: ScanEngine) -> list[Finding]:
             futures = {pool.submit(_resolve, f"{label}.{domain}"): label for label in labels}
             for fut in as_completed(futures):
                 ips = fut.result()
-                if ips and not (wildcard_ips and ips == wildcard_ips):
+                if ips and not _is_wildcard(ips):
                     found[f"{futures[fut]}.{domain}"] = ips
 
     # --- Passive (CT logs) ---
@@ -163,7 +174,7 @@ def run(engine: ScanEngine) -> list[Finding]:
         if name == domain or name in found:
             continue
         ips = _resolve(name)
-        if ips and not (wildcard_ips and ips == wildcard_ips):
+        if ips and not _is_wildcard(ips):
             found.setdefault(name, ips)
 
     if not found:

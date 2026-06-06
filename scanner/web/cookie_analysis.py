@@ -80,17 +80,21 @@ def _check_secure(cookie: _Cookie, is_https: bool) -> Finding | None:
     # Only flag if site is HTTPS — sending a Secure-less cookie over HTTP is expected
     if not is_https:
         return None
+    # A session/auth cookie leaking over HTTP enables hijacking (High); a tracking/UI cookie
+    # without Secure is a minor hardening gap (Low) — rating every cookie High over-reports.
+    session = cookie.is_session
     return Finding(
         module=MODULE,
-        title=f"Cookie Missing Secure Flag: {cookie.name}",
+        title=f"{'Session ' if session else ''}Cookie Missing Secure Flag: {cookie.name}",
         description=(
             f"Cookie '{cookie.name}' does not have the Secure flag set. "
             "It will be transmitted over unencrypted HTTP connections if the user visits the "
             "HTTP version of the site, exposing it to network interception."
+            + (" This is a session/auth cookie, so interception enables session hijacking." if session else "")
         ),
-        severity=Severity.HIGH,
+        severity=Severity.HIGH if session else Severity.LOW,
         recommendation=f"Add the Secure attribute to the '{cookie.name}' Set-Cookie header.",
-        raw={"cookie": cookie.name, "issue": "missing_secure", "raw": cookie.raw},
+        raw={"cookie": cookie.name, "issue": "missing_secure", "session": session, "raw": cookie.raw},
     )
 
 
@@ -117,20 +121,23 @@ def _check_samesite(cookie: _Cookie) -> Finding | None:
     samesite = cookie.attr_value("samesite")
 
     if not samesite:
+        # Modern browsers default to SameSite=Lax, so an absent attribute is a hardening gap, not a
+        # live CSRF hole — Low for ordinary cookies, Medium for session/auth cookies.
+        session = cookie.is_session
         return Finding(
             module=MODULE,
             title=f"Cookie Missing SameSite Attribute: {cookie.name}",
             description=(
                 f"Cookie '{cookie.name}' has no SameSite attribute. "
                 "Browsers default to 'Lax' in modern versions, but explicit absence leaves "
-                "the cookie potentially exposed to cross-site request forgery."
+                "the cookie potentially exposed to cross-site request forgery on older clients."
             ),
-            severity=Severity.MEDIUM,
+            severity=Severity.MEDIUM if session else Severity.LOW,
             recommendation=(
                 f"Add 'SameSite=Strict' or 'SameSite=Lax' to the '{cookie.name}' cookie. "
                 "Use 'SameSite=None; Secure' only if cross-site access is explicitly required."
             ),
-            raw={"cookie": cookie.name, "issue": "missing_samesite", "raw": cookie.raw},
+            raw={"cookie": cookie.name, "issue": "missing_samesite", "session": session, "raw": cookie.raw},
         )
 
     if samesite.lower() == "none":

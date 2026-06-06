@@ -2154,6 +2154,25 @@ class TestSubdomainScan:
         findings = mod.run(ScanEngine("https://example.com", rate_delay=0))
         assert len(findings) == 1 and "none found" in findings[0].title.lower()
 
+    def test_rotating_wildcard_suppressed(self, monkeypatch):
+        """A CDN wildcard that rotates IPs must still suppress guessed labels (no false sensitives)."""
+        import threading
+        calls = {"n": 0}
+        lock = threading.Lock()
+
+        def fake_resolve(host):
+            with lock:
+                i = calls["n"]
+                calls["n"] += 1
+            # First 3 calls are the wildcard probes; alternate the two rotating IPs so the union
+            # covers both. Everything afterwards lands on one of them -> must be suppressed.
+            return {"1.1.1.1"} if i % 2 == 0 else {"2.2.2.2"}
+
+        mod = self._patch(monkeypatch, ["dev", "admin"], fake_resolve)
+        findings = mod.run(ScanEngine("https://example.com", rate_delay=0))
+        assert not any(f.severity == Severity.LOW for f in findings)
+        assert len(findings) == 1 and "none found" in findings[0].title.lower()
+
     def test_crtsh_passive_discovery(self, monkeypatch):
         def fake_resolve(host):
             return {"203.0.113.5"} if host in ("www.example.com", "api.example.com") else None
@@ -2172,6 +2191,38 @@ class TestSubdomainScan:
         takeover = [f for f in findings if "takeover" in f.title.lower()]
         assert takeover and takeover[0].severity == Severity.HIGH
         assert takeover[0].raw["service"] == "AWS S3"
+
+
+# ---------------------------------------------------------------------------
+# cookie_analysis severity calibration
+# ---------------------------------------------------------------------------
+
+class TestCookieAnalysis:
+    @staticmethod
+    def _run(set_cookies, scheme="https"):
+        import scanner.web.cookie_analysis as ca
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                headers = [("content-type", "text/html")] + [("set-cookie", c) for c in set_cookies]
+                return httpx.Response(200, text="<html></html>", headers=headers)
+
+        eng = ScanEngine(f"{scheme}://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        return ca.run(eng)
+
+    def test_session_cookie_missing_secure_is_high(self):
+        f = [x for x in self._run(["sessionid=abc; Path=/"]) if x.raw.get("issue") == "missing_secure"]
+        assert f and f[0].severity == Severity.HIGH
+
+    def test_tracking_cookie_missing_secure_is_low(self):
+        f = [x for x in self._run(["_ga=GA1.2.3; Path=/"]) if x.raw.get("issue") == "missing_secure"]
+        assert f and f[0].severity == Severity.LOW    # non-session cookie -> not High
+
+    def test_missing_samesite_calibrated_by_session(self):
+        out = self._run(["sessionid=abc; Secure", "_ga=GA1; Secure"])
+        sev = {x.raw["cookie"]: x.severity for x in out if x.raw.get("issue") == "missing_samesite"}
+        assert sev.get("sessionid") == Severity.MEDIUM and sev.get("_ga") == Severity.LOW
 
 
 # ---------------------------------------------------------------------------
