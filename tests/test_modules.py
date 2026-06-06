@@ -1090,18 +1090,43 @@ class TestSqliDetect:
             '</body></html>'
         )
 
+        # The DB error must be INTRODUCED by a breaking payload — the clean baseline is error-free,
+        # otherwise a page that always prints that text would be a false positive.
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                q = str(request.url)
+                if "%27" in q or "%22" in q or "'" in q or '"' in q:
+                    return httpx.Response(200, text=sql_error_html)
+                return httpx.Response(200, text="<html><body>ok, record found</body></html>")
+
         eng = ScanEngine(base_url, rate_delay=0)
-        # The shared crawl yields a parametrised URL; any request returns a SQL error
         eng.get_crawl = MagicMock(return_value=CrawlResult(
             parametrised_urls=[f"{base_url}/search?id=1"],
         ))
-        eng.request = MagicMock(return_value=httpx.Response(200, text=sql_error_html))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
 
         findings = run(eng)
 
         critical = [f for f in findings if f.severity == Severity.CRITICAL]
         assert critical, "Expected Critical finding for SQL error in response"
         assert any("sql" in f.title.lower() for f in critical)
+
+    def test_preexisting_sql_error_text_is_not_false_positive(self, base_url):
+        """A page that always prints SQL-error-like text (clean baseline included) is not SQLi."""
+        from scanner.vulns.sqli_detect import run
+        from scanner.crawler import CrawlResult
+
+        err = "<html>You have an error in your SQL syntax near the manual</html>"
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(200, text=err)     # identical for baseline AND injected
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(parametrised_urls=[f"{base_url}/p?id=1"]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        findings = run(eng)
+        assert not any(f.raw.get("technique") == "error-based" for f in findings)
 
     def test_no_params_returns_info(self, base_url):
         """No parametrised URLs from the crawl must return an Info finding, not Critical."""

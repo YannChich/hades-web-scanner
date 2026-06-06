@@ -141,14 +141,19 @@ def _finding(url: str, param: str, technique: str, payload: str, db: str) -> Fin
 def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> Finding | None:
     orig = (parse_qs(urlparse(url).query, keep_blank_values=True).get(param) or ["1"])[0] or "1"
 
-    # 1. Error-based
-    for _name, payload in _ERROR_PAYLOADS:
-        resp = _get(engine, _inject(url, param, payload))
-        if resp and (db := _detect_error(resp.text)):
-            return _finding(url, param, "error-based", payload, db)
+    # Baseline (clean request) — reused by the error and boolean stages.
+    base = _get(engine, url)
+    base_has_error = base is not None and _detect_error(base.text) is not None
+
+    # 1. Error-based — the DBMS error must be INTRODUCED by our payload, not already present in the
+    # clean response (a page that normally prints "SQL error ..." text would otherwise false-positive).
+    if not base_has_error:
+        for _name, payload in _ERROR_PAYLOADS:
+            resp = _get(engine, _inject(url, param, payload))
+            if resp and (db := _detect_error(resp.text)):
+                return _finding(url, param, "error-based", payload, db)
 
     # 2. Boolean-based blind
-    base = _get(engine, url)
     if base is not None:
         for true_t, false_t in _BOOL_PAIRS:
             rt = _get(engine, _inject(url, param, true_t.format(v=orig)))
