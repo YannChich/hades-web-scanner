@@ -3760,12 +3760,17 @@ class TestHephaestusTls:
 
     def test_certificate_findings(self):
         from scanner.tls.hephaestus_tls import _cert_findings
-        # expired + hostname mismatch
+        # expired (also fails chain validation) + hostname mismatch — must NOT double-report untrusted
         exp = {"days_left": -5, "expiry": "2020-01-01", "subject": "CN=old",
-               "hostname_match": False, "self_signed": False, "trusted": True, "weak_sig": False}
+               "hostname_match": False, "self_signed": False, "trusted": False, "weak_sig": False}
         sev = {f.title: f.severity for f in _cert_findings(exp, "t.test", 443)}
         assert sev.get("Certificate Expired") == Severity.HIGH
         assert sev.get("Certificate Hostname Mismatch") == Severity.HIGH
+        assert "Untrusted Certificate Chain" not in sev    # expiry already explains the untrust
+        # genuinely untrusted (unknown CA) but valid dates and not self-signed -> still reported
+        unk = {"days_left": 200, "expiry": "x", "subject": "CN=ok", "hostname_match": True,
+               "self_signed": False, "trusted": False, "weak_sig": False}
+        assert any(f.title == "Untrusted Certificate Chain" for f in _cert_findings(unk, "t.test", 443))
         # self-signed
         ss = {"days_left": 200, "expiry": "x", "subject": "CN=self", "hostname_match": True,
               "self_signed": True, "trusted": False, "weak_sig": False}

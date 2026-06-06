@@ -266,8 +266,9 @@ def _extract_cert(dep, host: str) -> dict:
 def _cert_findings(info: dict, host: str, port: int) -> list[Finding]:
     findings: list[Finding] = []
     days = info.get("days_left")
+    expired = days is not None and days < 0
 
-    if days is not None and days < 0:
+    if expired:
         findings.append(_finding(
             "Certificate Expired", Severity.HIGH,
             f"The server's TLS certificate expired {abs(days)} day(s) ago.",
@@ -303,10 +304,13 @@ def _cert_findings(info: dict, host: str, port: int) -> list[Finding]:
             "AitM certificate indistinguishable from the real one.",
             [f"Subject: {info.get('subject', '')}", "Issuer: self"], host, port, _CWE_CERT, _OWASP,
             ["T1557"], "Use a certificate issued by a publicly trusted CA.", _REF_CERT, "cert_self_signed"))
-    elif not info.get("trusted"):
+    elif not info.get("trusted") and not expired:
+        # Only report a generic untrusted chain when it is NOT already explained by expiry or a
+        # self-signed cert (which always fail validation) — otherwise the same root cause is
+        # double-counted as two HIGH findings.
         findings.append(_finding(
             "Untrusted Certificate Chain", Severity.HIGH,
-            "The certificate chain does not validate against the standard trust stores (untrusted or "
+            "The certificate chain does not validate against the standard trust stores (unknown CA or "
             "incomplete chain).",
             "An untrusted chain produces browser warnings users learn to bypass, weakening protection "
             "against AitM.",
