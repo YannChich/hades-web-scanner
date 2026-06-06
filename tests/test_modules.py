@@ -1517,6 +1517,22 @@ class TestSensitiveFiles:
         env = [f for f in findings if f.raw.get("path") == "/.env"]
         assert env and env[0].severity == Severity.CRITICAL
 
+    def test_low_value_disclosure_is_not_critical(self, base_url):
+        """An exposed package.json is dependency disclosure (LOW), not a CRITICAL secret leak."""
+        from scanner.web.sensitive_files import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/package.json":
+                    return httpx.Response(200, text='{"name":"app","dependencies":{"x":"1"}}',
+                                          headers={"content-type": "application/json"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        pkg = [f for f in run(eng) if f.raw.get("path") == "/package.json"]
+        assert pkg and pkg[0].severity == Severity.LOW
+
     def test_blanket_403_collapses_to_single_info(self, base_url):
         """A server that 403s every path must yield one INFO finding, no Medium spam."""
         from scanner.web.sensitive_files import run
@@ -2233,6 +2249,22 @@ class TestBackupFiles:
         eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
         findings = backup_files.run(eng)
         assert not [f for f in findings if f.severity == Severity.CRITICAL]
+
+    def test_image_response_not_flagged(self, base_url, monkeypatch):
+        """An image served for a backup path (asset / soft-404) must not be flagged as a backup."""
+        from scanner.web import backup_files
+        monkeypatch.setattr(backup_files, "_candidates", lambda eng: ["/backup.zip"])
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/backup.zip":
+                    return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nnotazip",
+                                          headers={"content-type": "image/png"})
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        assert not [f for f in backup_files.run(eng) if f.severity == Severity.CRITICAL]
 
 
 # ---------------------------------------------------------------------------

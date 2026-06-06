@@ -98,14 +98,20 @@ def _candidates(engine: ScanEngine) -> list[str]:
 
 
 def _confirm(content: bytes, content_type: str) -> tuple[bool, str]:
-    """Return (is_real_backup, label). HTML is rejected; magic bytes / source text accepted."""
-    if "html" in content_type.lower() or content[:64].lstrip().lower().startswith((b"<!doctype", b"<html")):
+    """Return (is_real_backup, label). HTML/asset responses are rejected; magic bytes / source text accepted."""
+    ct = content_type.lower()
+    if "html" in ct or content[:64].lstrip().lower().startswith((b"<!doctype", b"<html")):
         return False, ""
     for magic, label in _MAGIC.items():
         if content.startswith(magic):
             return True, label
+    # An image/font/media/script/style response to a backup path is the server serving an asset or a
+    # soft-404, never a real backup — reject it to avoid false positives.
+    if (any(ct.startswith(p) for p in ("image/", "video/", "audio/", "font/"))
+            or "javascript" in ct or ct.startswith("text/css")):
+        return False, ""
     # Non-HTML text (e.g. a .bak of source code) is plausible.
-    if content_type and "text" in content_type.lower():
+    if "text" in ct:
         return True, "source/text backup"
     return True, "binary file"
 

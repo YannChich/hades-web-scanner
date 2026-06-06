@@ -164,6 +164,21 @@ _MAY_BE_HTML: frozenset[str] = frozenset({
     "/phpinfo.php", "/info.php", "/server-status", "/server-info", "/web.config",
 })
 
+# Severity calibration: an exposed file is CRITICAL by default (it tends to hold secrets), but
+# several targets are information/dependency disclosure rather than direct credential leakage and
+# should not be rated CRITICAL on every site that serves them.
+_EXPOSURE_SEVERITY: dict[str, Severity] = {
+    # Dependency manifests / OS metadata — disclosure only, no secrets.
+    "/composer.json": Severity.LOW, "/package.json": Severity.LOW,
+    "/.gitignore": Severity.LOW, "/.DS_Store": Severity.LOW,
+    # Diagnostics & CI config — sensitive info / sometimes tokens, but not a direct credential file.
+    "/phpinfo.php": Severity.HIGH, "/info.php": Severity.HIGH,
+    "/server-status": Severity.HIGH, "/server-info": Severity.HIGH,
+    "/Dockerfile": Severity.MEDIUM, "/.travis.yml": Severity.MEDIUM,
+    "/Jenkinsfile": Severity.MEDIUM, "/.gitlab-ci.yml": Severity.MEDIUM,
+    "/next.config.js": Severity.MEDIUM,
+}
+
 # Threshold of uniform 403s above which we assume a blanket deny rule even if the
 # random probe didn't conclusively 403 (defensive fallback).
 _BLANKET_403_COUNT = 6
@@ -275,6 +290,7 @@ def _confidence_200(target: _Target) -> str:
 
 def _exposed_finding(target: _Target, content_type: str) -> Finding:
     ctype_note = f" Served as Content-Type: {content_type}." if content_type else ""
+    severity = _EXPOSURE_SEVERITY.get(target.path, Severity.CRITICAL)
     return Finding(
         module=MODULE,
         title=f"Sensitive File Exposed [200]: {target.path}",
@@ -283,7 +299,7 @@ def _exposed_finding(target: _Target, content_type: str) -> Finding:
             "This file may contain credentials, secrets, or internal configuration."
             f"{ctype_note} Verify manually before acting."
         ),
-        severity=Severity.CRITICAL,
+        severity=severity,
         recommendation=(
             f"Immediately remove or block access to {target.path}. "
             "Rotate any exposed credentials and add a deny rule in your web server."
