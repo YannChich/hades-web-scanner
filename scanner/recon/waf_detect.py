@@ -16,9 +16,11 @@ from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "waf_detect"
 
-# Probe payload — obviously malicious-looking but harmless; a real WAF will block it
+# Probe payload — obviously malicious-looking but harmless; a real WAF will block it.
 _WAF_PROBE = "?q=<script>alert(1)</script>&id=1'%20OR%201=1--"
-_BLOCK_CODES = {403, 406, 429, 503}
+# Only 403/406 are reliable "this payload was blocked" signals. 429 (rate limit — possibly our own
+# scan) and 503 (server unavailable) are too ambiguous to attribute to a WAF and caused false positives.
+_BLOCK_CODES = {403, 406}
 
 
 @dataclass
@@ -79,8 +81,14 @@ def _fingerprint_headers(headers: httpx.Headers) -> list[str]:
     return detected
 
 
-def _probe_generic_waf(engine: ScanEngine) -> bool:
-    """Send a WAF-triggering probe; return True if the response looks blocked."""
+def _probe_generic_waf(engine: ScanEngine, baseline_status: int) -> bool:
+    """Send a WAF-triggering probe; True only if the *payload* is specifically blocked.
+
+    Requires that the clean homepage was NOT already returning a block code, so a site that
+    blanket-403s (or is simply down) is not mistaken for a WAF reacting to the payload.
+    """
+    if baseline_status in _BLOCK_CODES:
+        return False
     probe_url = engine.url.rstrip("/") + _WAF_PROBE
     try:
         resp = engine.request("GET", probe_url)
@@ -110,28 +118,30 @@ def run(engine: ScanEngine) -> list[Finding]:
         ))
 
     if not detected:
-        # Fall back to active probe
-        blocked = _probe_generic_waf(engine)
+        # Fall back to an active probe, compared against the clean homepage status.
+        blocked = _probe_generic_waf(engine, resp.status_code)
         if blocked:
             findings.append(_finding(
                 "Generic WAF Detected",
-                f"An unidentified WAF blocked a probe request to {engine.url + _WAF_PROBE} "
-                f"with a {_BLOCK_CODES}-class status code. Provider could not be fingerprinted.",
+                f"An unidentified WAF blocked a malicious-looking probe to {engine.url + _WAF_PROBE} "
+                f"(HTTP {sorted(_BLOCK_CODES)}) while the clean homepage returned {resp.status_code}. "
+                "Provider could not be fingerprinted.",
                 Severity.INFO,
                 recommendation="The WAF provider is unknown; header signatures did not match any known product.",
-                raw={"detection_method": "probe_blocked"},
+                raw={"detection_method": "probe_blocked", "confidence": "medium"},
             ))
         else:
+            # "No WAF" is a hardening recommendation, not a vulnerability — keep it informational.
             findings.append(_finding(
                 "No WAF / CDN Detected",
-                "No known WAF or CDN signatures were found in response headers, and the probe "
-                "request was not blocked. The origin server may be directly exposed.",
-                Severity.LOW,
+                "No known WAF or CDN signatures were found in response headers, and a malicious "
+                "probe was not blocked. The origin server may be directly exposed.",
+                Severity.INFO,
                 recommendation=(
                     "Consider placing the application behind a WAF or CDN such as "
                     "Cloudflare, AWS CloudFront, or Akamai to filter malicious traffic."
                 ),
-                raw={"detection_method": "none"},
+                raw={"detection_method": "none", "confidence": "high"},
             ))
 
     return findings

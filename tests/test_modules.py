@@ -2767,8 +2767,9 @@ class TestCrawler:
             f"{base_url}/contact": _html(
                 '<form action="/submit" method="post">'
                 '<input name="email" type="email"><input name="msg"></form>'
-                '<a href="mailto:info@example.com">mail</a> '
-                'reach us at sales@example.com'
+                '<a href="mailto:info@acme-corp.com">mail</a> '
+                'reach us at sales@acme-corp.com '
+                '<img src="/logo@2x.png"> placeholder you@example.com'
             ),
         }
 
@@ -2784,10 +2785,24 @@ class TestCrawler:
         # Form extracted from the contact page
         assert any(f.method == "post" and "msg" in f.fields for f in result.forms)
         # Both mailto and free-text emails captured
-        assert "info@example.com" in result.emails
-        assert "sales@example.com" in result.emails
+        assert "info@acme-corp.com" in result.emails
+        assert "sales@acme-corp.com" in result.emails
+        # Asset references and RFC-2606 placeholders are filtered out (not real exposures)
+        assert "logo@2x.png" not in result.emails
+        assert "you@example.com" not in result.emails
         # External link separated from internal ones
         assert "https://external.com/page" in result.external_links
+
+    def test_email_filtering(self):
+        from scanner.crawler import _is_real_email
+        assert _is_real_email("info@acme-corp.com")
+        assert _is_real_email("a.b+c@sub.example.io")
+        assert not _is_real_email("logo@2x.png")              # retina asset reference
+        assert not _is_real_email("sprite@3x.svg")
+        assert not _is_real_email("app@bundle.min.js")
+        assert not _is_real_email("you@example.com")          # RFC-2606 placeholder
+        assert not _is_real_email("deadbeef@o12.ingest.sentry.io")   # Sentry DSN
+        assert not _is_real_email("notanemail")
 
     def test_max_pages_is_respected(self, engine_factory, base_url):
         from scanner.crawler import crawl
@@ -3206,3 +3221,107 @@ class TestWayback:
         eng = ScanEngine("http://t.test", rate_delay=0)
         eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
         assert wayback.run(eng) == []
+
+
+# ---------------------------------------------------------------------------
+# CORS severity calibration
+# ---------------------------------------------------------------------------
+
+class TestCorsCheck:
+    @staticmethod
+    def _run(base_url: str, acao_mode: str, creds: bool):
+        import scanner.web.cors_check as cors
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                origin = request.headers.get("Origin", "")
+                headers = {"content-type": "text/html"}
+                if acao_mode == "reflect":
+                    headers["access-control-allow-origin"] = origin
+                elif acao_mode == "wildcard":
+                    headers["access-control-allow-origin"] = "*"
+                if creds:
+                    headers["access-control-allow-credentials"] = "true"
+                return httpx.Response(200, text="<html></html>", headers=headers)
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        return cors.run(eng)
+
+    def test_wildcard_no_creds_is_low(self, base_url):
+        f = [x for x in self._run(base_url, "wildcard", False) if "Wildcard Origin (" in x.title]
+        assert f and f[0].severity == Severity.LOW          # public CDN/API config — not HIGH
+
+    def test_wildcard_with_creds_is_critical(self, base_url):
+        assert any(x.severity == Severity.CRITICAL for x in self._run(base_url, "wildcard", True))
+
+    def test_reflected_no_creds_is_medium(self, base_url):
+        f = [x for x in self._run(base_url, "reflect", False) if "No Credentials" in x.title]
+        assert f and f[0].severity == Severity.MEDIUM       # readable but unauthenticated → not HIGH
+
+    def test_reflected_with_creds_is_critical(self, base_url):
+        assert any(x.severity == Severity.CRITICAL for x in self._run(base_url, "reflect", True))
+
+
+class TestCveMapping:
+    _NVD = {"vulnerabilities": [{"cve": {
+        "id": "CVE-2021-23017", "published": "2021-05-25T00:00:00", "lastModified": "2021-06-01T00:00:00",
+        "descriptions": [{"lang": "en", "value": "nginx resolver off-by-one"}],
+        "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 9.8, "vectorString": "CVSS:3.1/AV:N"},
+                                       "baseSeverity": "CRITICAL"}]},
+        "weaknesses": [{"description": [{"value": "CWE-787"}]}], "references": [],
+        "configurations": [{"nodes": [{"cpeMatch": [{
+            "criteria": "cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*", "vulnerable": True,
+            "versionStartIncluding": "0.6.18", "versionEndExcluding": "1.21.0"}]}]}]}}]}
+
+    def test_version_accurate_no_false_positive(self, tmp_path, monkeypatch):
+        from scanner.cve import db as cvedb, feed_downloader as fd
+        from scanner.vulns import cve_mapping
+        from scanner.engine import ScanEngine
+
+        monkeypatch.setattr(cvedb, "DB_PATH", tmp_path / "v.sqlite")
+        monkeypatch.setattr(cve_mapping, "_NVD_DELAY", 0)
+        monkeypatch.setattr(fd, "query_nvd", lambda *a, **k: self._NVD)
+        eng = ScanEngine("https://target.test", rate_delay=0)
+
+        # Detected version IS in the affected range -> mapped.
+        hits = cve_mapping.lookup("nginx", "1.18.0", eng)
+        assert any(f.raw.get("cve_id") == "CVE-2021-23017" for f in hits)
+        assert all(f.module == "cve_mapping" for f in hits)
+        # Patched version is NOT in range -> no finding (the old keywordSearch would have matched).
+        assert cve_mapping.lookup("nginx", "1.25.0", eng) == []
+        # No CPE alias for an unknown product -> no guessing, no false positive.
+        assert cve_mapping.lookup("AcmeCustomServer", "1.0", eng) == []
+
+
+class TestWafDetect:
+    @staticmethod
+    def _eng(home_status: int, headers: dict | None = None, probe_status: int | None = None):
+        import scanner.recon.waf_detect as waf
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                if request.url.query and probe_status is not None:      # the malicious probe
+                    return httpx.Response(probe_status, text="blocked")
+                return httpx.Response(home_status, text="<html></html>", headers=headers or {})
+
+        eng = ScanEngine("https://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        return eng, waf
+
+    def test_header_fingerprint(self):
+        eng, waf = self._eng(200, headers={"cf-ray": "abc-123"})
+        assert any("Cloudflare" in f.title for f in waf.run(eng))
+
+    def test_no_waf_is_info_not_low(self):
+        eng, waf = self._eng(200, probe_status=200)
+        f = [x for x in waf.run(eng) if "No WAF" in x.title]
+        assert f and f[0].severity == Severity.INFO
+
+    def test_503_site_not_flagged_as_waf(self):
+        eng, waf = self._eng(503, probe_status=503)        # site down, not a WAF
+        assert not any("Generic WAF" in f.title for f in waf.run(eng))
+
+    def test_payload_block_is_generic_waf(self):
+        eng, waf = self._eng(200, probe_status=406)        # clean 200, malicious 406
+        assert any("Generic WAF" in f.title for f in waf.run(eng))

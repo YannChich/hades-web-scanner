@@ -31,9 +31,45 @@ if TYPE_CHECKING:
 # Links with these schemes are never fetched as pages.
 _SKIP_SCHEMES = ("mailto:", "tel:", "javascript:", "data:", "ftp:")
 
-# Conservative e-mail pattern — avoids matching things like image@2x.png by
-# requiring a dotted TLD of letters.
-_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+# Conservative e-mail pattern — a dotted TLD of letters, anchored on word boundaries.
+_EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
+
+# The regex above still matches non-addresses; these filters drop the common false positives.
+# File-extension "TLDs" come from asset references like logo@2x.png or sprite@3x.svg.
+_NON_EMAIL_TLDS: frozenset[str] = frozenset({
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico", "avif",
+    "css", "js", "mjs", "cjs", "ts", "json", "xml", "map", "html", "htm",
+    "woff", "woff2", "ttf", "eot", "otf",
+    "mp4", "webm", "mp3", "wav", "ogg", "pdf", "zip", "gz", "tar",
+    "min", "scss", "less", "vue", "php",
+})
+# Placeholder / documentation / telemetry domains that are never a real exposed mailbox.
+_PLACEHOLDER_EMAIL_DOMAINS: frozenset[str] = frozenset({
+    "example.com", "example.org", "example.net", "domain.com", "domain.tld",
+    "email.com", "yourdomain.com", "yoursite.com", "mydomain.com", "test.com",
+    "sentry.io", "sentry.wixpress.com", "wixpress.com", "schema.org", "w3.org",
+    "sentry-next.wixpress.com",
+})
+
+
+def _is_real_email(addr: str) -> bool:
+    """Filter out asset references, telemetry DSNs and placeholder addresses the regex catches."""
+    if addr.count("@") != 1:
+        return False
+    local, _, domain = addr.partition("@")
+    domain = domain.lower().rstrip(".")
+    if not local or "." not in domain:
+        return False
+    tld = domain.rsplit(".", 1)[-1]
+    if tld in _NON_EMAIL_TLDS:
+        return False
+    # Retina/asset refs such as icon@2x.png leave a numeric "2x"-style host once the TLD is gone.
+    if re.fullmatch(r"\d+x", domain.rsplit(".", 1)[0]):
+        return False
+    if domain in _PLACEHOLDER_EMAIL_DOMAINS or any(
+            domain == d or domain.endswith("." + d) for d in _PLACEHOLDER_EMAIL_DOMAINS):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +176,12 @@ def _collect_emails(html: str) -> set[str]:
         href = a["href"].strip()
         if href.lower().startswith("mailto:"):
             addr = href[len("mailto:"):].split("?")[0].strip()
-            if addr:
+            if addr and _is_real_email(addr):
                 found.add(addr)
     for match in _EMAIL_RE.finditer(html):
-        found.add(match.group(0))
+        addr = match.group(0)
+        if _is_real_email(addr):
+            found.add(addr)
     return found
 
 

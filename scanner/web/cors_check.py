@@ -130,7 +130,7 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "to reading non-authenticated cross-origin responses, but this still violates "
                     "the same-origin policy and may expose API data."
                 ),
-                severity=Severity.HIGH,
+                severity=Severity.MEDIUM,
                 recommendation=(
                     "Validate the Origin header against an allowlist. "
                     "Do not dynamically reflect arbitrary origin values."
@@ -166,15 +166,16 @@ def run(engine: ScanEngine) -> list[Finding]:
                 module=MODULE,
                 title="CORS: Wildcard Origin (Access-Control-Allow-Origin: *)",
                 description=(
-                    "Server sets 'Access-Control-Allow-Origin: *', allowing any origin to read "
-                    "responses. For public read-only APIs this may be intentional, but for "
-                    "authenticated endpoints it widens the attack surface."
+                    "Server sets 'Access-Control-Allow-Origin: *'. Without Allow-Credentials this is the "
+                    "intended, safe configuration for public, read-only resources (CDNs, fonts, open APIs) "
+                    "and cannot expose authenticated data — browsers refuse to send cookies. It is only "
+                    "worth tightening if this specific endpoint serves per-user data."
                 ),
-                severity=Severity.HIGH,
+                severity=Severity.LOW,
                 recommendation=(
-                    "If the endpoint requires authentication, replace the wildcard with an "
-                    "explicit allowlist of trusted origins. "
-                    "Wildcard is acceptable only for fully public, unauthenticated resources."
+                    "No action needed for genuinely public resources. If THIS endpoint returns "
+                    "authenticated/per-user data, replace the wildcard with an explicit allowlist of "
+                    "trusted origins."
                 ),
                 raw={"acao": acao, "acac": credentials, "probe_origin": origin},
             ))

@@ -1,275 +1,114 @@
 """
-cve_mapping — queries the NVD API for CVEs matching detected software versions.
+cve_mapping — maps detected software versions to real CVEs (version-accurate).
 
-run(engine) re-runs tech_stack detection inline (since modules execute in parallel
-and engine.findings is not populated yet) then queries NVD for each versioned component.
+Historically this module did an NVD full-text ``keywordSearch`` and reported the top results,
+which produced false positives (CVEs that merely *mention* a product, or affect other versions).
+It now reuses the accurate ``scanner.cve`` engine: each detected product is resolved to a CPE,
+matched against NVD's four version-range bounds, classified (CONFIRMED / LIKELY / POSSIBLE),
+enriched with CISA KEV / FIRST EPSS, and filtered to 2020+ — so a finding means the detected
+version actually falls inside the CVE's affected range.
 
-lookup(technology, version, engine) is the direct entry point used by cms_detect
-when it identifies a CMS version during its own run.
+run(engine) re-runs tech_stack inline (modules execute in parallel, so engine.findings is empty)
+and maps every versioned component. lookup(technology, version, engine) is the direct entry point
+used by cms_detect when it identifies a CMS version.
 """
 from __future__ import annotations
 
-import os
 import time
-from typing import Any
 
-import httpx
 from loguru import logger
 
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "cve_mapping"
 
-_NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-_TOP_N = 3          # max CVEs to report per technology
-_RETRY_LIMIT = 3
-_RETRY_DELAY = 6.0  # seconds — NVD rate limit: 5 req/30s without key
-
-# ---------------------------------------------------------------------------
-# CVSS score → Severity mapping
-# ---------------------------------------------------------------------------
-
-def _cvss_to_severity(score: float) -> Severity:
-    if score >= 9.0:
-        return Severity.CRITICAL
-    if score >= 7.0:
-        return Severity.HIGH
-    if score >= 4.0:
-        return Severity.MEDIUM
-    return Severity.LOW
+_MAX_PRODUCTS = 12     # bound NVD on-demand queries per scan (rate-limited without a key)
+_NVD_DELAY = 1.5
 
 
-# ---------------------------------------------------------------------------
-# NVD API client (separate from the scan engine — this is an external service)
-# ---------------------------------------------------------------------------
-
-def _nvd_headers() -> dict[str, str]:
-    api_key = os.environ.get("NVD_API_KEY", "")
-    if api_key:
-        return {"apiKey": api_key}
-    return {}
-
-
-def _query_nvd(technology: str, version: str) -> list[dict[str, Any]]:
-    """
-    Query NVD for up to _TOP_N CVEs matching '{technology} {version}'.
-    Returns raw vulnerability dicts from the API response.
-    Raises httpx.HTTPError on persistent failure.
-    """
-    keyword = f"{technology} {version}"
-    params: dict[str, Any] = {
-        "keywordSearch": keyword,
-        "resultsPerPage": _TOP_N,
-        "startIndex": 0,
-    }
-
-    for attempt in range(1, _RETRY_LIMIT + 1):
-        try:
-            resp = httpx.get(
-                _NVD_BASE,
-                params=params,
-                headers=_nvd_headers(),
-                timeout=20.0,
-            )
-
-            if resp.status_code == 429 or resp.status_code == 403:
-                wait = _RETRY_DELAY * attempt
-                logger.debug(f"cve_mapping: NVD rate limit ({resp.status_code}), waiting {wait}s (attempt {attempt})")
-                time.sleep(wait)
-                continue
-
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("vulnerabilities", [])
-
-        except httpx.HTTPError as exc:
-            if attempt == _RETRY_LIMIT:
-                raise
-            logger.debug(f"cve_mapping: NVD request failed (attempt {attempt}): {exc}")
-            time.sleep(_RETRY_DELAY)
-
-    return []
-
-
-# ---------------------------------------------------------------------------
-# CVE parsing
-# ---------------------------------------------------------------------------
-
-def _extract_cvss(metrics: dict[str, Any]) -> tuple[float, str]:
-    """Return (base_score, vector_string) from the highest-version CVSS block available."""
-    for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
-        entries = metrics.get(key, [])
-        if entries:
-            data = entries[0].get("cvssData", {})
-            score = float(data.get("baseScore", 0.0))
-            vector = data.get("vectorString", "")
-            return score, vector
-    return 0.0, ""
-
-
-def _parse_cve(vuln: dict[str, Any]) -> tuple[str, str, float, str] | None:
-    """Return (cve_id, description, cvss_score, vector) or None if unparseable."""
-    cve = vuln.get("cve", {})
-    cve_id: str = cve.get("id", "")
-    if not cve_id:
-        return None
-
-    descriptions = cve.get("descriptions", [])
-    description = next(
-        (d["value"] for d in descriptions if d.get("lang") == "en"),
-        "No description available.",
-    )
-
-    metrics = cve.get("metrics", {})
-    score, vector = _extract_cvss(metrics)
-    return cve_id, description, score, vector
-
-
-# ---------------------------------------------------------------------------
-# Finding factory
-# ---------------------------------------------------------------------------
-
-def _cve_finding(
-    technology: str, version: str,
-    cve_id: str, description: str,
-    cvss_score: float, vector: str,
-) -> Finding:
-    severity = _cvss_to_severity(cvss_score)
-    score_str = f"{cvss_score:.1f}" if cvss_score else "N/A"
-    vector_str = f" ({vector})" if vector else ""
-    return Finding(
-        module=MODULE,
-        title=f"CVE: {cve_id} — {technology} {version} (CVSS {score_str})",
-        description=(
-            f"{cve_id} affects {technology} {version}. CVSS: {score_str}{vector_str}.\n"
-            f"{description[:400]}{'...' if len(description) > 400 else ''}"
-        ),
-        severity=severity,
-        recommendation=(
-            f"Update {technology} to the latest patched version. "
-            f"Review the full advisory at https://nvd.nist.gov/vuln/detail/{cve_id}"
-        ),
-        raw={
-            "cve_id": cve_id,
-            "technology": technology,
-            "version": version,
-            "cvss_score": cvss_score,
-            "cvss_vector": vector,
-            "description": description,
-        },
-    )
-
-
-# ---------------------------------------------------------------------------
-# Core lookup (shared by run() and direct callers like cms_detect)
-# ---------------------------------------------------------------------------
-
-def lookup(technology: str, version: str, engine: ScanEngine) -> list[Finding]:  # noqa: ARG001
-    """Query NVD for CVEs matching *technology* at *version*."""
+def lookup(technology: str, version: str, engine: ScanEngine) -> list[Finding]:
+    """Map *technology* at *version* to real CVEs via the version-accurate scanner.cve engine."""
     if not version:
         return []
 
-    findings: list[Finding] = []
+    # Lazy imports: keep the CVE engine optional and avoid import cost on unrelated scans.
+    from scanner.cve import nvd_parser, report
+    from scanner.cve.cpe_matcher import candidates
+    from scanner.cve.db import get_conn
+    from scanner.cve.detector import _finalize, _match
+    from scanner.cve.feed_downloader import has_full_nvd, query_nvd
+    from scanner.cve.models import DetectedTech
 
+    tech = DetectedTech(name=technology, version=version, source="tech_stack",
+                        confidence=0.9, evidence=f"{technology} {version}")
+    cands = candidates(tech)
+    if not cands:
+        return []   # product not in the CPE alias table → cannot map accurately (no guessing, no FP)
+
+    offline = has_full_nvd()
+    cve_findings = []
+    conn = get_conn()
     try:
-        vulns = _query_nvd(technology, version)
-    except httpx.HTTPError as exc:
-        logger.warning(f"cve_mapping: NVD query failed for {technology} {version}: {exc}")
-        return [Finding(
-            module=MODULE,
-            title=f"CVE Lookup Failed: {technology} {version}",
-            description=f"NVD API request failed: {exc}",
-            severity=Severity.INFO,
-            recommendation="Check NVD API availability or set NVD_API_KEY env var for higher rate limits.",
-            raw={"technology": technology, "version": version, "error": str(exc)},
-        )]
+        for cand in cands:
+            if not offline:
+                data = query_nvd(virtual_match=cand.cpe_prefix)
+                if data:
+                    try:
+                        nvd_parser.ingest(conn, data)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"cve_mapping: NVD ingest failed: {exc}")
+                    time.sleep(_NVD_DELAY)
+            cve_findings.extend(_match(conn, tech, cand))
+        results, _ = _finalize(cve_findings)
+    finally:
+        conn.close()
 
-    for vuln in vulns[:_TOP_N]:
-        parsed = _parse_cve(vuln)
-        if parsed:
-            cve_id, description, score, vector = parsed
-            findings.append(_cve_finding(technology, version, cve_id, description, score, vector))
-
+    findings: list[Finding] = []
+    for cf in results:
+        f = report.to_finding(cf, engine.url)
+        f.module = MODULE   # attribute to cve_mapping within the standard scan (not the cve panel)
+        findings.append(f)
     return findings
 
 
-# ---------------------------------------------------------------------------
-# Standalone module entry point
-# ---------------------------------------------------------------------------
-
 def run(engine: ScanEngine) -> list[Finding]:
-    # Re-run tech_stack detection inline to obtain versioned findings.
-    # Modules execute in parallel so engine.findings is empty at this point.
     from scanner.recon.tech_stack import run as tech_run  # noqa: PLC0415
 
     try:
         tech_findings = tech_run(engine)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning(f"cve_mapping: tech_stack re-run failed: {exc}")
-        return [Finding(
-            module=MODULE,
-            title="CVE Mapping Skipped",
-            description=f"Technology detection failed: {exc}",
-            severity=Severity.INFO,
-            recommendation="",
-            raw={"error": str(exc)},
-        )]
+        return [Finding(MODULE, "CVE Mapping Skipped", f"Technology detection failed: {exc}",
+                        Severity.INFO, "", {"error": str(exc), "confidence": "high"})]
 
-    # Collect unique (technology, version) pairs that have a version string
-    versioned: dict[tuple[str, str], bool] = {}
+    # Unique (technology, version) pairs that carry a usable version string.
+    versioned: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for f in tech_findings:
-        tech = f.raw.get("technology", "")
-        version = f.raw.get("version", "")
-        if tech and version:
-            versioned[(tech, version)] = True
+        tech = (f.raw or {}).get("technology", "")
+        version = (f.raw or {}).get("version", "")
+        if tech and version and (tech, version) not in seen:
+            seen.add((tech, version))
+            versioned.append((tech, version))
 
     if not versioned:
         return [Finding(
-            module=MODULE,
-            title="CVE Mapping: No Versioned Technologies Detected",
-            description=(
-                "Tech stack detection found no components with extractable version numbers. "
-                "CVE lookup requires a version to query NVD accurately."
-            ),
-            severity=Severity.INFO,
-            recommendation="",
-            raw={},
-        )]
+            MODULE, "CVE Mapping: No Versioned Technologies Detected",
+            "Tech-stack detection found no components with an extractable version number; "
+            "accurate CVE mapping requires a version.",
+            Severity.INFO, "", {"confidence": "high"})]
 
     findings: list[Finding] = []
-    nvd_available = True
-
-    for (technology, version) in versioned:
-        if not nvd_available:
-            break
-
+    for technology, version in versioned[:_MAX_PRODUCTS]:
         try:
-            cve_findings = lookup(technology, version, engine)
-            findings.extend(cve_findings)
-            # If the lookup returned an API error finding, mark NVD as down
-            if cve_findings and cve_findings[0].title.startswith("CVE Lookup Failed"):
-                nvd_available = False
-        except Exception as exc:
+            findings.extend(lookup(technology, version, engine))
+        except Exception as exc:  # noqa: BLE001
             logger.warning(f"cve_mapping: lookup error for {technology} {version}: {exc}")
 
-        # Respect NVD rate limits between queries (5 req/30s without API key)
-        if nvd_available and len(versioned) > 1:
-            time.sleep(_RETRY_DELAY)
-
-    if not nvd_available:
-        findings.append(Finding(
-            module=MODULE,
-            title="CVE Lookup Skipped — NVD API Unavailable",
-            description=(
-                "The NVD API was unreachable or rate-limited. "
-                "Remaining technology lookups were skipped."
-            ),
-            severity=Severity.INFO,
-            recommendation=(
-                "Set the NVD_API_KEY environment variable for a higher rate limit (50 req/30s). "
-                "Re-run the scan when the API is available."
-            ),
-            raw={"nvd_available": False},
-        ))
-
+    kev = sum(1 for f in findings if (f.raw or {}).get("kev"))
+    findings.append(Finding(
+        MODULE, f"CVE Mapping Summary: {len(findings)} CVE(s) across {len(versioned)} component(s)",
+        f"{kev} in CISA KEV. Version-accurate matching (CPE + NVD version ranges, 2020+). "
+        "For a full dedicated audit use menu option 8 (CVE Vulnerability Intelligence).",
+        Severity.INFO, "", {"confidence": "high", "cve_category": "info"}))
     return findings
