@@ -47,12 +47,18 @@ def _resolve(hostname: str) -> str | None:
 
 
 def _is_listed(query: str) -> bool:
-    """A DNSBL lists the host if the query name resolves to an answer."""
+    """True only for a genuine DNSBL listing.
+
+    A listing is encoded as an answer in 127.0.0.0/8 (e.g. 127.0.0.2). Resolving to anything
+    else — or, crucially, to a 127.255.255.x *error* code (Spamhaus returns 127.255.255.254
+    for queries via a public/open resolver, .252 for a config error, .255 for rate-limiting) —
+    is NOT a listing. Counting those error codes produced false 'blocklisted' findings.
+    """
     try:
-        socket.gethostbyname(query)
-        return True
+        answer = socket.gethostbyname(query)
     except OSError:
         return False
+    return answer.startswith("127.") and not answer.startswith("127.255.255.")
 
 
 def _registrable(hostname: str) -> str:

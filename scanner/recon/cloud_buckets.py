@@ -40,30 +40,35 @@ _PREFIXES = ["assets-", "static-", "cdn-", "backup-", "media-", "www-"]
 
 
 def _domain_label(host: str) -> str:
-    host = host.lower().lstrip("www.")
+    host = host.lower()
+    if host.startswith("www."):     # strip the prefix, not the character set (lstrip('www.') was a bug)
+        host = host[4:]
     parts = host.split(".")
     return parts[0] if parts else host
 
 
-def _candidate_names(engine: ScanEngine) -> set[str]:
+def _candidate_names(engine: ScanEngine) -> dict[str, str]:
+    """Return {bucket_name: origin} where origin is 'referenced' (linked in the site source —
+    certainly the target's) or 'guessed' (a name mutation that may belong to a namesake)."""
     host = urlparse(engine.url).hostname or ""
     label = _domain_label(host)
-    names: set[str] = set()
+    names: dict[str, str] = {}
     if label:
         for suf in _SUFFIXES:
-            names.add(label + suf)
+            names[label + suf] = "guessed"
         for pre in _PREFIXES:
-            names.add(pre + label)
-        names.add(host.replace(".", "-"))
-        names.add(host.replace(".", ""))
-    # Buckets referenced directly in the source are highest-value.
+            names[pre + label] = "guessed"
+        names[host.replace(".", "-")] = "guessed"
+        names[host.replace(".", "")] = "guessed"
+    # Buckets referenced directly in the source are the target's for sure — they override guesses.
     try:
         blob = "\n".join(engine.get_crawl().pages.values())
         for rx in (_S3_HOST_RE, _S3_PATH_RE, _GCS_HOST_RE, _GCS_PATH_RE, _AZURE_RE):
-            names.update(m.lower() for m in rx.findall(blob))
+            for m in rx.findall(blob):
+                names[m.lower()] = "referenced"
     except Exception:  # noqa: BLE001
         pass
-    return {n for n in names if 3 <= len(n) <= 63}
+    return {n: o for n, o in names.items() if 3 <= len(n) <= 63}
 
 
 # ---------------------------------------------------------------------------
@@ -77,14 +82,14 @@ def _get(engine: ScanEngine, url: str) -> "httpx.Response | None":
         return None
 
 
-def _probe_bucket(engine: ScanEngine, name: str) -> list[Finding]:
+def _probe_bucket(engine: ScanEngine, name: str, origin: str = "guessed") -> list[Finding]:
     findings: list[Finding] = []
 
     # --- Amazon S3 ---
     r = _get(engine, f"https://{name}.s3.amazonaws.com/")
     if r is not None:
         if r.status_code == 200 and ("<ListBucketResult" in r.text or "<Contents>" in r.text):
-            findings.append(_open_finding("Amazon S3", name, f"https://{name}.s3.amazonaws.com/", r.text))
+            findings.append(_open_finding("Amazon S3", name, f"https://{name}.s3.amazonaws.com/", r.text, origin))
         elif r.status_code == 403 and "AccessDenied" in r.text:
             findings.append(_private_finding("Amazon S3", name, f"https://{name}.s3.amazonaws.com/"))
         if findings:
@@ -95,7 +100,7 @@ def _probe_bucket(engine: ScanEngine, name: str) -> list[Finding]:
     if r is not None:
         if r.status_code == 200 and "<ListBucketResult" in r.text:
             findings.append(_open_finding("Google Cloud Storage", name,
-                                          f"https://storage.googleapis.com/{name}", r.text))
+                                          f"https://storage.googleapis.com/{name}", r.text, origin))
         elif r.status_code == 403 and ("AccessDenied" in r.text or "permission" in r.text.lower()):
             findings.append(_private_finding("Google Cloud Storage", name,
                                              f"https://storage.googleapis.com/{name}"))
@@ -107,7 +112,7 @@ def _probe_bucket(engine: ScanEngine, name: str) -> list[Finding]:
         url = f"https://{name}.blob.core.windows.net/?comp=list"
         r = _get(engine, url)
         if r is not None and r.status_code == 200 and "EnumerationResults" in r.text:
-            findings.append(_open_finding("Azure Blob", name, url, r.text))
+            findings.append(_open_finding("Azure Blob", name, url, r.text, origin))
     return findings
 
 
@@ -115,15 +120,21 @@ def _sample_keys(body: str) -> list[str]:
     return re.findall(r"<Key>([^<]+)</Key>", body)[:8] or re.findall(r"<Name>([^<]+)</Name>", body)[:8]
 
 
-def _open_finding(provider: str, name: str, url: str, body: str) -> Finding:
+def _open_finding(provider: str, name: str, url: str, body: str, origin: str = "guessed") -> Finding:
     keys = _sample_keys(body)
     sample = (" Sample objects: " + ", ".join(keys[:6]) + ".") if keys else ""
+    # A guessed name could belong to a namesake (object-storage names are a global namespace),
+    # so flag ownership verification and lower the confidence; referenced buckets are the target's.
+    referenced = origin == "referenced"
+    caveat = ("" if referenced else
+              " NOTE: this bucket name was guessed from the domain — confirm it belongs to the "
+              "target (storage names are a global namespace) before reporting it as theirs.")
     return Finding(
         module=MODULE,
         title=f"Open {provider} Bucket — World-Readable: {name}",
         description=(
-            f"The {provider} bucket '{name}' allows anonymous listing/reading at {url}. "
-            f"Anyone can download its contents.{sample}"
+            f"The {provider} bucket '{name}' ({origin}) allows anonymous listing/reading at {url}. "
+            f"Anyone can download its contents.{sample}{caveat}"
         ),
         severity=Severity.CRITICAL,
         recommendation=(
@@ -131,7 +142,9 @@ def _open_finding(provider: str, name: str, url: str, body: str) -> Finding:
             "review the exposed objects for sensitive data."
         ),
         raw={"provider": provider, "bucket": name, "url": url, "proof_url": url,
-             "objects": keys, "confidence": "high", "attack": "T1530 Data from Cloud Storage",
+             "objects": keys, "origin": origin,
+             "confidence": "high" if referenced else "medium",
+             "attack": "T1530 Data from Cloud Storage",
              "exploit_cmd": f"aws s3 ls s3://{name} --no-sign-request"
              if provider == "Amazon S3" else f"curl '{url}'"},
     )
@@ -158,12 +171,14 @@ def _private_finding(provider: str, name: str, url: str) -> Finding:
 # ---------------------------------------------------------------------------
 
 def run(engine: ScanEngine) -> list[Finding]:
-    candidates = sorted(_candidate_names(engine))[:_MAX_CANDIDATES]
+    candidate_map = _candidate_names(engine)
+    # Probe referenced buckets first (highest value), then guesses, capped.
+    candidates = sorted(candidate_map, key=lambda n: (candidate_map[n] != "referenced", n))[:_MAX_CANDIDATES]
     if not candidates:
         return []
     findings: list[Finding] = []
     with ThreadPoolExecutor(max_workers=min(engine.threads, 12)) as pool:
-        futures = {pool.submit(_probe_bucket, engine, n): n for n in candidates}
+        futures = {pool.submit(_probe_bucket, engine, n, candidate_map[n]): n for n in candidates}
         for fut in as_completed(futures):
             try:
                 findings.extend(fut.result())

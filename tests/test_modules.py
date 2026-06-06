@@ -2282,6 +2282,27 @@ class TestBlacklistCheck:
         findings = blacklist_check.run(ScanEngine(base_url, rate_delay=0))
         assert len(findings) == 1 and "clean" in findings[0].title.lower()
 
+    def test_dnsbl_error_codes_are_not_listings(self, monkeypatch):
+        import socket
+        from scanner.web import blacklist_check
+
+        answers = {"a.bl": "127.0.0.2",            # genuine listing
+                   "b.bl": "127.255.255.254",      # Spamhaus "public resolver" error code
+                   "c.bl": "127.255.255.252",      # config-error code
+                   "d.bl": "9.9.9.9"}              # not a 127.x answer
+
+        def fake_resolve(query: str) -> str:
+            if query in answers:
+                return answers[query]
+            raise OSError("NXDOMAIN")
+        monkeypatch.setattr(socket, "gethostbyname", fake_resolve)
+
+        assert blacklist_check._is_listed("a.bl") is True
+        assert blacklist_check._is_listed("b.bl") is False   # error code, not a real listing
+        assert blacklist_check._is_listed("c.bl") is False
+        assert blacklist_check._is_listed("d.bl") is False
+        assert blacklist_check._is_listed("missing.bl") is False
+
 
 # ---------------------------------------------------------------------------
 # screenshot tests
