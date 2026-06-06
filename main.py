@@ -63,7 +63,6 @@ DISCLAIMER = (
 
 PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage", "oob_scan",
             "cve_scan", "tls_scan")
-OUTPUT_FORMATS = ("json", "html", "pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -263,13 +262,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run a single module only (e.g. headers_check). Overrides --profile.",
     )
     parser.add_argument(
-        "--output", "-o",
-        choices=OUTPUT_FORMATS,
-        metavar="FORMAT",
-        help="Extra report format on top of the always-generated HTML: "
-             f"{', '.join(OUTPUT_FORMATS)}",
-    )
-    parser.add_argument(
         "--no-open",
         action="store_true",
         help="Do not auto-open the HTML report in a browser when the scan finishes",
@@ -364,12 +356,14 @@ def main() -> None:
         profile: str = args.module
     elif args.profile:
         profile = args.profile
-    else:
+    elif sys.stdin.isatty():
         profile, modules = prompt_scan_choice()
+    else:
+        # No scan-type flag and no interactive terminal (piped / CI) — default to a full scan
+        # so the run never blocks waiting on the menu.
+        profile = "full"
 
-    # The HTML report is always generated and auto-opened (see run_scan); --output adds
-    # an extra machine/print format (json/pdf) on top.
-    output_format = args.output
+    # The HTML and JSON reports are always generated (see run_scan).
 
     # --- Active exploitation ---
     # engage is exploitation-first (its own confirmation); other offensive profiles can be
@@ -387,7 +381,6 @@ def main() -> None:
     run_scan(
         url=url,
         profile=profile,
-        output_format=output_format,
         proxy=args.proxy,
         threads=args.threads,
         ignore_robots=args.ignore_robots,
@@ -403,9 +396,23 @@ def main() -> None:
     )
 
 
-if __name__ == "__main__":
+def cli() -> int:
+    """Run Hades with friendly top-level error handling. Returns a process exit code."""
     try:
         main()
+        return 0
     except KeyboardInterrupt:
         console.print("\n[warn]!  Scan aborted by user.[/warn]")
-        sys.exit(0)
+        return 0
+    except SystemExit as exc:          # argparse --help / validation errors
+        return int(exc.code or 0)
+    except Exception as exc:  # noqa: BLE001 — never dump a raw traceback at the user
+        logger.exception("hades: unhandled error")
+        console.print(f"\n[danger]✗  Hades stopped on an unexpected error:[/danger] [info]{exc}[/info]")
+        console.print("[info]   Full details were written to the log file under  logs/  — "
+                      "please re-run, or open an issue with that log.[/info]")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

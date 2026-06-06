@@ -9,8 +9,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-import whois
 from loguru import logger
+
+try:
+    import whois
+except ImportError:                      # optional dep — degrade gracefully if it's missing
+    whois = None  # type: ignore[assignment]
 
 from scanner.engine import Finding, Severity, ScanEngine
 
@@ -95,6 +99,12 @@ def _registrable_domain(hostname: str) -> tuple[str | None, bool]:
 
 
 def run(engine: ScanEngine) -> list[Finding]:
+    if whois is None:
+        return [_info("WHOIS Lookup Skipped",
+                      "The optional 'python-whois' library is not installed, so domain registration "
+                      "data was not retrieved. Install it with: pip install python-whois",
+                      {"confidence": "high"})]
+
     findings: list[Finding] = []
     hostname = urlparse(engine.url).hostname or ""
     domain, is_platform = _registrable_domain(hostname)

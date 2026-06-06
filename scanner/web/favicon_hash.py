@@ -12,9 +12,13 @@ import base64
 import re
 
 import httpx
-import mmh3
 from bs4 import BeautifulSoup
 from loguru import logger
+
+try:
+    import mmh3
+except ImportError:                      # tiny optional dep — degrade gracefully if it's missing
+    mmh3 = None  # type: ignore[assignment]
 
 from scanner.engine import Finding, Severity, ScanEngine
 
@@ -51,6 +55,12 @@ def _shodan_hash(content: bytes) -> int:
 
 
 def run(engine: ScanEngine) -> list[Finding]:
+    if mmh3 is None:
+        return [Finding(MODULE, "Favicon Fingerprint Skipped",
+                        "The optional 'mmh3' library is not installed, so the Shodan-style favicon "
+                        "hash was not computed. Install it with: pip install mmh3",
+                        Severity.INFO, "", {"confidence": "high"})]
+
     href = _favicon_url(engine)
     if href.startswith("http"):
         path, is_absolute = href, True

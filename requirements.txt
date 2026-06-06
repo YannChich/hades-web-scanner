@@ -1,47 +1,26 @@
-# WebScan dependencies
-# Install: pip install -r requirements.txt
-# After install, also run: playwright install chromium
+# Hades — dependencies
+#   pip install -r requirements.txt
+# Everything below the "Core" block is required and installs cleanly on Linux, macOS and Windows.
+# The "Optional" block enables extra features; Hades degrades gracefully if they are absent.
 
-# HTTP client
-httpx>=0.27.0
+# ── Core (required) ────────────────────────────────────────────────────────
+httpx>=0.27.0            # HTTP client
+rich>=13.7.0            # terminal UI (tables, colours, panels)
+dnspython>=2.6.1       # DNS / SPF / DKIM / DMARC checks
+python-whois>=0.9.4    # WHOIS registration data
+cryptography>=42.0.0   # SSL/TLS certificate parsing
+beautifulsoup4>=4.12.3 # HTML parsing
+lxml>=5.2.0            # fast HTML/XML parser backend
+loguru>=0.7.2          # logging
+mmh3>=4.1.0            # favicon (Shodan-style) hashing
+markdown>=3.6          # renders playbooks (SKILL.md) to HTML in the report
 
-# Terminal UI
-rich>=13.7.0
-
-# DNS queries
-dnspython>=2.6.1
-
-# WHOIS
-python-whois>=0.9.4
-
-# SSL / TLS certificate parsing
-cryptography>=42.0.0
-
-# HTML parsing
-beautifulsoup4>=4.12.3
-lxml>=5.2.0
-
-# Browser automation (screenshots)
+# ── Optional (extra features; safely skipped if not installed) ─────────────
+# Homepage screenshots in the report — also run:  playwright install chromium
 playwright>=1.44.0
-
-# PDF report generation
-weasyprint>=62.3
-
-# Logging
-loguru>=0.7.2
-
-# Favicon hashing
-mmh3>=4.1.0
-
-# Port scanning (used by scanner/recon/port_scan.py)
-python-nmap>=0.7.1
-
-# Markdown -> HTML for the RedTeam-Tools reference PDF (docs/make_redteam_tools.py)
-markdown>=3.6
-
-# Offensive TLS/SSL handshake audit (scanner/tls/hephaestus_tls.py — tls_scan / menu option 9).
-# Optional: the module degrades gracefully with an install hint if it is missing.
+# Offensive TLS/SSL audit (tls_scan / menu option 9). Heavy; brings its own crypto stack.
 sslyze>=6.0
 
-# Test runner (dev) — run: pytest tests/
+# ── Dev only ───────────────────────────────────────────────────────────────
+# Test runner — run:  pytest tests/
 pytest>=8.0

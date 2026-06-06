@@ -20,7 +20,7 @@ _INFRA = [
     "config", "scanner.engine", "scanner.crawler", "scanner.exploit",
     "scanner.db.db_security", "scanner.vulns._common",
     "scanner.output.console", "scanner.output.scorer", "scanner.output.logger",
-    "scanner.output.report_json", "scanner.output.report_html", "scanner.output.report_pdf",
+    "scanner.output.report_json", "scanner.output.report_html",
 ]
 MODULES = sorted({m for mods in PROFILE_MODULES.values() for m in mods} | set(_INFRA))
 

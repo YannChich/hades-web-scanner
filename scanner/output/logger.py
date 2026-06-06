@@ -33,6 +33,12 @@ _CONSOLE_FORMAT = (
 )
 
 _LOG_DIR = "logs"
+_LOG_PATH: str = ""      # path of the current run's log file (set by setup_logging)
+
+
+def get_log_path() -> str:
+    """Return the current run's log-file path (empty string before setup_logging())."""
+    return _LOG_PATH
 
 
 def setup_logging(level: str = "DEBUG", console_level: str = "WARNING") -> str:
@@ -69,6 +75,8 @@ def setup_logging(level: str = "DEBUG", console_level: str = "WARNING") -> str:
         enqueue=True,       # thread-safe writes from ThreadPoolExecutor workers
     )
 
+    global _LOG_PATH
+    _LOG_PATH = log_path
     logger.debug(f"Logging initialised → {log_path}")
     return log_path
 

@@ -3800,3 +3800,58 @@ class TestHephaestusTls:
         eng = _NS(url="https://nonexistent.invalid.host.local")
         fs = hephaestus_tls.run(eng)
         assert len(fs) == 1 and fs[0].severity == Severity.INFO and "Skipped" in fs[0].title
+
+
+# ---------------------------------------------------------------------------
+# Hades v1.0 polish — entry point, reports, confidence, graceful install
+# ---------------------------------------------------------------------------
+
+class TestV1Polish:
+    def test_every_finding_has_a_confidence(self):
+        # A module that sets no confidence still gets one, derived from severity.
+        assert Finding("m", "t", "d", Severity.HIGH).raw["confidence"] == "high"
+        assert Finding("m", "t", "d", Severity.MEDIUM).raw["confidence"] == "medium"
+        assert Finding("m", "t", "d", Severity.INFO).raw["confidence"] == "low"
+        # An explicit confidence is preserved.
+        assert Finding("m", "t", "d", Severity.HIGH, raw={"confidence": "low"}).raw["confidence"] == "low"
+
+    def test_json_report_schema_and_always_written(self, tmp_path):
+        import json
+        from scanner.output.report_json import generate_json
+        f = Finding("hephaestus_tls", "TLS 1.0 Enabled", "d", Severity.MEDIUM,
+                    cwe="CWE-326", owasp="A02:2021 Cryptographic Failures", mitre=["T1557"],
+                    raw={"confidence": "high", "evidence": ["Protocol: TLS 1.0"],
+                         "references": ["https://example/ref"]})
+        out = generate_json([f], "http://t.test", 55, output_path=str(tmp_path))
+        fj = json.load(open(out, encoding="utf-8"))["findings"][0]
+        for k in ("severity", "confidence", "cwe", "owasp", "mitre_attack", "evidence",
+                  "references", "recommendation", "poc"):
+            assert k in fj, f"missing JSON key: {k}"
+        assert fj["confidence"] == "high" and fj["evidence"] == ["Protocol: TLS 1.0"]
+
+    def test_pdf_output_was_removed(self):
+        import main
+        assert not hasattr(main, "OUTPUT_FORMATS")
+        with pytest.raises(SystemExit):                 # --output flag no longer exists
+            main.build_parser().parse_args(["--output", "pdf"])
+
+    def test_favicon_graceful_without_mmh3(self, monkeypatch):
+        from scanner.web import favicon_hash
+        monkeypatch.setattr(favicon_hash, "mmh3", None)
+        fs = favicon_hash.run(_NS(url="http://t.test"))
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO and "Skipped" in fs[0].title
+
+    def test_whois_graceful_without_lib(self, monkeypatch):
+        from scanner.recon import whois_lookup
+        monkeypatch.setattr(whois_lookup, "whois", None)
+        fs = whois_lookup.run(_NS(url="http://t.test"))
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO and "Skipped" in fs[0].title
+
+    def test_print_report_paths_runs(self):
+        from scanner.output.console import print_report_paths
+        print_report_paths("reports/x.html", "reports/x.json", "logs/x.log")   # must not raise
+
+    def test_cli_entrypoint_exists(self):
+        import hades
+        import main
+        assert callable(main.cli) and hasattr(hades, "cli")

@@ -36,6 +36,19 @@ _SEVERITY_LABEL: dict[str, str] = {
     "info":     "INFO    ",
 }
 
+# Confidence in a finding being real (set on every Finding in __post_init__).
+_CONF_LABEL: dict[str, tuple[str, str]] = {
+    "high":   ("HIGH", "bold green"),
+    "medium": ("MED",  "yellow"),
+    "low":    ("LOW",  "dim white"),
+}
+
+
+def _confidence_cell(finding: "Finding") -> Text:
+    conf = (finding.raw or {}).get("confidence", "")
+    label, style = _CONF_LABEL.get(conf, ((conf.upper()[:4] or "—"), "dim"))
+    return Text(label, style=style)
+
 # Findings from these modules get a clickable "verify" link in the table so the
 # user can Ctrl+click to open the exact URL in a browser and confirm it manually.
 _VERIFIABLE_MODULES: set[str] = {"dir_scan", "sensitive_files", "admin_panel",
@@ -142,7 +155,8 @@ def print_findings(findings: list[Finding], url: str) -> None:
         padding=(0, 1),
     )
     table.add_column("Severity",    style="bold", width=10, no_wrap=True)
-    table.add_column("Module",      style="dim",  width=20, no_wrap=True)
+    table.add_column("Conf.",       width=5, no_wrap=True)
+    table.add_column("Module",      style="dim",  width=18, no_wrap=True)
     table.add_column("Title",       style="bold white", ratio=2, no_wrap=False)
     table.add_column("Description", ratio=3, no_wrap=False)
 
@@ -172,6 +186,7 @@ def print_findings(findings: list[Finding], url: str) -> None:
 
         table.add_row(
             Text(label, style=style),
+            _confidence_cell(f),
             f.module,
             f.title,
             description,
@@ -377,3 +392,28 @@ def print_summary(findings: list[Finding], score: int) -> None:
         for i, rec in enumerate(recs, 1):
             console.print(f"  [bold yellow]{i}.[/bold yellow] {rec}")
         console.print()
+
+
+# ---------------------------------------------------------------------------
+# Saved-report locations (printed at the very end of a scan)
+# ---------------------------------------------------------------------------
+
+def print_report_paths(html_path: "str | None", json_path: "str | None",
+                       log_path: str = "") -> None:
+    """Show where the HTML/JSON reports and the log file were written."""
+    import os
+
+    rows: list[str] = []
+    if html_path:
+        rows.append(f"[bold]HTML report[/bold]  [cyan]{os.path.abspath(html_path)}[/cyan]  "
+                    "[dim](opens in your browser)[/dim]")
+    if json_path:
+        rows.append(f"[bold]JSON report[/bold]  [cyan]{os.path.abspath(json_path)}[/cyan]")
+    if log_path:
+        rows.append(f"[bold]Scan log   [/bold]  [dim]{os.path.abspath(log_path)}[/dim]")
+    if not rows:
+        return
+
+    console.print()
+    console.print(Panel("\n".join(rows), title="[bold green]📁  Reports saved[/bold green]",
+                        border_style="green", padding=(1, 2)))

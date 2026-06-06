@@ -26,7 +26,7 @@ vulnerabilities other scanners miss, and rank a target's **CVEs** by real-world 
 (**KEV + EPSS**). One command.
 
 ```text
-python main.py --url https://target.tld
+python hades.py --url https://target.tld
 ```
 
 > [!IMPORTANT]
@@ -34,8 +34,38 @@ python main.py --url https://target.tld
 
 ---
 
+## Quick Start
+
+```bash
+git clone https://github.com/YannChich/hades-web-scanner.git
+cd hades-web-scanner
+pip install -r requirements.txt
+python hades.py --url https://example.com
+```
+
+**What you get, immediately:**
+- a clean, colour-coded terminal report — **severity + confidence**, technical evidence and remediation per finding;
+- a styled **HTML report** that opens in your browser automatically;
+- a machine-readable **JSON report** for tooling and records;
+- an overall **security score (0–100) and A–F grade**, plus a kill-chain attack path.
+
+**Where your reports are saved** (printed at the end of every scan):
+- `reports/webscan_report_<timestamp>.html` — the full visual report (auto-opened)
+- `reports/webscan_report_<timestamp>.json` — the same findings as structured JSON
+- `logs/webscan_<timestamp>.log` — the detailed run log
+
+**Why it matters:** Hades doesn't hand you a list of *maybe* — every finding carries a severity, a
+confidence level, the evidence behind it, and a fix, so you know what's real and what to do next.
+
+> Run `python hades.py` with no `--url` for an interactive menu (quick scan, full scan, the red-team
+> profiles, CVE intelligence, TLS audit…). The install is clean on Linux, macOS and Windows; the
+> optional extras (`playwright`, `sslyze`) are skipped gracefully if you don't install them.
+
+---
+
 ## Table of Contents
 
+- [Quick Start](#quick-start)
 - [Why Hades](#why-hades)
 - [Features](#features)
 - [Reports Preview](#reports-preview)
@@ -120,7 +150,8 @@ evidence**, and every piece of evidence comes with the next move.
 - Every reference badge in the HTML report is **clickable** — CVE → NVD, CVSS → the FIRST calculator,
   CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
 - Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
-- Always-on HTML report (auto-opened), plus optional JSON and PDF export, and timestamped logs.
+- Every finding carries a **confidence** level (high/medium/low) shown in the terminal and the reports.
+- Every scan writes an **HTML report** (auto-opened) **and a JSON report**, plus a timestamped log.
 
 > A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
 > it enables — is generated as a PDF: [`docs/Hades_Modules_Guide.pdf`](docs/Hades_Modules_Guide.pdf).
@@ -141,7 +172,7 @@ gauge, the kill-chain attack path, matched playbooks, and the DB/AI panels).
     assets/screenshots/hades-report.png    HTML report (e.g. a scan of http://rest.vulnweb.com)
     assets/screenshots/hades-console.png   terminal output (findings table + attack path)
   Suggested demo target (authorised test site): http://rest.vulnweb.com
-    python main.py --url http://rest.vulnweb.com --profile full
+    python hades.py --url http://rest.vulnweb.com --profile full
 -->
 
 > Terminal capture coming soon. To generate your own demo, scan an authorised test target such as
@@ -201,11 +232,11 @@ cd hades-web-scanner
 
 pip install -r requirements.txt
 
-# Chromium for screenshots and PDF rendering (also self-heals at runtime)
-playwright install chromium
+python hades.py --url https://example.com      # that's it — HTML + JSON reports are generated
 
-# Optional — only for the --exploit sqlmap launcher
-pip install sqlmap
+# Optional extras (Hades runs fine without them):
+playwright install chromium    # enables homepage screenshots in the report
+pip install sqlmap             # enables the --exploit sqlmap launcher
 ```
 
 **Docker**
@@ -235,9 +266,9 @@ git clone https://github.com/A-poc/RedTeam-Tools                        # red-te
 scan type and exploitation choices:
 
 ```bash
-python main.py --url http://testphp.vulnweb.com/
+python hades.py --url http://testphp.vulnweb.com/
 # or fully interactive (also prompts for the URL):
-python main.py
+python hades.py
 ```
 
 Every scan always generates the HTML report and auto-opens it (`--no-open` to disable).
@@ -246,37 +277,36 @@ Every scan always generates the HTML report and auto-opens it (`--no-open` to di
 
 ```bash
 # Full scan (default profile)
-python main.py --url https://example.com --profile full
+python hades.py --url https://example.com --profile full
 
 # Quick passive surface scan
-python main.py --url https://example.com --profile quick
+python hades.py --url https://example.com --profile quick
 
 # Database security audit (red-team)
-python main.py --url https://example.com --profile db_scan
+python hades.py --url https://example.com --profile db_scan
 
 # AI / LLM attack-surface audit
-python main.py --url https://example.com --profile ai_scan
+python hades.py --url https://example.com --profile ai_scan
 
 # Active exploitation engagement (asks for authorisation)
-python main.py --url https://example.com --profile engage
+python hades.py --url https://example.com --profile engage
 
 # Out-of-band / blind vulnerabilities (auto-tunnels via cloudflared behind NAT)
-python main.py --url https://example.com --profile oob_scan
+python hades.py --url https://example.com --profile oob_scan
 
 # CVE Vulnerability Intelligence — run the interactive menu and pick option 8
-python main.py --url https://example.com          # then choose [8] CVE Vulnerability Intelligence
+python hades.py --url https://example.com          # then choose [8] CVE Vulnerability Intelligence
 
 # Offensive TLS/SSL audit (SSLyze) — protocols, ciphers, certs, Heartbleed/ROBOT/CCS
-python main.py --url https://example.com --profile tls_scan
+python hades.py --url https://example.com --profile tls_scan
 
 # (one-time) bulk-load the full NVD corpus for offline CVE matching — optional NVD_API_KEY speeds it up
 python tools/build_vulndb.py                       # then cve_scan matches ~270k CVEs locally, offline
 
-# Also export JSON or PDF on top of the HTML
-python main.py --url https://example.com --output json
+# Every scan writes both an HTML report (auto-opened) and a JSON report — no flag needed.
 
 # Through a proxy, with a session cookie
-python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies "session=abc123"
+python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies "session=abc123"
 ```
 
 <details>
@@ -286,8 +316,7 @@ python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
 | `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
-| `--output` | `-o` | — | Extra report format on top of the always-generated HTML: `json` `pdf` |
-| `--no-open` | | `false` | Do not auto-open the HTML report in a browser |
+| `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
@@ -441,9 +470,9 @@ Hades is under active development. Planned and in-progress work:
 ## Tech Stack
 
 `httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
-`cryptography` (TLS) &middot; `BeautifulSoup4` &middot; `Playwright` (Chromium screenshots + PDF) &middot;
-`Markdown` &middot; `reportlab` / `weasyprint` (PDFs) &middot; `loguru` &middot; `mmh3` &middot;
-`sqlmap` (optional, `--exploit`).
+`cryptography` (TLS) &middot; `BeautifulSoup4` / `lxml` &middot; `Markdown` &middot; `loguru` &middot;
+`mmh3` &middot; optional: `Playwright` (screenshots) &middot; `SSLyze` (TLS audit) &middot;
+`sqlmap` (`--exploit`). Reports: self-contained **HTML** + structured **JSON**.
 
 ---
 
@@ -451,7 +480,8 @@ Hades is under active development. Planned and in-progress work:
 
 ```text
 hades-web-scanner/
-├── main.py                  # Entry point — CLI, interactive menu, argument parsing
+├── hades.py                 # Entry point — `python hades.py --url …`
+├── main.py                  # CLI, interactive menu, argument parsing (cli() lives here)
 ├── config.py                # Profiles, taxonomy, cross-reference maps, constants
 ├── scanner/
 │   ├── engine.py            # Orchestration, threading, rate limiting, HTML auto-open
@@ -462,7 +492,7 @@ hades-web-scanner/
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
 │   ├── intel/               # Skills-library enrichment (playbooks)
-│   └── output/              # Console, scoring, attack path, JSON/HTML/PDF reports
+│   └── output/              # Console, scoring, attack path, HTML + JSON reports
 ├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)
 ├── docs/                    # Reference PDFs + their generator scripts
 ├── tools/                   # Dev utilities (import check, playbook bundle builder)

@@ -40,11 +40,12 @@ from config import (
     USER_AGENT,
 )
 from scanner.severity import sort_by_severity
-from scanner.output.console import print_findings, print_playbooks, print_summary, print_verification_links
+from scanner.output.console import (print_findings, print_playbooks, print_report_paths,
+                                    print_summary, print_verification_links)
+from scanner.output.logger import get_log_path
 from scanner.output.scorer import score_findings
 from scanner.output.report_json import generate_json
 from scanner.output.report_html import generate_html
-from scanner.output.report_pdf import generate_pdf
 
 console = Console()
 
@@ -130,6 +131,12 @@ class Finding:
                 self.redteam_tools = list(DB_CATEGORY_REDTEAM_MAP.get(raw.get("db_category", ""), []))
             else:
                 self.redteam_tools = list(MODULE_REDTEAM_MAP.get(self.module, []))
+
+        # Every finding carries a confidence (low/medium/high) so the terminal table, the scorer
+        # and the JSON report stay consistent even for modules that don't set one explicitly.
+        self.raw = raw
+        raw.setdefault("confidence",
+                       "high" if sev in ("critical", "high") else "medium" if sev == "medium" else "low")
 
         # Stable identifier last, so it is always present.
         if not self.finding_id:
@@ -364,7 +371,6 @@ def _open_in_browser(path: str) -> None:
 def run_scan(
     url: str,
     profile: str = "full",
-    output_format: Optional[str] = None,
     proxy: Optional[str] = None,
     threads: int = DEFAULT_THREADS,
     ignore_robots: bool = False,
@@ -432,13 +438,11 @@ def run_scan(
     from scanner.cve.report import render_panel as render_cve_panel
     render_cve_panel(findings)
 
-    # The HTML report is the richest, most detailed view — always generate it for every
-    # scan and open it in the browser. JSON/PDF are produced on top only when requested.
+    # Every scan always produces both reports: a rich, auto-opened HTML report (the detailed view)
+    # and a machine-readable JSON report (for tooling / records).
     html_path = generate_html(findings, url, score)
-    if output_format == "json":
-        generate_json(findings, url, score)
-    elif output_format == "pdf":
-        generate_pdf(findings, url, score)
+    json_path = generate_json(findings, url, score)
+    print_report_paths(html_path, json_path, log_path=str(get_log_path()))
 
     if open_report and html_path:
         _open_in_browser(html_path)
