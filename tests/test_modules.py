@@ -623,6 +623,70 @@ class TestCVE:
         assert cves and all(c.raw["cve_id"].startswith("CVE-9999-") for c in cves)
         assert any("offline" in f.description for f in findings if "Summary" in f.title)
 
+    @staticmethod
+    def _nginx_vuln(cve_id: str) -> dict:
+        return {"cve": {
+            "id": cve_id, "published": "2021-01-01T00:00:00", "lastModified": "2021-02-01T00:00:00",
+            "descriptions": [{"lang": "en", "value": "x"}],
+            "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "vectorString": "CVSS:3.1/AV:N"},
+                                           "baseSeverity": "HIGH"}]},
+            "weaknesses": [], "references": [],
+            "configurations": [{"nodes": [{"cpeMatch": [{
+                "criteria": "cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*", "vulnerable": True,
+                "versionEndExcluding": "1.21.0"}]}]}]}}
+
+    def test_cve_year_filter_excludes_pre_2020(self, tmp_path, monkeypatch):
+        from scanner.cve import db as cvedb, detector, feed_downloader as fd
+        from scanner.cve.db import get_conn, set_sync_state
+        from scanner.cve.nvd_parser import ingest as nvd_ingest
+        from scanner.cve.models import DetectedTech
+        from scanner.engine import ScanEngine
+
+        assert detector._cve_year("CVE-2019-1111") == 2019 and detector._cve_year("CVE-7C51") == 0
+        db_file = tmp_path / "v.sqlite"
+        monkeypatch.setattr(cvedb, "DB_PATH", db_file)
+        seed = get_conn(db_file)
+        nvd_ingest(seed, {"vulnerabilities": [self._nginx_vuln("CVE-2019-1111")]})
+        nvd_ingest(seed, {"vulnerabilities": [self._nginx_vuln("CVE-2021-2222")]})
+        set_sync_state(seed, "nvd_full", 2)
+        seed.close()
+        monkeypatch.setattr(fd, "update_vulndb_if_stale", lambda *a, **k: True)
+        monkeypatch.setattr(fd, "query_nvd", lambda *a, **k: {})
+        monkeypatch.setattr(detector, "_collect_tech", lambda eng: [
+            DetectedTech(name="nginx", version="1.18.0", type="web_server",
+                         source="hdr", confidence=0.9, evidence="x")])
+
+        findings = detector.run(ScanEngine("https://target.test", rate_delay=0))
+        ids = {f.raw["cve_id"] for f in findings if f.raw.get("cve_id")}
+        assert "CVE-2021-2222" in ids and "CVE-2019-1111" not in ids
+
+    def test_html_badge_links(self):
+        from scanner.output import report_html as rh
+        assert rh._cwe_url("CWE-79") == "https://cwe.mitre.org/data/definitions/79.html"
+        assert rh._mitre_url("T1190") == "https://attack.mitre.org/techniques/T1190/"
+        assert rh._mitre_url("T1059.001") == "https://attack.mitre.org/techniques/T1059/001/"
+        assert rh._owasp_url("A06:2021 Vulnerable and Outdated Components").endswith(
+            "A06_2021-Vulnerable_and_Outdated_Components/")
+        assert rh._cve_url("CVE-2021-23017") == "https://nvd.nist.gov/vuln/detail/CVE-2021-23017"
+        assert rh._cve_url("CVE-7C51") == ""        # internal Hades id -> not a CVE link
+        assert rh._cvss_url(_FakeF("CVSS:3.1/AV:N/AC:L")).startswith(
+            "https://www.first.org/cvss/calculator/3.1#")
+        # A rendered CVE finding wraps its badges in <a href> links.
+        from scanner.engine import Finding, Severity
+        f = Finding(module="cve_vulnerability", title="CVE-2021-23017", description="d",
+                    severity=Severity.HIGH, recommendation="", cwe="CWE-787",
+                    owasp="A06:2021 Vulnerable and Outdated Components", mitre=["T1190"],
+                    cvss=9.8, raw={"cve_id": "CVE-2021-23017", "cvss_vector": "CVSS:3.1/AV:N"})
+        html_out = rh._refs_html(f, "#ff0000")
+        assert 'href="https://nvd.nist.gov/vuln/detail/CVE-2021-23017"' in html_out
+        assert "cwe.mitre.org/data/definitions/787.html" in html_out
+        assert "attack.mitre.org/techniques/T1190/" in html_out
+
+
+class _FakeF:
+    def __init__(self, vector: str) -> None:
+        self.raw = {"cvss_vector": vector}
+
 
 # ---------------------------------------------------------------------------
 # Out-of-band / blind-vuln (OAST) tests

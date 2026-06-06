@@ -348,12 +348,35 @@ OOB = [
         "Works behind NAT: if cloudflared (free, no account) or ngrok is installed Hades auto-opens a public tunnel; otherwise use --oob-host. A callback's source IP is the target itself."),
 ]
 
+CVE = [
+    module("cve_scan", "CVE Vulnerability Intelligence (menu option 8)",
+        "A dedicated profile that fingerprints the target's stack broadly — Server / X-Powered-By headers, tech_stack (JS/CSS/CMS/framework signatures with versions), cms_detect, and SSH/FTP/mail/DB service banners from a port scan — normalises each product to a CPE, and matches real CVEs from a local vulnerability database.",
+        "Knowing exactly which published CVEs affect the detected versions turns 'old software' into a concrete, prioritised exploit list.",
+        "Maps detected products + versions to known CVEs (nginx, OpenSSH, jQuery, WordPress, Apache, MySQL…), classified CONFIRMED / LIKELY / POSSIBLE by version match.",
+        "100% free, no API key: a local SQLite DB built from CISA KEV + FIRST EPSS, with NVD 2.0 queried on demand. Only CVEs from 2020 onward are reported (older ones are filtered out)."),
+    module("cve_scan — prioritisation", "KEV + EPSS Priority Score",
+        "Ranks every matched CVE by a Hades CVE Priority Score (0-100) fusing CVSS severity, FIRST EPSS exploit probability, and whether the CVE is in the CISA KEV catalog (actively exploited in the wild), plus internet exposure and match confidence.",
+        "Hundreds of CVEs are noise; the score surfaces the handful that are genuinely exploitable right now.",
+        "Focuses the operator on actively-exploited, high-probability CVEs first, instead of raw CVSS alone.",
+        "Unknown-version products show only the top 10 CVEs (by KEV / EPSS / CVSS) to control noise."),
+    module("cve_scan — offline corpus", "Full Local NVD Database",
+        "Run tools/build_vulndb.py once to bulk-load the entire NVD corpus (~270k CVEs) into the local SQLite DB. The scan then matches completely offline with no per-product network calls, and the database refreshes incrementally afterwards.",
+        "A complete local CVE bank means exhaustive, fast, repeatable matching even with no internet during the engagement.",
+        "Offline CVE matching across the full NVD dataset; an optional free NVD_API_KEY speeds the one-time build ~10x.",
+        "Detection-only intelligence — it reports exposure, it never exploits."),
+]
+
 OUTPUT = [
     module("scorer", "Security Score & Grade",
         "Turns all findings into a single 0-100 score and an A-F grade, subtracting points by severity with diminishing returns per module and a confidence weighting.",
         "Your at-a-glance health indicator — a low grade means several real, actionable issues were found.",
         "Not an attack — a prioritisation aid for defenders.",
         "INFO findings are context only and NEVER affect the grade; the score reflects genuine problems (Low and above)."),
+    module("HTML report references", "Clickable Framework Badges",
+        "Every finding in the auto-generated HTML report carries reference badges — the CVE, CVSS, CWE, OWASP category, MITRE ATT&CK technique, the relevant RedTeam tool and the matched playbook. Each badge is a link to its canonical explanation page (NVD, the FIRST CVSS calculator, cwe.mitre.org, owasp.org, attack.mitre.org).",
+        "One click takes you from a finding to the authoritative definition of the weakness or technique — no copy-pasting IDs into a search engine.",
+        "A learning and triage aid: understand and verify every finding in context.",
+        "Badges open in a new browser tab; the playbook badge opens the full step-by-step skill."),
 ]
 
 
@@ -383,9 +406,9 @@ def build():
     story.append(Spacer(1, 8 * mm))
     disclaimer = ("<b>For authorised security testing only.</b> Scanning systems without explicit "
                   "written permission is illegal. For each of the 43 scan modules — and the dedicated "
-                  "Database, AI/LLM, Engagement and Out-of-Band profiles — this guide explains, in plain "
-                  "language: <b>what it checks</b>, the <b>consequence of a finding</b>, and the "
-                  "<b>type of attack</b> it enables.")
+                  "Database, AI/LLM, Engagement, Out-of-Band and CVE Intelligence profiles — this guide "
+                  "explains, in plain language: <b>what it checks</b>, the <b>consequence of a finding</b>, "
+                  "and the <b>type of attack</b> it enables.")
     story.append(Table([[Paragraph(disclaimer, BODY)]], colWidths=[doc.width - 20 * mm],
                        style=TableStyle([("BOX", (0, 0), (-1, -1), 1, RED),
                                          ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
@@ -436,7 +459,8 @@ def build():
                           ("5 · AI / LLM Security — ai_scan", AI),
                           ("6 · Active Engagement — engage", ENGAGE),
                           ("7 · Out-of-Band / Blind Vulns — oob_scan", OOB),
-                          ("8 · Scoring &amp; Output", OUTPUT)]:
+                          ("8 · CVE Vulnerability Intelligence — cve_scan", CVE),
+                          ("9 · Scoring &amp; Output", OUTPUT)]:
         story.append(Paragraph(heading, CAT))
         story.extend(mods)
         story.append(PageBreak())

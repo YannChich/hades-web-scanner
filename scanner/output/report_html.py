@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import os
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -221,7 +222,10 @@ a:hover { text-decoration: underline; }
 .ref-mitre { color: #79c0ff; border-color: #1f6feb; }
 .ref-tool  { color: #e3b341; border-color: #9e6a03; background: #1c1808; }
 .ref-play  { color: #d2a8ff; border-color: #8957e5; background: #1d162e; }
-a.ref-play:hover { text-decoration: none; background: #2d2150; }
+/* Every reference badge is a link to its canonical explanation page. */
+a.ref-pill { text-decoration: none; cursor: pointer; transition: filter .15s, box-shadow .15s; }
+a.ref-pill:hover { text-decoration: none; filter: brightness(1.4); box-shadow: 0 0 0 1px currentColor; }
+a.ref-play:hover { text-decoration: none; background: #2d2150; filter: none; box-shadow: none; }
 /* Recommended-playbooks section */
 .play-list { list-style: none; }
 .play-list li {
@@ -316,25 +320,93 @@ def _counts_html(counts: dict[str, int]) -> str:
     return f'<div class="counts-grid">{cards}</div>'
 
 
+# Every reference badge links to a canonical explanation page (like the playbook pills do).
+_OWASP_2021_SLUG: dict[str, str] = {
+    "A01": "A01_2021-Broken_Access_Control",
+    "A02": "A02_2021-Cryptographic_Failures",
+    "A03": "A03_2021-Injection",
+    "A04": "A04_2021-Insecure_Design",
+    "A05": "A05_2021-Security_Misconfiguration",
+    "A06": "A06_2021-Vulnerable_and_Outdated_Components",
+    "A07": "A07_2021-Identification_and_Authentication_Failures",
+    "A08": "A08_2021-Software_and_Data_Integrity_Failures",
+    "A09": "A09_2021-Security_Logging_and_Monitoring_Failures",
+    "A10": "A10_2021-Server-Side_Request_Forgery_%28SSRF%29",
+}
+
+
+def _cwe_url(cwe: str) -> str:
+    m = re.search(r"CWE-(\d+)", cwe or "")
+    return f"https://cwe.mitre.org/data/definitions/{m.group(1)}.html" if m else ""
+
+
+def _owasp_url(owasp: str) -> str:
+    code = (owasp or "").split(":")[0].strip().upper()
+    slug = _OWASP_2021_SLUG.get(code)
+    return f"https://owasp.org/Top10/{slug}/" if slug else "https://owasp.org/www-project-top-ten/"
+
+
+def _mitre_url(tech: str) -> str:
+    m = re.fullmatch(r"\s*(T\d{4})(?:\.(\d{3}))?\s*", tech or "")
+    if not m:
+        return ""
+    return f"https://attack.mitre.org/techniques/{m.group(1)}/" + (f"{m.group(2)}/" if m.group(2) else "")
+
+
+def _cvss_url(f: Finding) -> str:
+    vec = (f.raw or {}).get("cvss_vector", "") if hasattr(f, "raw") else ""
+    m = re.match(r"CVSS:(\d\.\d)", vec or "")
+    if m:
+        return f"https://www.first.org/cvss/calculator/{m.group(1)}#{vec}"
+    return "https://www.first.org/cvss/"   # generic CVSS explanation (no vector available)
+
+
+def _cve_url(cve_id: str) -> str:
+    return f"https://nvd.nist.gov/vuln/detail/{cve_id}" if re.fullmatch(r"CVE-\d{4}-\d+", cve_id or "") else ""
+
+
+def _tool_url(tool: str) -> str:
+    # No per-tool registry, so point at a GitHub repository search that reliably surfaces the tool.
+    from urllib.parse import quote
+    return f"https://github.com/search?q={quote(tool)}&type=repositories"
+
+
+def _link_pill(cls: str, label: str, href: str, title: str, extra_style: str = "") -> str:
+    """A reference badge; an <a> when a canonical page exists, otherwise a plain <span>."""
+    style = f' style="{extra_style}"' if extra_style else ""
+    if href:
+        return (f'<a class="ref-pill {cls}" href="{_e(href)}" target="_blank" rel="noopener" '
+                f'title="{_e(title)}"{style}>{label}</a>')
+    return f'<span class="ref-pill {cls}" title="{_e(title)}"{style}>{label}</span>'
+
+
 def _refs_html(f: Finding, sev_color: str) -> str:
-    """Compact framework-reference pills shown under a finding's title."""
-    pills = [f'<span class="ref-pill ref-id">{_e(f.finding_id)}</span>']
+    """Compact framework-reference pills shown under a finding's title — each one clickable."""
+    raw = f.raw or {}
+    cve_id = raw.get("cve_id", "")
+    pills: list[str] = []
+
+    # ID badge: a real CVE (-> NVD) for CVE findings, else the internal Hades finding ID.
+    if cve_id:
+        pills.append(_link_pill("ref-id", _e(cve_id), _cve_url(cve_id), f"View {cve_id} on NVD"))
+    else:
+        pills.append(f'<span class="ref-pill ref-id">{_e(f.finding_id)}</span>')
+
     if f.cvss is not None:
-        pills.append(f'<span class="ref-pill ref-cvss" style="--sev-color:{sev_color};">'
-                     f'CVSS {f.cvss:g}</span>')
+        pills.append(_link_pill("ref-cvss", f"CVSS {f.cvss:g}", _cvss_url(f),
+                                "CVSS scoring (FIRST)", f"--sev-color:{sev_color};"))
     if f.cwe:
-        pills.append(f'<span class="ref-pill ref-cwe">{_e(f.cwe)}</span>')
+        pills.append(_link_pill("ref-cwe", _e(f.cwe), _cwe_url(f.cwe), f"{f.cwe} on cwe.mitre.org"))
     if f.owasp:
-        # Show just the OWASP code (e.g. "A03:2021") to keep the pill short.
-        pills.append(f'<span class="ref-pill ref-owasp">{_e(f.owasp.split(" ")[0])}</span>')
+        code = f.owasp.split(" ")[0]      # short code, e.g. "A06:2021"
+        pills.append(_link_pill("ref-owasp", _e(code), _owasp_url(f.owasp), f"OWASP {code}"))
     for tech in f.mitre:
-        pills.append(f'<span class="ref-pill ref-mitre">{_e(tech)}</span>')
+        pills.append(_link_pill("ref-mitre", _e(tech), _mitre_url(tech), f"ATT&CK {tech}"))
     for tool in (f.redteam_tools or []):
-        pills.append(f'<span class="ref-pill ref-tool" title="See the RedTeam-Tools PDF">'
-                     f'🛠 {_e(tool)}</span>')
+        pills.append(_link_pill("ref-tool", f"🛠 {_e(tool)}", _tool_url(tool), f"Find {tool} on GitHub"))
     for s in (f.skill_refs or []):
         href = s.get("href") or "#"
-        pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" '
+        pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" target="_blank" rel="noopener" '
                      f'title="Open the full playbook">📘 {_e(s["name"])}</a>')
     return f'<div class="refs">{"".join(pills)}</div>'
 
@@ -490,7 +562,7 @@ def _attack_path_html(findings: list[Finding], base_url: str) -> str:
         steps = ""
         for s in g["steps"]:
             sev = s["severity"]
-            mitre = "".join(f'<span class="ref-pill ref-mitre">{_e(t)}</span>' for t in s["mitre"])
+            mitre = "".join(_link_pill("ref-mitre", _e(t), _mitre_url(t), f"ATT&CK {t}") for t in s["mitre"])
             cmd = (f'<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
                    f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
                    f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre>'

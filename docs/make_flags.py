@@ -44,7 +44,7 @@ def esc(s):
 # flag, short, argument, description
 FLAGS = [
     ("--url", "-u", "URL", "Target URL to scan. Must start with http:// or https://. If omitted, Hades asks for it interactively."),
-    ("--profile", "-p", "PROFILE", "Which set of modules to run: quick, passive, cms, full, or db_scan. If omitted, an interactive menu is shown."),
+    ("--profile", "-p", "PROFILE", "Which set of modules to run: quick, passive, cms, full, db_scan, ai_scan, engage, oob_scan. If omitted, an interactive menu is shown (menu option 8 = CVE Vulnerability Intelligence)."),
     ("--module", "-m", "NAME", "Run ONE module only (e.g. headers_check). Overrides --profile. Great for quick targeted checks."),
     ("--output", "-o", "FORMAT", "Export the report to a file: json, html, or pdf. If omitted, results are only shown in the terminal."),
     ("--proxy", "", "URL", "Route all traffic through an HTTP/HTTPS proxy, e.g. Burp Suite at http://127.0.0.1:8080."),
@@ -63,6 +63,10 @@ PROFILES = [
     ("cms", "CMS-focused: CMS detection, admin panels, and CVE mapping."),
     ("full", "Everything — the most thorough scan (this is the default behaviour)."),
     ("db_scan", "Red-team database security audit: DB ports, unauth access + data extraction, SQL/NoSQL injection, leaked secrets/connection strings, GraphQL, admin GUIs, dumps; emits a DB exposure score, attack path and loot. Pair with --exploit to launch sqlmap on confirmed SQLi."),
+    ("ai_scan", "Red-team AI/LLM audit: SDK/provider fingerprint, exposed AI keys, unauthenticated local LLM servers, exposed AI UIs and the prompt-injection surface (OWASP LLM Top 10 + MITRE ATLAS)."),
+    ("engage", "Active exploitation engagement: confirms bugs then proves impact with benign payloads (RCE via id/uname, LFI read, SSRF to cloud metadata), writing evidence to loot/. Authorisation-gated."),
+    ("oob_scan", "Out-of-band (OAST) blind-vuln detection: blind SSRF / RCE / stored XSS via a self-hosted callback listener; auto public tunnel (cloudflared/ngrok) so it works behind NAT."),
+    ("cve_scan", "CVE Vulnerability Intelligence (also interactive menu option 8): fingerprints the stack, matches real CVEs (2020+) from a local KEV/EPSS/NVD database, ranked by a Hades CVE Priority Score. Build the full offline corpus once with tools/build_vulndb.py."),
 ]
 
 MODULES = [
@@ -73,6 +77,7 @@ MODULES = [
     "Vulns:  sqli_detect · xss_detect · command_injection · ssti_detect · lfi_detect ·",
     "        open_redirect · ssrf_detect · cve_mapping · default_creds",
     "DB:     db_security   (run via --profile db_scan — dedicated red-team database audit)",
+    "CVE:    cve_vulnerability   (menu option 8 — CVE intelligence; build the corpus with tools/build_vulndb.py)",
 ]
 
 EXAMPLES = [
@@ -86,6 +91,8 @@ EXAMPLES = [
     ("Detect + launch sqlmap on SQLi", "py main.py -u \"http://testaspnet.vulnweb.com/Comments.aspx?id=1\" --exploit"),
     ("Database security audit + HTML report", "py main.py -u https://example.com -p db_scan -o html"),
     ("DB audit + auto-exploit confirmed SQLi", "py main.py -u http://testaspnet.vulnweb.com -p db_scan --exploit"),
+    ("CVE intelligence (interactive menu, option 8)", "py main.py -u https://example.com"),
+    ("Build the full offline CVE corpus (once)", "py tools/build_vulndb.py"),
     ("Show all flags", "py main.py --help"),
 ]
 

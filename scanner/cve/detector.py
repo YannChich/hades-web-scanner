@@ -31,6 +31,13 @@ MODULE = "cve_vulnerability"
 _MAX_PRODUCTS = 16
 _NVD_DELAY = 1.5
 _POSSIBLE_TOP = 10
+_MIN_CVE_YEAR = 2020   # CVEs from 2019 and earlier are filtered out (not of interest)
+
+
+def _cve_year(cve_id: str) -> int:
+    """Year from a CVE id (CVE-YYYY-NNNN), or 0 if unparseable."""
+    m = re.match(r"CVE-(\d{4})-", cve_id or "")
+    return int(m.group(1)) if m else 0
 
 # Product + version extracted from service banners (port scan) — SSH/FTP/mail/DB exposure.
 # Each name here must have an alias entry so it resolves to a CPE.
@@ -167,6 +174,9 @@ def _match(conn, tech: DetectedTech, cand) -> list[CveFinding]:
         md = dict(m)
         level = classify(tech.version, md, tech.confidence)
         if level is None or md["cve_id"] in seen:
+            continue
+        year = _cve_year(md["cve_id"])
+        if year and year < _MIN_CVE_YEAR:   # skip 2019-and-earlier CVEs
             continue
         seen.add(md["cve_id"])
         cve = conn.execute("SELECT * FROM cves WHERE cve_id=?", (md["cve_id"],)).fetchone()

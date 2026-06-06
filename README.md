@@ -101,10 +101,13 @@ evidence**, and every piece of evidence comes with the next move.
   no API key — built from CISA KEV, FIRST EPSS and the NVD 2.0 API; the local SQLite database is
   auto-created and auto-refreshed. Run `python tools/build_vulndb.py` once to bulk-load the **entire
   NVD corpus** (~270k CVEs) for fully **offline** matching — incrementally refreshed thereafter.
+  Reports only CVEs from **2020 onward** (older ones are filtered out as noise).
 
 **Intelligence and reporting layer**
 - Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
   unified kill-chain attack path — surfaced in the console, JSON and HTML.
+- Every reference badge in the HTML report is **clickable** — CVE → NVD, CVSS → the FIRST calculator,
+  CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
 - Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
 - Always-on HTML report (auto-opened), plus optional JSON and PDF export, and timestamped logs.
 
@@ -115,8 +118,8 @@ evidence**, and every piece of evidence comes with the next move.
 
 ## Reports Preview
 
-Every scan produces a dark, self-contained HTML report (framework badges, a security-score gauge, the
-kill-chain attack path, matched playbooks, and the DB/AI panels).
+Every scan produces a dark, self-contained HTML report (clickable framework badges, a security-score
+gauge, the kill-chain attack path, matched playbooks, and the DB/AI panels).
 
 <p align="center">
   <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">
