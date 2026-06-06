@@ -2,7 +2,7 @@
 dns_check — queries DNS records relevant to email security and domain hygiene.
 
 Checks MX, SPF (TXT), DMARC (_dmarc.<domain> TXT), and DKIM
-(default._domainkey.<domain> TXT). Missing SPF is Medium; missing DMARC is High.
+(default._domainkey.<domain> TXT). Missing SPF is Medium; missing DMARC is Medium.
 """
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def _check_dmarc(domain: str) -> Finding:
         "DMARC Record — Missing",
         f"No DMARC TXT record found at {dmarc_name}. "
         "Without DMARC, spoofed emails cannot be rejected by receiving servers.",
-        Severity.HIGH,
+        Severity.MEDIUM,
         recommendation=(
             "Add a TXT record at _dmarc." + domain +
             ": \"v=DMARC1; p=reject; rua=mailto:dmarc@" + domain + "\""
