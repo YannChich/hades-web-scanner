@@ -257,6 +257,49 @@ class TestSkillsEnrichment:
             fn.cache_clear()
 
 
+class TestPlaybookQuality:
+    @staticmethod
+    def _bundle():
+        import json
+        from pathlib import Path
+        p = Path(__file__).resolve().parent.parent / "scanner" / "intel" / "playbooks.json"
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def test_descriptions_are_complete_and_engaging(self):
+        """No truncated teasers — every playbook description is a complete sentence."""
+        dangling = {"to", "using", "that", "by", "where", "including", "and", "the", "with",
+                    "for", "of", "a", "in", "on", "from", "as"}
+        for s in self._bundle():
+            d = s["description"].strip()
+            assert d.endswith("."), f"{s['name']}: description not a full sentence"
+            assert len(d) >= 40, f"{s['name']}: description too short"
+            assert d.rstrip(".").split()[-1].lower() not in dangling, f"{s['name']}: truncated"
+
+    def test_mapped_skills_all_resolve_in_bundle(self):
+        import config
+        names = {s["name"] for s in self._bundle()}
+        mapped = set()
+        for v in config.MODULE_SKILL_MAP.values():
+            mapped |= set(v)
+        for v in config.DB_CATEGORY_SKILL_MAP.values():
+            mapped |= set(v)
+        assert mapped <= names, f"mapped but missing from bundle: {sorted(mapped - names)}"
+
+    def test_no_defensive_playbook_attached_to_findings(self):
+        """Offensive findings must never link a pure blue-team (remediation/hardening) playbook."""
+        import config
+        mapped = set()
+        for v in config.MODULE_SKILL_MAP.values():
+            mapped |= set(v)
+        for v in config.DB_CATEGORY_SKILL_MAP.values():
+            mapped |= set(v)
+        assert "implementing-llm-guardrails-for-security" not in mapped
+        assert "analyzing-cloud-storage-access-patterns" not in mapped
+        for name in mapped:
+            assert not name.startswith(("remediating-", "implementing-", "hardening-",
+                                        "deploying-", "building-")), f"defensive playbook mapped: {name}"
+
+
 # ---------------------------------------------------------------------------
 # AI / LLM recon tests (Axe 4)
 # ---------------------------------------------------------------------------

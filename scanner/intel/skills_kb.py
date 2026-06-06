@@ -140,9 +140,12 @@ def _skill_detail(name: str) -> dict | None:
                     mitre = _frontmatter_list(block, "mitre_attack")
             except OSError:
                 pass
+            # Prefer Hades's curated one-liner (complete, offensive) over the library's index.json
+            # description, which is truncated mid-sentence (e.g. "…using sqlmap to").
+            curated = (_load_bundle().get(name, {}) or {}).get("description", "").strip()
             return {
                 "name": name,
-                "description": (entry.get("description") or "").strip(),
+                "description": curated or (entry.get("description") or "").strip(),
                 "href": md_path.as_uri() if md_path.is_file() else "",
                 "tags": tags,
                 "mitre": mitre,

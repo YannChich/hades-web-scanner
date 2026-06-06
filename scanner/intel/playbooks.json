@@ -1,637 +1,226 @@
 [
   {
     "name": "exploiting-sql-injection-vulnerabilities",
-    "description": "Identifies and exploits SQL injection vulnerabilities in web applications",
-    "mitre": [
-      "T1595",
-      "T1190",
-      "T1059",
-      "T1078",
-      "T1055"
-    ],
-    "tags": [
-      "SQL-injection",
-      "sqlmap",
-      "database-security",
-      "OWASP-A03",
-      "injection-testing"
-    ],
+    "description": "Find and weaponize SQL injection — from a single quote that breaks a query to dumping the whole database with error-based, boolean/time-blind and UNION extraction, then escalating to file read/write and RCE.",
+    "mitre": ["T1595", "T1190", "T1059", "T1078", "T1055"],
+    "tags": ["SQL-injection", "sqlmap", "database-security", "OWASP-A03", "injection-testing"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-sql-injection-vulnerabilities/SKILL.md"
   },
   {
     "name": "exploiting-sql-injection-with-sqlmap",
-    "description": "Detecting and exploiting SQL injection vulnerabilities using sqlmap to",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1055"
-    ],
-    "tags": [
-      "penetration-testing",
-      "sql-injection",
-      "sqlmap",
-      "owasp",
-      "database-security",
-      "web-security"
-    ],
+    "description": "Drive sqlmap end-to-end on a confirmed injection: fingerprint the DBMS, enumerate databases/tables/columns, dump the data, and pop a shell with --os-shell — automation all the way to the kill.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1055"],
+    "tags": ["penetration-testing", "sql-injection", "sqlmap", "owasp", "database-security", "web-security"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-sql-injection-with-sqlmap/SKILL.md"
   },
   {
     "name": "performing-second-order-sql-injection",
-    "description": "Detect and exploit second-order SQL injection vulnerabilities where malicious",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1055"
-    ],
-    "tags": [
-      "second-order-sqli",
-      "stored-sql-injection",
-      "sql-injection",
-      "database-security",
-      "web-security",
-      "blind-injection",
-      "persistent-sqli"
-    ],
+    "description": "Hunt stored (second-order) SQLi where your payload is saved now and fires later in a different query — the blind spot most scanners and WAFs walk right past.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1055"],
+    "tags": ["second-order-sqli", "stored-sql-injection", "sql-injection", "database-security", "web-security", "blind-injection", "persistent-sqli"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-second-order-sql-injection/SKILL.md"
   },
   {
     "name": "testing-for-xss-vulnerabilities",
-    "description": "Tests web applications for Cross-Site Scripting (XSS) vulnerabilities",
-    "mitre": [
-      "T1595",
-      "T1190",
-      "T1059",
-      "T1078",
-      "T1055"
-    ],
-    "tags": [
-      "XSS",
-      "cross-site-scripting",
-      "client-side-security",
-      "OWASP-A03",
-      "JavaScript-injection"
-    ],
+    "description": "Land a reflected or stored XSS: map the reflection context, craft the breakout sequence, prove a payload actually fires, then weaponize it for cookie theft and session hijacking.",
+    "mitre": ["T1595", "T1190", "T1059", "T1078", "T1055"],
+    "tags": ["XSS", "cross-site-scripting", "client-side-security", "OWASP-A03", "JavaScript-injection"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/testing-for-xss-vulnerabilities/SKILL.md"
   },
   {
     "name": "testing-for-xss-vulnerabilities-with-burpsuite",
-    "description": "Identifying and validating cross-site scripting vulnerabilities using",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083"
-    ],
-    "tags": [
-      "penetration-testing",
-      "xss",
-      "burpsuite",
-      "owasp",
-      "web-security",
-      "cross-site-scripting"
-    ],
+    "description": "Use Burp Suite to find and confirm XSS at scale — intercept, fuzz every parameter, escape the output context, and validate a popping payload before you report it.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083"],
+    "tags": ["penetration-testing", "xss", "burpsuite", "owasp", "web-security", "cross-site-scripting"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/testing-for-xss-vulnerabilities-with-burpsuite/SKILL.md"
   },
   {
     "name": "exploiting-template-injection-vulnerabilities",
-    "description": "Detecting and exploiting Server-Side Template Injection (SSTI) vulnerabilities",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1055"
-    ],
-    "tags": [
-      "penetration-testing",
-      "ssti",
-      "template-injection",
-      "rce",
-      "web-security",
-      "owasp"
-    ],
+    "description": "Turn Server-Side Template Injection into remote code execution: fingerprint the engine (Jinja2, Twig, Freemarker…) with math probes, then break out of the sandbox to run system commands.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1055"],
+    "tags": ["penetration-testing", "ssti", "template-injection", "rce", "web-security", "owasp"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-template-injection-vulnerabilities/SKILL.md"
   },
   {
     "name": "performing-directory-traversal-testing",
-    "description": "Testing web applications for path traversal vulnerabilities that allow",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083"
-    ],
-    "tags": [
-      "penetration-testing",
-      "directory-traversal",
-      "path-traversal",
-      "lfi",
-      "owasp",
-      "web-security"
-    ],
+    "description": "Walk out of the web root with ../ and encoding tricks to read arbitrary files (/etc/passwd, app configs, secrets), then chain LFI into code execution via log poisoning or PHP wrappers.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083"],
+    "tags": ["penetration-testing", "directory-traversal", "path-traversal", "lfi", "owasp", "web-security"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-directory-traversal-testing/SKILL.md"
   },
   {
     "name": "testing-for-open-redirect-vulnerabilities",
-    "description": "Identify and test open redirect vulnerabilities in web applications by",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1566"
-    ],
-    "tags": [
-      "open-redirect",
-      "url-redirect",
-      "phishing",
-      "owasp",
-      "url-validation",
-      "redirect-bypass",
-      "unvalidated-redirect"
-    ],
+    "description": "Abuse unvalidated redirects to bounce victims from a trusted domain to an attacker page — gold for phishing and for slipping past OAuth/login redirect allowlists.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1566"],
+    "tags": ["open-redirect", "url-redirect", "phishing", "owasp", "url-validation", "redirect-bypass", "unvalidated-redirect"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/testing-for-open-redirect-vulnerabilities/SKILL.md"
   },
   {
     "name": "exploiting-server-side-request-forgery",
-    "description": "Identifying and exploiting SSRF vulnerabilities to access internal services,",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1078.004"
-    ],
-    "tags": [
-      "penetration-testing",
-      "ssrf",
-      "owasp",
-      "cloud-security",
-      "web-security",
-      "burpsuite"
-    ],
+    "description": "Make the server fetch URLs for you: reach internal-only services, scan the private network, and steal cloud credentials from the 169.254.169.254 metadata endpoint.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1078.004"],
+    "tags": ["penetration-testing", "ssrf", "owasp", "cloud-security", "web-security", "burpsuite"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-server-side-request-forgery/SKILL.md"
   },
   {
     "name": "performing-blind-ssrf-exploitation",
-    "description": "Detect and exploit blind Server-Side Request Forgery vulnerabilities",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1078.004"
-    ],
-    "tags": [
-      "blind-ssrf",
-      "ssrf",
-      "out-of-band",
-      "burp-collaborator",
-      "cloud-metadata",
-      "internal-network",
-      "oob-detection"
-    ],
+    "description": "Confirm and exploit blind SSRF with out-of-band callbacks (Burp Collaborator / OAST) when the response leaks nothing — then pivot to internal hosts and cloud metadata.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1078.004"],
+    "tags": ["blind-ssrf", "ssrf", "out-of-band", "burp-collaborator", "cloud-metadata", "internal-network", "oob-detection"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-blind-ssrf-exploitation/SKILL.md"
   },
   {
     "name": "performing-ssrf-vulnerability-exploitation",
-    "description": "Test for Server-Side Request Forgery vulnerabilities by probing cloud",
-    "mitre": [
-      "T1078",
-      "T1190",
-      "T1059",
-      "T1078.004",
-      "T1530"
-    ],
-    "tags": [
-      "ssrf",
-      "web-application-security",
-      "cloud-metadata-abuse",
-      "vulnerability-exploitation",
-      "penetration-testing"
-    ],
+    "description": "Probe URL parameters for SSRF, escalate to cloud-metadata credential theft (AWS/GCP/Azure), and pivot into the internal network the application implicitly trusts.",
+    "mitre": ["T1078", "T1190", "T1059", "T1078.004", "T1530"],
+    "tags": ["ssrf", "web-application-security", "cloud-metadata-abuse", "vulnerability-exploitation", "penetration-testing"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-ssrf-vulnerability-exploitation/SKILL.md"
   },
   {
     "name": "testing-for-json-web-token-vulnerabilities",
-    "description": "Test JWT implementations for critical vulnerabilities including algorithm",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1068"
-    ],
-    "tags": [
-      "jwt",
-      "json-web-token",
-      "algorithm-confusion",
-      "authentication-bypass",
-      "token-forgery",
-      "kid-injection",
-      "jku-attack"
-    ],
+    "description": "Break JWT authentication: alg:none, weak-secret cracking, kid/jku injection and algorithm confusion — forge a token and become any user, including admin.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1068"],
+    "tags": ["jwt", "json-web-token", "algorithm-confusion", "authentication-bypass", "token-forgery", "kid-injection", "jku-attack"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/testing-for-json-web-token-vulnerabilities/SKILL.md"
   },
   {
     "name": "exploiting-jwt-algorithm-confusion-attack",
-    "description": "Exploits JWT algorithm confusion vulnerabilities where the server''s",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1552.001",
-      "T1055",
-      "T1059"
-    ],
-    "tags": [
-      "api-security",
-      "jwt",
-      "algorithm-confusion",
-      "token-forgery",
-      "cryptographic-attack"
-    ],
+    "description": "Pull off RS256-to-HS256 algorithm confusion: sign your own token using the server's public key as the HMAC secret and bypass signature verification completely.",
+    "mitre": ["T1190", "T1059.007", "T1552.001", "T1055", "T1059"],
+    "tags": ["api-security", "jwt", "algorithm-confusion", "token-forgery", "cryptographic-attack"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-jwt-algorithm-confusion-attack/SKILL.md"
   },
   {
     "name": "performing-jwt-none-algorithm-attack",
-    "description": "Execute and test the JWT none algorithm attack to bypass signature verification",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1552.001",
-      "T1027",
-      "T1070"
-    ],
-    "tags": [
-      "jwt",
-      "none-algorithm",
-      "authentication-bypass",
-      "token-manipulation",
-      "signature-bypass",
-      "penetration-testing",
-      "owasp",
-      "web-security"
-    ],
+    "description": "Strip the signature with the 'none' algorithm: tamper the claims, drop the signature, and walk in as admin whenever the server still trusts an unsigned token.",
+    "mitre": ["T1190", "T1059.007", "T1552.001", "T1027", "T1070"],
+    "tags": ["jwt", "none-algorithm", "authentication-bypass", "token-manipulation", "signature-bypass", "penetration-testing", "owasp", "web-security"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-jwt-none-algorithm-attack/SKILL.md"
   },
   {
     "name": "testing-cors-misconfiguration",
-    "description": "Identifying and exploiting Cross-Origin Resource Sharing misconfigurations",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1003"
-    ],
-    "tags": [
-      "penetration-testing",
-      "cors",
-      "web-security",
-      "owasp",
-      "same-origin-policy",
-      "burpsuite"
-    ],
+    "description": "Exploit permissive CORS: reflect a malicious Origin with credentials to read authenticated responses cross-site, exfiltrating session data and API secrets from any attacker page.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1003"],
+    "tags": ["penetration-testing", "cors", "web-security", "owasp", "same-origin-policy", "burpsuite"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/testing-cors-misconfiguration/SKILL.md"
   },
   {
     "name": "performing-clickjacking-attack-test",
-    "description": "Testing web applications for clickjacking vulnerabilities by assessing",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083"
-    ],
-    "tags": [
-      "penetration-testing",
-      "clickjacking",
-      "ui-redressing",
-      "web-security",
-      "owasp",
-      "x-frame-options"
-    ],
+    "description": "Build a working clickjacking PoC: frame the target, overlay a decoy, and hijack victim clicks into authenticated actions whenever X-Frame-Options and CSP frame-ancestors are missing.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083"],
+    "tags": ["penetration-testing", "clickjacking", "ui-redressing", "web-security", "owasp", "x-frame-options"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-clickjacking-attack-test/SKILL.md"
   },
   {
     "name": "performing-security-headers-audit",
-    "description": "Auditing HTTP security headers including CSP, HSTS, X-Frame-Options,",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083"
-    ],
-    "tags": [
-      "penetration-testing",
-      "security-headers",
-      "csp",
-      "hsts",
-      "owasp",
-      "web-security",
-      "hardening"
-    ],
+    "description": "Read the security headers (CSP, HSTS, X-Frame-Options…) the way an attacker does — spotting the missing defenses that leave the door open to XSS, clickjacking and downgrade attacks.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083"],
+    "tags": ["penetration-testing", "security-headers", "csp", "hsts", "owasp", "web-security", "hardening"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-security-headers-audit/SKILL.md"
   },
   {
     "name": "detecting-ai-model-prompt-injection-attacks",
-    "description": "Detects prompt injection attacks targeting LLM-based applications using",
-    "mitre": [
-      "T1659",
-      "T1566",
-      "T1204",
-      "T1588.007",
-      "T1565"
-    ],
-    "tags": [
-      "prompt-injection",
-      "LLM-security",
-      "OWASP-LLM-Top10",
-      "NLP-classification",
-      "input-validation"
-    ],
+    "description": "Craft and understand prompt-injection payloads against LLM apps — override the system prompt, leak hidden instructions, and slip past guardrails (OWASP LLM Top 10 / MITRE ATLAS).",
+    "mitre": ["T1659", "T1566", "T1204", "T1588.007", "T1565"],
+    "tags": ["prompt-injection", "LLM-security", "OWASP-LLM-Top10", "NLP-classification", "input-validation"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/detecting-ai-model-prompt-injection-attacks/SKILL.md"
   },
   {
-    "name": "implementing-llm-guardrails-for-security",
-    "description": "Implements input and output validation guardrails for LLM-powered applications",
-    "mitre": [
-      "T1078",
-      "T1190",
-      "T1059",
-      "T1055"
-    ],
-    "tags": [
-      "LLM-guardrails",
-      "NeMo-Guardrails",
-      "input-validation",
-      "output-filtering",
-      "AI-safety"
-    ],
-    "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/implementing-llm-guardrails-for-security/SKILL.md"
-  },
-  {
     "name": "performing-web-application-penetration-test",
-    "description": "Performs systematic security testing of web applications following the",
-    "mitre": [
-      "T1595",
-      "T1190",
-      "T1059",
-      "T1078"
-    ],
-    "tags": [
-      "web-application-pentest",
-      "OWASP",
-      "Burp-Suite",
-      "WSTG",
-      "application-security"
-    ],
+    "description": "Run a full web-app pentest the OWASP WSTG way: recon, map the attack surface, and chain findings into a real compromise — the methodology behind every engagement.",
+    "mitre": ["T1595", "T1190", "T1059", "T1078"],
+    "tags": ["web-application-pentest", "OWASP", "Burp-Suite", "WSTG", "application-security"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-web-application-penetration-test/SKILL.md"
   },
   {
     "name": "performing-subdomain-enumeration-with-subfinder",
-    "description": "Enumerate subdomains of target domains using ProjectDiscovery's Subfinder",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1595"
-    ],
-    "tags": [
-      "subdomain-enumeration",
-      "reconnaissance",
-      "bug-bounty",
-      "attack-surface",
-      "subfinder",
-      "passive-recon",
-      "osint"
-    ],
+    "description": "Blow open the attack surface with Subfinder: passively enumerate subdomains from dozens of sources to surface forgotten dev, staging and admin hosts ripe for takeover.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1595"],
+    "tags": ["subdomain-enumeration", "reconnaissance", "bug-bounty", "attack-surface", "subfinder", "passive-recon", "osint"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-subdomain-enumeration-with-subfinder/SKILL.md"
   },
   {
     "name": "scanning-network-with-nmap-advanced",
-    "description": "Performs advanced network reconnaissance using Nmap''s scripting engine,",
-    "mitre": [
-      "T1046",
-      "T1040",
-      "T1557",
-      "T1071",
-      "T1595"
-    ],
-    "tags": [
-      "network-security",
-      "nmap",
-      "port-scanning",
-      "service-enumeration",
-      "reconnaissance"
-    ],
+    "description": "Go beyond nmap -sV: NSE scripts, timing/evasion and deep service enumeration to map every open port and pinpoint the soft targets behind them.",
+    "mitre": ["T1046", "T1040", "T1557", "T1071", "T1595"],
+    "tags": ["network-security", "nmap", "port-scanning", "service-enumeration", "reconnaissance"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/scanning-network-with-nmap-advanced/SKILL.md"
   },
   {
     "name": "performing-ssl-tls-security-assessment",
-    "description": "Assess SSL/TLS server configurations using the sslyze Python library",
-    "mitre": [
-      "T1046",
-      "T1040",
-      "T1557",
-      "T1071",
-      "T1553"
-    ],
-    "tags": [
-      "network-security",
-      "ssl",
-      "tls",
-      "sslyze",
-      "certificate",
-      "cipher-suites",
-      "vulnerability-assessment"
-    ],
+    "description": "Assess TLS with sslyze: weak ciphers, expired or mis-issued certificates and protocol downgrades — the crypto gaps that open the door to interception.",
+    "mitre": ["T1046", "T1040", "T1557", "T1071", "T1553"],
+    "tags": ["network-security", "ssl", "tls", "sslyze", "certificate", "cipher-suites", "vulnerability-assessment"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-ssl-tls-security-assessment/SKILL.md"
   },
   {
     "name": "auditing-aws-s3-bucket-permissions",
-    "description": "Systematically audit AWS S3 bucket permissions to identify publicly",
-    "mitre": [
-      "T1530",
-      "T1619",
-      "T1078.004",
-      "T1537",
-      "T1567.002"
-    ],
-    "tags": [
-      "cloud-security",
-      "aws",
-      "s3",
-      "bucket-permissions",
-      "data-protection",
-      "access-control"
-    ],
+    "description": "Hunt misconfigured S3 buckets: enumerate names, test anonymous list/read/write, and pull the loot from world-readable buckets — one of the classic instant breaches.",
+    "mitre": ["T1530", "T1619", "T1078.004", "T1537", "T1567.002"],
+    "tags": ["cloud-security", "aws", "s3", "bucket-permissions", "data-protection", "access-control"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/auditing-aws-s3-bucket-permissions/SKILL.md"
   },
   {
-    "name": "analyzing-cloud-storage-access-patterns",
-    "description": "Detect abnormal access patterns in AWS S3, GCS, and Azure Blob Storage",
-    "mitre": [
-      "T1530",
-      "T1567.002",
-      "T1619",
-      "T1078.004",
-      "T1048"
-    ],
-    "tags": [
-      "cloud-security",
-      "aws-s3",
-      "gcs",
-      "azure-blob-storage",
-      "cloudtrail",
-      "data-access-anomaly",
-      "exfiltration-detection"
-    ],
-    "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/analyzing-cloud-storage-access-patterns/SKILL.md"
+    "name": "conducting-cloud-penetration-testing",
+    "description": "Attack the cloud (AWS/GCP/Azure): abuse over-permissive IAM, exposed storage and instance metadata to climb from a single foothold to full account takeover.",
+    "mitre": ["T1078.004", "T1580", "T1530", "T1538"],
+    "tags": ["cloud-pentesting", "offensive-security", "aws-exploitation", "iam-abuse", "mitre-attack-cloud"],
+    "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/conducting-cloud-penetration-testing/SKILL.md"
+  },
+  {
+    "name": "performing-gcp-penetration-testing-with-gcpbucketbrute",
+    "description": "Brute-force and enumerate Google Cloud Storage buckets with GCPBucketBrute, then test their IAM permissions for the privilege-escalation paths that lead into the project.",
+    "mitre": ["T1078.004", "T1530", "T1537", "T1580", "T1068"],
+    "tags": ["gcp", "cloud-pentesting", "bucket-enumeration", "iam-audit", "privilege-escalation", "gcpbucketbrute"],
+    "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-gcp-penetration-testing-with-gcpbucketbrute/SKILL.md"
   },
   {
     "name": "performing-cve-prioritization-with-kev-catalog",
-    "description": "Leverage the CISA Known Exploited Vulnerabilities catalog alongside EPSS",
-    "mitre": [
-      "T1190",
-      "T1203",
-      "T1068"
-    ],
-    "tags": [
-      "cisa-kev",
-      "cve",
-      "vulnerability-prioritization",
-      "epss",
-      "bod-22-01",
-      "threat-intelligence",
-      "remediation"
-    ],
+    "description": "Cut through CVE noise: rank what's actually being exploited in the wild using the CISA KEV catalog and EPSS so you hit the vulnerabilities that matter first.",
+    "mitre": ["T1190", "T1203", "T1068"],
+    "tags": ["cisa-kev", "cve", "vulnerability-prioritization", "epss", "bod-22-01", "threat-intelligence", "remediation"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-cve-prioritization-with-kev-catalog/SKILL.md"
   },
   {
     "name": "performing-dns-enumeration-and-zone-transfer",
-    "description": "Enumerates DNS records, attempts zone transfers, brute-forces subdomains,",
-    "mitre": [
-      "T1046",
-      "T1040",
-      "T1557",
-      "T1071",
-      "T1595"
-    ],
-    "tags": [
-      "network-security",
-      "dns",
-      "enumeration",
-      "zone-transfer",
-      "reconnaissance"
-    ],
+    "description": "Mine DNS for intel: enumerate records, attempt AXFR zone transfers, and brute-force subdomains to map the target's full footprint before you strike.",
+    "mitre": ["T1046", "T1040", "T1557", "T1071", "T1595"],
+    "tags": ["network-security", "dns", "enumeration", "zone-transfer", "reconnaissance"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-dns-enumeration-and-zone-transfer/SKILL.md"
   },
   {
     "name": "performing-web-application-firewall-bypass",
-    "description": "Bypass Web Application Firewall protections using encoding techniques,",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1027"
-    ],
-    "tags": [
-      "waf-bypass",
-      "waf-evasion",
-      "sql-injection",
-      "xss",
-      "payload-obfuscation",
-      "encoding-bypass",
-      "web-security"
-    ],
+    "description": "Slip past the WAF: encoding, case and comment tricks plus payload obfuscation to land the SQLi/XSS the filter thought it had blocked.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1027"],
+    "tags": ["waf-bypass", "waf-evasion", "sql-injection", "xss", "payload-obfuscation", "encoding-bypass", "web-security"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-web-application-firewall-bypass/SKILL.md"
   },
   {
     "name": "exploiting-api-injection-vulnerabilities",
-    "description": "Tests APIs for injection vulnerabilities including SQL injection, NoSQL",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1552.001",
-      "T1055",
-      "T1059"
-    ],
-    "tags": [
-      "api-security",
-      "owasp",
-      "injection",
-      "sqli",
-      "nosql",
-      "ssrf",
-      "command-injection"
-    ],
+    "description": "Attack API inputs with injection — SQL/NoSQL, OS command injection and SSRF through JSON, GraphQL and headers — hitting the endpoints that skip the web UI's validation.",
+    "mitre": ["T1190", "T1059.007", "T1552.001", "T1055", "T1059"],
+    "tags": ["api-security", "owasp", "injection", "sqli", "nosql", "ssrf", "command-injection"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-api-injection-vulnerabilities/SKILL.md"
   },
   {
     "name": "exploiting-nosql-injection-vulnerabilities",
-    "description": "Detect and exploit NoSQL injection vulnerabilities in MongoDB, CouchDB,",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1055"
-    ],
-    "tags": [
-      "nosql-injection",
-      "mongodb",
-      "authentication-bypass",
-      "injection-attack",
-      "web-security",
-      "database-security",
-      "api-testing"
-    ],
+    "description": "Exploit NoSQL injection (MongoDB, CouchDB…): operator-injection auth bypass ($ne/$gt) and blind data extraction from APIs that blindly trust JSON input.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1055"],
+    "tags": ["nosql-injection", "mongodb", "authentication-bypass", "injection-attack", "web-security", "database-security", "api-testing"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/exploiting-nosql-injection-vulnerabilities/SKILL.md"
   },
   {
     "name": "performing-graphql-introspection-attack",
-    "description": "Performs GraphQL introspection attacks to extract the full API schema",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1552.001",
-      "T1110"
-    ],
-    "tags": [
-      "api-security",
-      "graphql",
-      "introspection",
-      "schema-extraction",
-      "query-abuse"
-    ],
+    "description": "Use GraphQL introspection to dump the entire schema, then abuse the hidden queries and mutations the developers never meant to expose.",
+    "mitre": ["T1190", "T1059.007", "T1552.001", "T1110"],
+    "tags": ["api-security", "graphql", "introspection", "schema-extraction", "query-abuse"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-graphql-introspection-attack/SKILL.md"
   },
   {
     "name": "performing-graphql-security-assessment",
-    "description": "Assessing GraphQL API endpoints for introspection leaks, injection attacks,",
-    "mitre": [
-      "T1190",
-      "T1059.007",
-      "T1505.003",
-      "T1083",
-      "T1055"
-    ],
-    "tags": [
-      "penetration-testing",
-      "graphql",
-      "api-security",
-      "owasp",
-      "web-security",
-      "introspection"
-    ],
+    "description": "Assess a GraphQL endpoint end-to-end: introspection leaks, injection, batching/DoS and the authorization flaws unique to the query language.",
+    "mitre": ["T1190", "T1059.007", "T1505.003", "T1083", "T1055"],
+    "tags": ["penetration-testing", "graphql", "api-security", "owasp", "web-security", "introspection"],
     "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/blob/main/skills/performing-graphql-security-assessment/SKILL.md"
   }
 ]
