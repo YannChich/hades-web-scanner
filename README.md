@@ -12,6 +12,12 @@
   <img src="https://img.shields.io/badge/status-active-b3122a?style=for-the-badge&labelColor=0d0d0d" alt="Status: active">
 </p>
 
+<p align="center">
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Install%20Now-b3122a?style=for-the-badge&labelColor=0d0d0d&logo=gnubash&logoColor=white" alt="Install Now"></a>
+  &nbsp;
+  <a href="https://github.com/YannChich/hades-web-scanner/issues/new"><img src="https://img.shields.io/badge/Suggest%20a%20tool%20%2F%20module-7b2fbf?style=for-the-badge&labelColor=0d0d0d&logo=github&logoColor=white" alt="Suggest a tool or module"></a>
+</p>
+
 ---
 
 **Hades is a terminal-based, red-team web security scanner that does not just *find* weaknesses — it *proves* them.**
@@ -60,6 +66,13 @@ confidence level, the evidence behind it, and a fix, so you know what's real and
 > Run `python hades.py` with no `--url` for an interactive menu (quick scan, full scan, the red-team
 > profiles, CVE intelligence, TLS audit…). The install is clean on Linux, macOS and Windows; the
 > optional extras (`playwright`, `sslyze`) are skipped gracefully if you don't install them.
+
+Prefer to point and shoot? Launch `python hades.py` and pick a scan — options **1 to 9**, or **666**
+for the RedTeam Arsenal:
+
+<p align="center">
+  <img src="assets/screenshots/hades-menu.svg" alt="Hades interactive menu — scan options 1 to 9 and 666" width="820">
+</p>
 
 ---
 
@@ -213,8 +226,8 @@ calculator, or the attacker technique. Here is how to read each one.
 | CWE | `CWE-79` | The **class** of weakness (CWE-79 = Cross-Site Scripting). The root-cause category. | cwe.mitre.org definition |
 | OWASP | `A03:2021` | The **OWASP Top 10 (2021)** category the issue falls under. | owasp.org Top 10 page |
 | ATT&CK | `T1190` | The **MITRE ATT&CK** technique an attacker uses to exploit it — the finding mapped to real adversary behaviour. | attack.mitre.org technique |
-| Tool | `🛠 sqlmap` | The offensive **tool** best suited to verify or exploit this finding. | The tool's GitHub repository |
-| Playbook | `📘 <name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook, **rendered as a readable HTML page** (dark theme, code/tables) — not raw Markdown |
+| Tool | `sqlmap` | The offensive **tool** best suited to verify or exploit this finding. | The tool's GitHub repository |
+| Playbook | `<name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook, **rendered as a readable HTML page** (dark theme, code/tables) — not raw Markdown |
 
 > **How to read a finding at a glance:** the **severity** badge says *how urgent*; **CWE / OWASP** say
 > *what kind of bug*; **CVSS** says *how severe in the abstract*; **ATT&CK** says *how it's abused*; and
@@ -431,7 +444,7 @@ The unified kill-chain attack path, grouped by MITRE ATT&CK tactic with copy-pas
                  $ nmap -sV -p 6379 10.0.0.5
 ```
 
-Reports are written to `reports/` (HTML always; JSON/PDF on request) and logs to `logs/`.
+Reports are written to `reports/` (HTML and JSON, every scan) and logs to `logs/`.
 
 ---
 

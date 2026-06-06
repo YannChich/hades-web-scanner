@@ -153,7 +153,7 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]7[/accent]. [ok]OOB / Blind vulns[/ok]   Out-of-band detection of blind SSRF/RCE/XSS via callbacks")
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
-    console.print("  [danger]666[/danger]. [danger]☠  RedTeam Arsenal ☠[/danger]  Open the offensive-tools reference page (no scan — ignores the target)")
+    console.print("  [danger]666[/danger]. [danger]RedTeam Arsenal[/danger]   Open the offensive-tools reference page (no scan — ignores the target)")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
