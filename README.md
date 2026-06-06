@@ -177,7 +177,7 @@ calculator, or the attacker technique. Here is how to read each one.
 | OWASP | `A03:2021` | The **OWASP Top 10 (2021)** category the issue falls under. | owasp.org Top 10 page |
 | ATT&CK | `T1190` | The **MITRE ATT&CK** technique an attacker uses to exploit it — the finding mapped to real adversary behaviour. | attack.mitre.org technique |
 | Tool | `🛠 sqlmap` | The offensive **tool** best suited to verify or exploit this finding. | The tool's GitHub repository |
-| Playbook | `📘 <name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook |
+| Playbook | `📘 <name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook, **rendered as a readable HTML page** (dark theme, code/tables) — not raw Markdown |
 
 > **How to read a finding at a glance:** the **severity** badge says *how urgent*; **CWE / OWASP** say
 > *what kind of bug*; **CVSS** says *how severe in the abstract*; **ATT&CK** says *how it's abused*; and

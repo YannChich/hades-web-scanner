@@ -9,7 +9,10 @@ import html
 import os
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from loguru import logger
 
@@ -652,6 +655,116 @@ def _recommendations_html(findings: list[Finding]) -> str:
 # Main export
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Playbook rendering — turn a local SKILL.md into a readable styled HTML page
+# ---------------------------------------------------------------------------
+
+_PLAYBOOK_CSS = """
+:root{--bg:#0d1117;--panel:#161b22;--ink:#c9d1d9;--muted:#8b949e;--accent:#d2a8ff;--border:#30363d;--code:#0b0f14;}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 -apple-system,Segoe UI,Roboto,sans-serif;}
+.wrap{max-width:900px;margin:0 auto;padding:32px 22px 80px;}
+.pb-head{border-bottom:2px solid #8957e5;padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{color:#8957e5;font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:#fff;}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid #6e40c9;color:var(--accent);
+  background:#1d162e;border-radius:10px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:#79c0ff;background:#0d1117;}
+.content h1,.content h2,.content h3{color:#fff;margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:#58a6ff;} .content strong{color:#fff;}
+.content code{background:var(--code);color:#79c0ff;padding:2px 6px;border-radius:5px;font-size:.86em;
+  font-family:ui-monospace,Consolas,monospace;}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid #39d353;border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:#39d353;padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--panel);color:#fff;}
+.content blockquote{border-left:3px solid #6e40c9;margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--panel);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid #21262d;color:#484f58;font-size:.8rem;}
+.pb-foot a{color:#8957e5;}
+"""
+
+
+def _strip_frontmatter(md: str) -> str:
+    if md.startswith("---"):
+        parts = md.split("---", 2)
+        if len(parts) == 3:
+            return parts[2].lstrip("\n")
+    return md
+
+
+def _playbook_page(skill: dict, md_text: str) -> str:
+    """Render one SKILL.md into a self-contained, dark-themed HTML page."""
+    import markdown  # local import — optional dependency
+    body = markdown.markdown(
+        _strip_frontmatter(md_text),
+        extensions=["fenced_code", "tables", "toc", "sane_lists", "nl2br"],
+    )
+    name = skill.get("name", "playbook")
+    title = name.replace("-", " ").title()
+    tags = "".join(f'<span class="pb-tag">{_e(t)}</span>' for t in (skill.get("tags") or [])[:8])
+    atk = "".join(f'<span class="pb-tag atk">{_e(m)}</span>' for m in (skill.get("mitre") or [])[:6])
+    desc = _e((skill.get("description") or "").strip())
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — {_e(title)}</title><style>{_PLAYBOOK_CSS}</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">{_e(title)}</h1>
+    <p class="pb-desc">{desc}</p>
+    <div class="pb-tags">{atk}{tags}</div>
+  </div>
+  <div class="content">{body}</div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>"""
+
+
+def _render_playbooks_to_html(findings: list[Finding], output_dir: str) -> None:
+    """Render local SKILL.md playbooks to styled HTML and rewrite each finding's href in place.
+
+    Clicking a playbook badge then opens a readable page instead of raw Markdown. GitHub (https)
+    links are left untouched — GitHub already renders Markdown. No-op if `markdown` is unavailable.
+    """
+    try:
+        import markdown  # noqa: F401
+    except ImportError:
+        return
+    pb_dir = Path(output_dir) / "playbooks"
+    rendered: dict[str, str] = {}
+    for f in findings:
+        for s in getattr(f, "skill_refs", None) or []:
+            href = s.get("href", "")
+            if not (href.startswith("file:") and href.lower().rstrip("/").endswith(".md")):
+                continue
+            name = s.get("name", "playbook")
+            if name in rendered:
+                s["href"] = rendered[name]
+                continue
+            try:
+                md_path = Path(url2pathname(urlparse(href).path))
+                md_text = md_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.debug(f"report_html: cannot read playbook {name}: {exc}")
+                continue
+            try:
+                pb_dir.mkdir(parents=True, exist_ok=True)
+                out = pb_dir / (re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:80] + ".html")
+                out.write_text(_playbook_page(s, md_text), encoding="utf-8")
+            except Exception as exc:  # noqa: BLE001 — rendering must never break the report
+                logger.debug(f"report_html: cannot render playbook {name}: {exc}")
+                continue
+            uri = out.resolve().as_uri()
+            s["href"] = uri
+            rendered[name] = uri
+
+
 def generate_html(
     findings: list[Finding],
     url: str,
@@ -675,6 +788,9 @@ def generate_html(
         findings,
         key=lambda f: _SEV_ORDER.index(f.severity.value),
     )
+
+    # Render local SKILL.md playbooks to readable HTML pages and repoint the badges at them.
+    _render_playbooks_to_html(findings, output_path)
 
     document = f"""<!DOCTYPE html>
 <html lang="en">

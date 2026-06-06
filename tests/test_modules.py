@@ -3634,3 +3634,46 @@ class TestWafDetect:
     def test_payload_block_is_generic_waf(self):
         eng, waf = self._eng(200, probe_status=406)        # clean 200, malicious 406
         assert any("Generic WAF" in f.title for f in waf.run(eng))
+
+
+# ---------------------------------------------------------------------------
+# Playbook HTML rendering (clickable badge -> readable page, not raw Markdown)
+# ---------------------------------------------------------------------------
+
+class TestPlaybookHtmlRendering:
+    def test_local_md_playbook_rendered_to_html(self, tmp_path):
+        import re
+        from pathlib import Path
+        from scanner.engine import Finding, Severity
+        from scanner.output.report_html import generate_html
+
+        skilldir = tmp_path / "skills" / "exploiting-sql-injection-vulnerabilities"
+        skilldir.mkdir(parents=True)
+        md = skilldir / "SKILL.md"
+        md.write_text("---\nname: x\ntags:\n  - sqli\n---\n# Exploit SQLi\n\n```bash\nsqlmap -u URL\n```\n",
+                      encoding="utf-8")
+
+        f = Finding(module="sqli_detect", title="SQLi", description="x", severity=Severity.CRITICAL)
+        f.skill_refs = [{"name": "exploiting-sql-injection-vulnerabilities",
+                         "description": "Weaponize SQL injection.", "href": md.as_uri(),
+                         "tags": ["sqli"], "mitre": ["T1190"]}]
+
+        out = generate_html([f], "http://demo.test", 40, output_path=str(tmp_path / "reports"))
+        report = Path(out).read_text(encoding="utf-8")
+        hrefs = re.findall(r'class="ref-pill ref-play" href="([^"]+)"', report)
+        assert hrefs and hrefs[0].endswith(".html")            # badge now points to rendered HTML
+        pb = tmp_path / "reports" / "playbooks" / "exploiting-sql-injection-vulnerabilities.html"
+        assert pb.is_file()
+        page = pb.read_text(encoding="utf-8")
+        assert "<pre>" in page and "sqlmap -u URL" in page      # markdown actually rendered
+        assert "name: x" not in page                            # YAML frontmatter stripped
+
+    def test_github_https_playbook_link_left_untouched(self, tmp_path):
+        from scanner.engine import Finding, Severity
+        from scanner.output.report_html import generate_html
+
+        gh = "https://github.com/x/y/blob/main/skills/z/SKILL.md"
+        f = Finding(module="sqli_detect", title="SQLi", description="x", severity=Severity.HIGH)
+        f.skill_refs = [{"name": "z", "description": "d", "href": gh, "tags": [], "mitre": []}]
+        generate_html([f], "http://d.test", 30, output_path=str(tmp_path / "reports"))
+        assert f.skill_refs[0]["href"] == gh                    # GitHub renders Markdown already
