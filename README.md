@@ -21,8 +21,9 @@ finding with an evaluated payload / timing / content signature (no blind guessin
 **CWE / OWASP / MITRE ATT&CK** with a CVSS score, links a step-by-step **expert playbook**, and weaves
 everything into a single copy-paste **kill-chain attack path** — then exports a polished, self-contained
 HTML report. On top of the standard scan, dedicated red-team profiles audit **databases**, the
-**AI/LLM** attack surface, run an **active exploitation engagement**, and catch **blind, out-of-band**
-vulnerabilities other scanners miss. One command.
+**AI/LLM** attack surface, run an **active exploitation engagement**, catch **blind, out-of-band**
+vulnerabilities other scanners miss, and rank a target's **CVEs** by real-world exploitability
+(**KEV + EPSS**). One command.
 
 ```text
 python main.py --url https://target.tld
@@ -93,6 +94,11 @@ evidence**, and every piece of evidence comes with the next move.
   via `id`, arbitrary file read, SSRF to cloud metadata) and writes evidence files.
 - `oob_scan` — out-of-band (OAST) detection of blind SSRF / RCE / stored XSS via a self-hosted callback
   listener, with an automatic public tunnel (cloudflared / ngrok) so it works behind NAT.
+- `cve_scan` (interactive **menu option 8**) — CVE Vulnerability Intelligence: fingerprints the target's
+  stack, matches it to real CVEs from a local vulnerability database, and ranks each by a Hades CVE
+  Priority Score that fuses CVSS, FIRST EPSS exploit probability and the CISA KEV catalog. 100% free,
+  no API key — built from CISA KEV, FIRST EPSS and the NVD 2.0 API; the local SQLite database is
+  auto-created and auto-refreshed.
 
 **Intelligence and reporting layer**
 - Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
@@ -199,6 +205,9 @@ python main.py --url https://example.com --profile engage
 # Out-of-band / blind vulnerabilities (auto-tunnels via cloudflared behind NAT)
 python main.py --url https://example.com --profile oob_scan
 
+# CVE Vulnerability Intelligence — run the interactive menu and pick option 8
+python main.py --url https://example.com          # then choose [8] CVE Vulnerability Intelligence
+
 # Also export JSON or PDF on top of the HTML
 python main.py --url https://example.com --output json
 
@@ -212,7 +221,7 @@ python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` |
+| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` (`cve_scan` is menu option 8) |
 | `--output` | `-o` | — | Extra report format on top of the always-generated HTML: `json` `pdf` |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
@@ -242,6 +251,7 @@ python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies
 | `ai_scan` | Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) |
 | `engage` | Offensive | Active engagement — auto-exploit confirmed RCE/LFI/SSRF |
 | `oob_scan` | Offensive | Out-of-band detection of blind SSRF/RCE/XSS |
+| `cve_scan` | Intelligence | CVE Vulnerability Intelligence (menu option 8) — CVE matching + KEV/EPSS prioritisation |
 
 ---
 
@@ -290,6 +300,8 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
   UIs, prompt-injection surface (OWASP LLM Top 10 + MITRE ATLAS).
 - **`engage`** — active exploitation: RCE proof, arbitrary file read, SSRF to cloud metadata, with evidence files.
 - **`oob_scan`** — out-of-band detection of blind SSRF / RCE / stored XSS via a self-hosted callback listener.
+- **`cve_scan`** (menu option 8) — CVE Vulnerability Intelligence: stack fingerprint → CPE → CVE matching
+  against a local KEV/EPSS/NVD database, ranked by the Hades CVE Priority Score (CVSS + EPSS + CISA KEV).
 
 </details>
 
@@ -341,6 +353,22 @@ All credit for those catalogues goes to their authors ([@mukul975](https://githu
 
 ---
 
+## Roadmap
+
+Hades is under active development. Planned and in-progress work:
+
+- [ ] Blind SQL injection over DNS (OAST DNS listener)
+- [ ] Authenticated / session-aware crawling and BOLA / IDOR testing
+- [ ] WAF-aware payload mutation (auto-bypass and re-confirm)
+- [ ] Nuclei template bridge (ingest results into the framework/playbook layer)
+- [ ] Expanded MITRE ATLAS coverage for the AI/LLM profile
+- [x] CVE Vulnerability Intelligence with KEV + EPSS prioritisation (menu option 8)
+- [x] Out-of-band (OAST) blind-vulnerability detection with auto-tunnel
+- [x] Unified kill-chain attack path across all profiles
+- [x] AI/LLM and database red-team profiles
+
+---
+
 ## Tech Stack
 
 `httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
@@ -362,8 +390,10 @@ hades-web-scanner/
 │   ├── severity.py          # Single source of truth for severity ordering/styles
 │   ├── recon/  web/  vulns/ # The 43 scan modules
 │   ├── db/   ai/   offensive/   oob/   # Red-team profiles (db_scan, ai_scan, engage, oob_scan)
+│   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── intel/               # Skills-library enrichment (playbooks)
 │   └── output/              # Console, scoring, attack path, JSON/HTML/PDF reports
+├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)
 ├── docs/                    # Reference PDFs + their generator scripts
 ├── tools/                   # Dev utilities (import check, playbook bundle builder)
 ├── tests/                   # pytest suite

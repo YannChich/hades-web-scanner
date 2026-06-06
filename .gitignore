@@ -30,6 +30,11 @@ htmlcov/
 # Large generated reference PDF (22 MB; regenerate via docs/make_redteam_tools.py)
 docs/Hades_RedTeam_Tools_Reference.pdf
 
+# CVE module: downloaded/generated vuln database and raw feeds (aliases.json IS tracked)
+data/vulndb/*.sqlite
+data/vulndb/*.sqlite-*
+data/vulndb/feeds/
+
 # Secrets / local config
 .env
 .env.*

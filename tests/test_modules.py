@@ -361,6 +361,188 @@ class TestSSRFAccuracy:
 
 
 # ---------------------------------------------------------------------------
+# CVE Vulnerability Intelligence tests (menu option 8 / cve_scan)
+# ---------------------------------------------------------------------------
+
+_MOCK_KEV = {"vulnerabilities": [{
+    "cveID": "CVE-2021-23017", "vendorProject": "nginx", "product": "nginx",
+    "vulnerabilityName": "nginx DNS Resolver Off-by-One", "dateAdded": "2022-02-10",
+    "dueDate": "2022-03-03", "requiredAction": "Apply updates.", "shortDescription": "nginx resolver bug."}]}
+
+_MOCK_EPSS = "#model_version:v2024\ncve,epss,percentile\nCVE-2021-23017,0.91,0.99\nCVE-0000-0001,0.02,0.10\n"
+
+_MOCK_NVD = {"vulnerabilities": [{"cve": {
+    "id": "CVE-2021-23017", "published": "2021-05-25T00:00:00", "lastModified": "2021-06-01T00:00:00",
+    "descriptions": [{"lang": "en", "value": "off-by-one in the nginx resolver"}],
+    "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 9.8, "vectorString": "CVSS:3.1/AV:N"}, "baseSeverity": "CRITICAL"}]},
+    "weaknesses": [{"description": [{"value": "CWE-787"}]}],
+    "references": [{"url": "https://nvd.nist.gov/vuln/detail/CVE-2021-23017"}],
+    "configurations": [{"nodes": [{"cpeMatch": [{
+        "criteria": "cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*", "vulnerable": True,
+        "versionStartIncluding": "0.6.18", "versionEndExcluding": "1.21.0"}]}]}]}}]}
+
+
+class TestCVE:
+    def test_profile_registered_and_menu(self):
+        from config import PROFILE_MODULES
+        assert PROFILE_MODULES["cve_scan"] == ["scanner.cve.detector"]
+
+    def test_db_schema_created(self, tmp_path):
+        from scanner.cve.db import get_conn
+        conn = get_conn(tmp_path / "v.sqlite")
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert {"cves", "cpe_matches", "cpe_dictionary", "exploit_intel", "aliases", "sync_state"} <= tables
+        conn.close()
+
+    def test_kev_parser_ingest(self, tmp_path):
+        from scanner.cve import kev_parser
+        from scanner.cve.db import get_conn
+        conn = get_conn(tmp_path / "v.sqlite")
+        assert kev_parser.ingest(conn, _MOCK_KEV) == 1
+        row = conn.execute("SELECT kev, kev_product FROM exploit_intel WHERE cve_id='CVE-2021-23017'").fetchone()
+        assert row["kev"] == 1 and row["kev_product"] == "nginx"
+        conn.close()
+
+    def test_epss_parser(self, tmp_path):
+        from scanner.cve import epss_parser
+        from scanner.cve.db import get_conn
+        assert epss_parser.parse(_MOCK_EPSS) == [("CVE-2021-23017", 0.91, 0.99), ("CVE-0000-0001", 0.02, 0.10)]
+        conn = get_conn(tmp_path / "v.sqlite")
+        epss_parser.ingest(conn, _MOCK_EPSS)
+        assert conn.execute("SELECT epss FROM exploit_intel WHERE cve_id='CVE-2021-23017'").fetchone()["epss"] == 0.91
+        conn.close()
+
+    def test_nvd_parser(self, tmp_path):
+        from scanner.cve import nvd_parser
+        from scanner.cve.db import get_conn
+        cve_row, matches = nvd_parser.parse_vulnerability(_MOCK_NVD["vulnerabilities"][0])
+        assert cve_row["cvss_score"] == 9.8 and cve_row["cwe"] == "CWE-787"
+        assert matches[0]["vendor"] == "nginx" and matches[0]["version_end_excluding"] == "1.21.0"
+        conn = get_conn(tmp_path / "v.sqlite")
+        assert nvd_parser.ingest(conn, _MOCK_NVD) == 1
+        assert conn.execute("SELECT COUNT(*) FROM cpe_matches WHERE vendor='nginx'").fetchone()[0] == 1
+        conn.close()
+
+    def test_alias_and_cpe_matching(self):
+        from scanner.cve.alias_matcher import normalize
+        from scanner.cve.cpe_matcher import candidates
+        from scanner.cve.models import DetectedTech
+        assert normalize("nginx")["cpe_prefix"] == "cpe:2.3:a:nginx:nginx"
+        cands = candidates(DetectedTech(name="nginx", version="1.18.0", source="Server header"))
+        assert cands and cands[0].product == "nginx"
+        # nginx is indexed in NVD under both `nginx:nginx` and (post-F5-acquisition) `f5:nginx`;
+        # candidates() must emit the alternate vendor or most modern nginx CVEs are missed.
+        vendors = {c.vendor for c in cands}
+        assert {"nginx", "f5"} <= vendors
+
+    def test_apache_http_vs_tomcat_ambiguity(self):
+        from scanner.cve.cpe_matcher import candidates
+        from scanner.cve.models import DetectedTech
+        http = candidates(DetectedTech(name="Apache", type="web_server", source="Server header"))
+        assert http and http[0].product == "http_server"
+        tomcat = candidates(DetectedTech(name="Apache Tomcat", source="header"))
+        assert tomcat and tomcat[0].product == "tomcat"
+        # bare 'apache' whose evidence mentions tomcat must NOT be matched as http_server
+        ambiguous = candidates(DetectedTech(name="Apache", source="Server: Apache-Coyote tomcat"))
+        assert ambiguous == []
+
+    def test_version_compare_and_range(self):
+        from scanner.cve.version_matcher import version_compare, in_affected_range, version_known
+        assert version_compare("1.18.0", "1.21.0") < 0
+        assert version_compare("1.0.0", "1.0.0-rc1") > 0          # release > pre-release
+        assert version_compare("2.0", "2.0.0") == 0
+        assert not version_known("") and version_known("1.2.3")
+        m = {"version_start_including": "0.6.18", "version_end_excluding": "1.21.0"}
+        assert in_affected_range("1.18.0", m) is True
+        assert in_affected_range("1.21.0", m) is False           # excluded upper bound
+        assert in_affected_range("0.5", m) is False
+
+    def test_classify_levels(self):
+        from scanner.cve.version_matcher import classify
+        m = {"version_end_excluding": "1.21.0"}
+        assert classify("1.18.0", m, 0.9) == "CONFIRMED"
+        assert classify("1.18.0", m, 0.6) == "LIKELY"
+        assert classify("", m, 0.9) == "POSSIBLE"                # unknown version
+        assert classify("2.0.0", m, 0.9) is None                 # not in range -> skip
+
+    def test_priority_scoring(self):
+        from scanner.cve.prioritizer import priority_score, severity_from_score
+        hi = priority_score(9.8, 0.91, kev=True, internet_exposed=True, confidence="CONFIRMED")
+        lo = priority_score(9.8, 0.91, kev=True, internet_exposed=True, confidence="POSSIBLE")
+        assert hi >= 90 and severity_from_score(hi) == "critical"
+        assert lo < hi                                            # confidence multiplier bites
+        assert severity_from_score(5) == "info" and severity_from_score(45) == "medium"
+
+    def test_unknown_version_top10_noise_control(self):
+        from scanner.cve.detector import _finalize
+        from scanner.cve.models import CveFinding
+        items = [CveFinding(cve_id=f"CVE-2020-{i:04d}", vendor="nginx", product="nginx",
+                            detected_version="unknown", affected_range="all", cvss_score=5.0,
+                            cvss_vector="", severity="medium", cwe="", epss=0.1 * (i % 9),
+                            epss_percentile=0.5, kev=(i == 3), confidence="POSSIBLE",
+                            priority_score=10 + i, priority_severity="low", evidence="", impact="",
+                            remediation="") for i in range(25)]
+        kept, notes = _finalize(items)
+        assert len(kept) == 10                                   # capped to top 10
+        assert notes and notes[0] == ("nginx", 25)
+        assert any(c.kev for c in kept)                          # the KEV one survives the cut
+
+    def test_report_to_finding(self):
+        from scanner.cve.report import to_finding
+        from scanner.cve.models import CveFinding
+        from scanner.engine import Severity
+        cf = CveFinding(cve_id="CVE-2021-23017", vendor="nginx", product="nginx",
+                        detected_version="1.18.0", affected_range="< 1.21.0", cvss_score=9.8,
+                        cvss_vector="CVSS:3.1", severity="critical", cwe="CWE-787", epss=0.91,
+                        epss_percentile=0.99, kev=True, confidence="CONFIRMED", priority_score=97,
+                        priority_severity="critical", evidence="Server: nginx/1.18.0",
+                        impact="off-by-one", remediation="upgrade", references=["https://nvd"])
+        f = to_finding(cf, "https://t")
+        assert f.module == "cve_vulnerability" and f.severity is Severity.CRITICAL
+        assert f.raw["cve_id"] == "CVE-2021-23017" and f.raw["kev"] is True
+        assert f.raw["priority_score"] == 97 and f.cwe == "CWE-787"
+        assert f.raw["confidence"] == "high"                     # mapped for the scorer
+
+    def test_update_if_missing_and_stale(self, tmp_path, monkeypatch):
+        from scanner.cve import db as cvedb, feed_downloader as fd
+        monkeypatch.setattr(cvedb, "DB_PATH", tmp_path / "v.sqlite")
+        built = {"n": 0}
+        monkeypatch.setattr(fd, "build_database", lambda: (built.__setitem__("n", built["n"] + 1) or True))
+        assert fd.update_vulndb_if_missing() is True and built["n"] == 1     # missing -> build
+        monkeypatch.setattr(fd, "db_age_days", lambda *a: 10.0)
+        monkeypatch.setattr(fd, "db_exists", lambda *a: True)
+        assert fd.update_vulndb_if_stale(7) is True and built["n"] == 2      # stale -> build again
+
+    def test_detector_end_to_end(self, tmp_path, monkeypatch):
+        from scanner.cve import db as cvedb, feed_downloader as fd, detector
+        from scanner.cve.db import get_conn
+        from scanner.cve.kev_parser import ingest as kev_ingest
+        from scanner.cve.epss_parser import ingest as epss_ingest
+        from scanner.cve.nvd_parser import ingest as nvd_ingest
+        from scanner.engine import ScanEngine
+
+        db_file = tmp_path / "v.sqlite"
+        monkeypatch.setattr(cvedb, "DB_PATH", db_file)
+        seed = get_conn(db_file)
+        nvd_ingest(seed, _MOCK_NVD); kev_ingest(seed, _MOCK_KEV); epss_ingest(seed, _MOCK_EPSS)
+        seed.close()
+        monkeypatch.setattr(fd, "update_vulndb_if_stale", lambda *a, **k: True)
+        monkeypatch.setattr(fd, "query_nvd", lambda *a, **k: {})   # rely on the seeded data
+
+        class _ServerTransport(httpx.BaseTransport):   # fresh response per request
+            def handle_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(200, text="<html></html>",
+                                      headers={"server": "nginx/1.18.0", "content-type": "text/html"})
+
+        eng = ScanEngine("https://target.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_ServerTransport(), follow_redirects=True, verify=False)
+        findings = detector.run(eng)
+        cves = [f for f in findings if f.module == "cve_vulnerability" and f.raw.get("cve_id")]
+        assert any(f.raw["cve_id"] == "CVE-2021-23017" and f.raw["kev"] for f in cves)
+        assert any(f.raw["cve_confidence"] == "CONFIRMED" for f in cves)
+
+
+# ---------------------------------------------------------------------------
 # Out-of-band / blind-vuln (OAST) tests
 # ---------------------------------------------------------------------------
 

@@ -428,6 +428,10 @@ def run_scan(
     from scanner.offensive.engage import render_panel as render_engage_panel
     render_engage_panel(findings)
 
+    # Dedicated CVE Vulnerability Intelligence panel (no-op unless cve_scan ran).
+    from scanner.cve.report import render_panel as render_cve_panel
+    render_cve_panel(findings)
+
     # The HTML report is the richest, most detailed view — always generate it for every
     # scan and open it in the browser. JSON/PDF are produced on top only when requested.
     html_path = generate_html(findings, url, score)
