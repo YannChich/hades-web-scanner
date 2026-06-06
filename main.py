@@ -153,10 +153,12 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]7[/accent]. [ok]OOB / Blind vulns[/ok]   Out-of-band detection of blind SSRF/RCE/XSS via callbacks")
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
+    console.print("  [danger]666[/danger]. [danger]☠  RedTeam Arsenal ☠[/danger]  Open the offensive-tools reference page (no scan — ignores the target)")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
-                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="2").strip()
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "666"],
+                        default="2").strip()
 
     match choice:
         case "1":
@@ -176,6 +178,8 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "cve_scan", None
         case "9":
             return "tls_scan", None
+        case "666":
+            return "arsenal", None
         case _:
             return "full", None
 
@@ -267,6 +271,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not auto-open the HTML report in a browser when the scan finishes",
     )
     parser.add_argument(
+        "--arsenal",
+        action="store_true",
+        help="Open the RedTeam Arsenal — a reference page of offensive tools by attack type "
+             "(no scan; also available as menu option 666)",
+    )
+    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -337,6 +347,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # RedTeam Arsenal (reference page) — no target/scan needed.
+    if args.arsenal:
+        from scanner.arsenal.redteam_arsenal import open_arsenal
+        open_arsenal(open_browser=not args.no_open)
+        return
+
     modules: Optional[list[str]] = None
 
     # --- Target URL: from flag, otherwise prompt ---
@@ -362,6 +378,12 @@ def main() -> None:
         # No scan-type flag and no interactive terminal (piped / CI) — default to a full scan
         # so the run never blocks waiting on the menu.
         profile = "full"
+
+    # Menu option 666 — open the RedTeam Arsenal reference page instead of scanning.
+    if profile == "arsenal":
+        from scanner.arsenal.redteam_arsenal import open_arsenal
+        open_arsenal(open_browser=not args.no_open)
+        return
 
     # The HTML and JSON reports are always generated (see run_scan).
 

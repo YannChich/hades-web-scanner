@@ -3855,3 +3855,43 @@ class TestV1Polish:
         import hades
         import main
         assert callable(main.cli) and hasattr(hades, "cli")
+
+
+# ---------------------------------------------------------------------------
+# RedTeam Arsenal — reference page (menu option 666 / --arsenal)
+# ---------------------------------------------------------------------------
+
+class TestRedTeamArsenal:
+    def test_tool_data_integrity(self):
+        from scanner.arsenal.arsenal_data import CATEGORIES
+        from scanner.arsenal.redteam_arsenal import _tool_url
+        assert len(CATEGORIES) >= 18
+        total = 0
+        for c in CATEGORIES:
+            assert c["icon"] and c["name"] and c["attack"] and c["tools"]
+            for (name, desc, url, star) in c["tools"]:
+                total += 1
+                assert name and desc and isinstance(star, bool)
+                assert _tool_url(url, name).startswith("https://")   # every link resolves
+        assert total >= 150
+
+    def test_html_page_generation(self, tmp_path):
+        from pathlib import Path
+        from scanner.arsenal.redteam_arsenal import generate_arsenal
+        out = generate_arsenal(output_path=str(tmp_path))
+        assert out and out.endswith("hades_redteam_arsenal.html")
+        page = Path(out).read_text(encoding="utf-8")
+        for needle in ("RED", "Active Directory", "Sqlmap", "BloodHound",
+                       "github.com/projectdiscovery/nuclei", 'id="q"', "★"):
+            assert needle in page, f"missing in arsenal page: {needle}"
+
+    def test_open_arsenal_does_not_open_browser(self, monkeypatch):
+        import scanner.arsenal.redteam_arsenal as arsenal
+        called = {"open": False}
+        monkeypatch.setattr(arsenal.webbrowser, "open", lambda *a, **k: called.__setitem__("open", True))
+        path = arsenal.open_arsenal(open_browser=False)
+        assert path and not called["open"]
+
+    def test_arsenal_flag_registered(self):
+        import main
+        assert main.build_parser().parse_args(["--arsenal"]).arsenal is True
