@@ -341,21 +341,6 @@ All credit for those catalogues goes to their authors ([@mukul975](https://githu
 
 ---
 
-## Roadmap
-
-Hades is under active development. Planned and in-progress work:
-
-- [ ] Blind SQL injection over DNS (OAST DNS listener)
-- [ ] Authenticated / session-aware crawling and BOLA / IDOR testing
-- [ ] WAF-aware payload mutation (auto-bypass and re-confirm)
-- [ ] Nuclei template bridge (ingest results into the framework/playbook layer)
-- [ ] Expanded MITRE ATLAS coverage for the AI/LLM profile
-- [x] Out-of-band (OAST) blind-vulnerability detection with auto-tunnel
-- [x] Unified kill-chain attack path across all profiles
-- [x] AI/LLM and database red-team profiles
-
----
-
 ## Tech Stack
 
 `httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
