@@ -2,7 +2,7 @@
   <img src="assets/hades.png" alt="Hades" width="760">
 </p>
 
-<h3 align="center">Find the vulnerability. Prove it. Map the path to impact.</h3>
+<h3 align="center">Find the vulnerability. Prove it. Map the path to impact. Find the tool for the job.</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-b3122a?style=for-the-badge&labelColor=0d0d0d" alt="License">
@@ -29,7 +29,9 @@ everything into a single copy-paste **kill-chain attack path** — then exports 
 HTML report. On top of the standard scan, dedicated red-team profiles audit **databases**, the
 **AI/LLM** attack surface, run an **active exploitation engagement**, catch **blind, out-of-band**
 vulnerabilities other scanners miss, and rank a target's **CVEs** by real-world exploitability
-(**KEV + EPSS**). One command.
+(**KEV + EPSS**). It also ships a searchable **RedTeam Arsenal** — a curated list of **175 offensive
+tools** grouped by attack type, each linked to its project — so you can jump straight from a finding
+to the right tool for the job. One command.
 
 ```text
 python hades.py --url https://target.tld
