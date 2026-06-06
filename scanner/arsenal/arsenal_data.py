@@ -4,9 +4,10 @@ arsenal_data — the offensive-tools catalogue behind the RedTeam Arsenal page (
 Each category groups tools by the *kind of attack/assessment* they serve. Every tool carries a
 one-line explanation, its project link, and a ``star`` flag for the modern/essential picks.
 GitHub/project links are sourced from the tools' own repos and the Z4nzu/hackingtool catalogue.
-``url=None`` means the tool has **no public repository** (a built-in script, or a bundle of other
-tools): the page then shows "no public repo" and no link — it never invents one. Reference-only:
-Hades does not run or bundle these tools.
+Every entry resolves to a real project page; where a generic capability (e.g. port scanning,
+host-to-IP) is provided by Hades itself, it links to the Hades repository. ``url=None`` is still
+honoured defensively (the page would show "no public repo" and never invent a link), but no entry
+currently uses it. Reference-only: Hades does not run or bundle these tools.
 """
 from __future__ import annotations
 
@@ -22,12 +23,11 @@ CATEGORIES: list[dict] = [
     {"icon": "🔍", "name": "Information Gathering", "attack": "Reconnaissance, OSINT & attack-surface mapping", "tools": [
         ("Nmap", "The de-facto network/port scanner and service fingerprinter (NSE scripts).", "https://github.com/nmap/nmap", False),
         ("Dracnmap", "Wrapper that simplifies powerful Nmap scans into menu options.", "https://github.com/Screetsec/Dracnmap", False),
-        ("Port scanning", "Built-in TCP port discovery to map exposed services.", None, False),
-        ("Host to IP", "Built-in helper to resolve a hostname to its IP address(es).", None, False),
+        ("Port scanning", "TCP port discovery to map a target's exposed services (Hades' port_scan module).", "https://github.com/YannChich/hades-web-scanner", True),
+        ("Host to IP", "Resolve a hostname to its IP address(es) during recon (Hades' basic_info / dns_check).", "https://github.com/YannChich/hades-web-scanner", True),
         ("Xerosploit", "MITM toolkit for LAN attacks (sniffing, injection, DoS).", "https://github.com/LionSec/xerosploit", False),
         ("RED HAWK", "All-in-one web recon: WHOIS, headers, CMS, geo-IP, subdomains.", "https://github.com/Tuhinshubhra/RED_HAWK", False),
         ("ReconSpider", "Advanced OSINT crawler aggregating data from many sources.", "https://github.com/bhavsec/reconspider", False),
-        ("IsItDown", "Built-in check for whether a target website is up or down.", None, False),
         ("Infoga", "Gather e-mail accounts and breach info from public sources.", "https://github.com/m4ll0k/Infoga", False),
         ("ReconDog", "Recon Swiss-army knife pulling from many recon APIs.", "https://github.com/s0md3v/ReconDog", False),
         ("Striker", "Offensive information-and-vulnerability recon scanner.", "https://github.com/s0md3v/Striker", False),
@@ -201,7 +201,6 @@ CATEGORIES: list[dict] = [
     ]},
 
     {"icon": "🖼", "name": "Steganography", "attack": "Steganography (hiding data)", "tools": [
-        ("SteganoHide", "Hide and extract data inside images/audio (steghide wrapper).", None, False),
         ("StegoCracker", "Hide data in files and brute-force stego passwords.", "https://github.com/W1LDN16H7/StegoCracker", False),
         ("Whitespace", "Encode hidden messages using whitespace characters (snow10).", "https://github.com/beardog108/snow10", False),
     ]},
@@ -229,11 +228,9 @@ CATEGORIES: list[dict] = [
     ]},
 
     {"icon": "✨", "name": "Other Tools", "attack": "Misc. offensive utilities", "tools": [
-        ("SocialMedia Bruteforce", "Bundle of social-media brute-force scripts (Instagram/Facebook/…).", None, False),
         ("AllinOne SocialMedia Attack", "Combined social-media brute-force toolkit (Brute_Force).", "https://github.com/Matrix07ksa/Brute_Force", False),
         ("Facebook Attack", "Facebook account brute-force (Brute_Force).", "https://github.com/Matrix07ksa/Brute_Force", False),
         ("Application Checker", "Inspect installed apps for security issues (underhanded).", "https://github.com/jakuta-tech/underhanded", False),
-        ("Android Hacking Tools", "Built-in bundle of Android exploitation utilities.", None, False),
         ("Keydroid", "Android keylogger payload builder.", "https://github.com/F4dl0/keydroid", False),
         ("MySMS", "Send/spoof SMS from the command line.", "https://github.com/papusingh2sms/mysms", False),
         ("Lockphish", "Phish the device lock-screen PIN/pattern via a link.", "https://github.com/JasonJerry/lockphish", False),
