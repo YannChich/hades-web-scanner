@@ -2,13 +2,15 @@
 arsenal_data — the offensive-tools catalogue behind the RedTeam Arsenal page (menu option 666).
 
 Each category groups tools by the *kind of attack/assessment* they serve. Every tool carries a
-one-line explanation, its GitHub link, and a ``star`` flag for the modern/essential picks.
-``url=None`` means "no single canonical repo" — the page links to a GitHub search instead, so every
-link always works. Reference-only: Hades does not run or bundle these tools.
+one-line explanation, its project link, and a ``star`` flag for the modern/essential picks.
+GitHub/project links are sourced from the tools' own repos and the Z4nzu/hackingtool catalogue.
+``url=None`` means the tool has **no public repository** (a built-in script, or a bundle of other
+tools): the page then shows "no public repo" and no link — it never invents one. Reference-only:
+Hades does not run or bundle these tools.
 """
 from __future__ import annotations
 
-# (name, explanation, github_url_or_None, is_starred)
+# (name, explanation, project_url_or_None, is_starred)
 Tool = tuple[str, str, "str | None", bool]
 
 CATEGORIES: list[dict] = [
@@ -20,12 +22,12 @@ CATEGORIES: list[dict] = [
     {"icon": "🔍", "name": "Information Gathering", "attack": "Reconnaissance, OSINT & attack-surface mapping", "tools": [
         ("Nmap", "The de-facto network/port scanner and service fingerprinter (NSE scripts).", "https://github.com/nmap/nmap", False),
         ("Dracnmap", "Wrapper that simplifies powerful Nmap scans into menu options.", "https://github.com/Screetsec/Dracnmap", False),
-        ("Port scanning", "Generic TCP/UDP port discovery to map exposed services.", None, False),
-        ("Host to IP", "Resolve a hostname to its IP address(es).", None, False),
+        ("Port scanning", "Built-in TCP port discovery to map exposed services.", None, False),
+        ("Host to IP", "Built-in helper to resolve a hostname to its IP address(es).", None, False),
         ("Xerosploit", "MITM toolkit for LAN attacks (sniffing, injection, DoS).", "https://github.com/LionSec/xerosploit", False),
         ("RED HAWK", "All-in-one web recon: WHOIS, headers, CMS, geo-IP, subdomains.", "https://github.com/Tuhinshubhra/RED_HAWK", False),
         ("ReconSpider", "Advanced OSINT crawler aggregating data from many sources.", "https://github.com/bhavsec/reconspider", False),
-        ("IsItDown", "Check whether a target website is up or down.", None, False),
+        ("IsItDown", "Built-in check for whether a target website is up or down.", None, False),
         ("Infoga", "Gather e-mail accounts and breach info from public sources.", "https://github.com/m4ll0k/Infoga", False),
         ("ReconDog", "Recon Swiss-army knife pulling from many recon APIs.", "https://github.com/s0md3v/ReconDog", False),
         ("Striker", "Offensive information-and-vulnerability recon scanner.", "https://github.com/s0md3v/Striker", False),
@@ -48,9 +50,9 @@ CATEGORIES: list[dict] = [
 
     {"icon": "📚", "name": "Wordlist Generator", "attack": "Password cracking & wordlist building", "tools": [
         ("Cupp", "Build targeted password wordlists from a victim's personal info.", "https://github.com/Mebus/cupp", False),
-        ("WordlistCreator", "Generate custom wordlists from keywords and rules.", None, False),
-        ("Goblin WordGenerator", "Random/custom wordlist generator for brute-forcing.", None, False),
-        ("Password list (1.4B)", "Massive collected credential/password wordlist.", None, False),
+        ("WordlistCreator", "Generate custom wordlists from keywords and rules.", "https://github.com/Z4nzu/wlcreator", False),
+        ("Goblin WordGenerator", "Random/custom wordlist generator for brute-forcing.", "https://github.com/UndeadSec/GoblinWordGenerator", False),
+        ("Password list (1.4B)", "Massive collected credential/password wordlist (SMWYG).", "https://github.com/Viralmaniar/SMWYG-Show-Me-What-You-Got", False),
         ("Hashcat", "The world's fastest GPU password/hash cracker.", "https://github.com/hashcat/hashcat", True),
         ("John the Ripper", "Classic, extensible password cracker (Jumbo).", "https://github.com/openwall/john", True),
         ("haiti", "Identify a hash type from its format (hash-ID).", "https://github.com/noraj/haiti", True),
@@ -63,8 +65,8 @@ CATEGORIES: list[dict] = [
         ("Fluxion", "Captive-portal social-engineering attack against WPA keys.", "https://github.com/FluxionNetwork/fluxion", False),
         ("Wifiphisher", "Rogue-AP phishing to harvest Wi-Fi creds and run MITM.", "https://github.com/wifiphisher/wifiphisher", False),
         ("Wifite", "Automated wireless auditing (WEP/WPA/WPS).", "https://github.com/derv82/wifite2", False),
-        ("EvilTwin", "Create a malicious twin access point to capture clients.", None, False),
-        ("Fastssh", "Mass-scan and brute-force exposed SSH services.", None, False),
+        ("EvilTwin", "Create a malicious twin access point to capture clients (fakeap).", "https://github.com/Z4nzu/fakeap", False),
+        ("Fastssh", "Mass-scan and brute-force exposed SSH services.", "https://github.com/Z4nzu/fastssh", False),
         ("Howmanypeople", "Count people nearby by sniffing Wi-Fi probe requests.", "https://github.com/schollz/howmanypeoplearearound", False),
         ("Airgeddon", "Multi-use Wi-Fi auditing framework (all-in-one).", "https://github.com/v1s1t0r1sh3r3/airgeddon", True),
         ("hcxdumptool", "Capture WPA/WPA2 handshakes/PMKIDs from Wi-Fi.", "https://github.com/ZerBea/hcxdumptool", True),
@@ -79,23 +81,23 @@ CATEGORIES: list[dict] = [
         ("Explo", "Describe and reproduce web vulns (incl. SQLi) declaratively.", "https://github.com/dtag-dev-sec/explo", False),
         ("Blisqy", "Time-based blind SQLi in HTTP headers (MySQL/MariaDB).", "https://github.com/JohnTroony/Blisqy", False),
         ("Leviathan", "Mass-audit toolkit: discovery, brute-force and SQLi.", "https://github.com/leviathan-framework/leviathan", False),
-        ("SQLScan", "Lightweight SQL-injection vulnerability scanner.", None, False),
+        ("SQLScan", "Lightweight SQL-injection vulnerability scanner.", "https://github.com/Cvar1984/sqlscan", False),
     ]},
 
     {"icon": "🎣", "name": "Phishing Attack", "attack": "Phishing, social engineering & credential theft", "tools": [
-        ("Autophisher", "Automated phishing-page hosting toolkit.", None, False),
+        ("Autophisher", "Automated phishing-page hosting toolkit.", "https://github.com/CodingRanjith/autophisher", False),
         ("PyPhisher", "Easy phishing tool with 70+ ready-made site templates.", "https://github.com/KasRoudra/PyPhisher", False),
         ("AdvPhishing", "OTP-bypass phishing with real-time credential capture.", "https://github.com/Ignitetch/AdvPhishing", False),
         ("Setoolkit", "The Social-Engineer Toolkit — the SE attack framework.", "https://github.com/trustedsec/social-engineer-toolkit", False),
         ("SocialFish", "Phishing framework with an Android/education focus.", "https://github.com/UndeadSec/SocialFish", False),
-        ("HiddenEye", "Modern phishing with keylogger and many templates.", "https://github.com/DarkSecDevelopers/HiddenEye", False),
+        ("HiddenEye", "Modern phishing with keylogger and many templates.", "https://github.com/Morsmalleo/HiddenEye", False),
         ("Evilginx3", "Man-in-the-middle phishing that steals sessions/2FA tokens.", "https://github.com/kgretzky/evilginx2", False),
         ("I-See-You", "Grab a target's geolocation via a crafted link.", "https://github.com/Viralmaniar/I-See-You", False),
         ("SayCheese", "Snap a webcam photo of the victim via a link.", "https://github.com/hangetzzu/saycheese", False),
-        ("QR Code Jacking", "Hijack QR-code-based logins to steal sessions.", None, False),
+        ("QR Code Jacking", "Hijack QR-code-based logins to steal sessions (ohmyqr).", "https://github.com/cryptedwolf/ohmyqr", False),
         ("BlackEye", "Phishing toolkit with 30+ cloned site templates.", "https://github.com/An0nUD4Y/blackeye", False),
-        ("ShellPhish", "Phishing for popular social networks with tunnelling.", "https://github.com/An0nUD4Y/ShellPhish", False),
-        ("Thanos", "Multi-template phishing automation tool.", None, False),
+        ("ShellPhish", "Phishing for popular social networks with tunnelling.", "https://github.com/An0nUD4Y/shellphish", False),
+        ("Thanos", "Multi-template phishing automation tool.", "https://github.com/TridevReddy/Thanos", False),
         ("QRLJacking", "Session hijacking by abusing QR-code login flows (OWASP).", "https://github.com/OWASP/QRLJacking", False),
         ("Maskphish", "Hide a phishing URL behind a trusted-looking domain.", "https://github.com/jaykali/maskphish", False),
         ("BlackPhish", "Lightweight, fast phishing framework.", "https://github.com/iinc0gnit0/BlackPhish", False),
@@ -106,9 +108,9 @@ CATEGORIES: list[dict] = [
         ("Web2Attack", "Web pentest framework (scan, exploit, payloads).", "https://github.com/santatic/web2attack", False),
         ("Skipfish", "Active web-app recon scanner producing a sitemap of issues.", "https://github.com/spinkham/skipfish", False),
         ("Sublist3r", "Fast subdomain enumeration for a target domain.", "https://github.com/aboul3la/Sublist3r", False),
-        ("CheckURL", "Detect malicious / blacklisted URLs.", None, False),
-        ("Sub-Domain TakeOver", "Detect dangling DNS records vulnerable to takeover.", None, False),
-        ("Dirb", "Classic dictionary-based web content/dir brute-forcer.", None, False),
+        ("CheckURL", "Detect malicious / phishing URLs.", "https://github.com/UndeadSec/checkURL", False),
+        ("Sub-Domain TakeOver", "Detect dangling DNS records vulnerable to takeover.", "https://github.com/edoardottt/takeover", False),
+        ("Dirb", "Classic dictionary-based web content/dir brute-forcer.", "https://gitlab.com/kalilinux/packages/dirb", False),
         ("Nuclei", "Template-based vulnerability scanner (huge community templates).", "https://github.com/projectdiscovery/nuclei", True),
         ("ffuf", "Blazing-fast web fuzzer for paths, params and vhosts.", "https://github.com/ffuf/ffuf", True),
         ("Feroxbuster", "Fast, recursive content discovery (Rust).", "https://github.com/epi052/feroxbuster", True),
@@ -126,7 +128,7 @@ CATEGORIES: list[dict] = [
 
     {"icon": "🔧", "name": "Post Exploitation", "attack": "Post-exploitation, C2 & lateral movement", "tools": [
         ("Vegile", "Backdoor/stealth persistence helper for Linux.", "https://github.com/Screetsec/Vegile", False),
-        ("Chrome Keylogger", "Capture keystrokes from a compromised browser.", None, False),
+        ("Chrome Keylogger", "Hera Keylogger — capture keystrokes from the browser.", "https://github.com/UndeadSec/HeraKeylogger", False),
         ("pwncat-cs", "Post-exploitation reverse/bind shell handler with automation.", "https://github.com/calebstewart/pwncat", True),
         ("Sliver", "Cross-platform adversary-emulation / C2 framework (BishopFox).", "https://github.com/BishopFox/sliver", True),
         ("Havoc", "Modern, malleable C2 framework with a sleek UI.", "https://github.com/HavocFramework/Havoc", True),
@@ -141,8 +143,8 @@ CATEGORIES: list[dict] = [
         ("Autopsy", "GUI digital-forensics platform over The Sleuth Kit.", "https://github.com/sleuthkit/autopsy", False),
         ("Wireshark", "The world's foremost network-protocol analyser.", "https://github.com/wireshark/wireshark", False),
         ("Bulk extractor", "Carve emails, URLs, card numbers etc. from disk images.", "https://github.com/simsong/bulk_extractor", False),
-        ("Guymager", "Fast forensic disk-imaging (acquisition) tool.", None, False),
-        ("Toolsley", "Online toolkit for file/hash/signature inspection.", None, False),
+        ("Guymager", "Fast forensic disk-imaging (acquisition) tool.", "https://guymager.sourceforge.io/", False),
+        ("Toolsley", "Online toolkit for file/hash/signature inspection.", "https://www.toolsley.com/", False),
         ("Volatility 3", "Advanced memory (RAM) forensics framework.", "https://github.com/volatilityfoundation/volatility3", True),
         ("Binwalk", "Analyse and extract embedded files from firmware/binaries.", "https://github.com/ReFirmLabs/binwalk", True),
         ("pspy", "Snoop on Linux processes/cron without root.", "https://github.com/DominicBreuker/pspy", True),
@@ -154,9 +156,9 @@ CATEGORIES: list[dict] = [
         ("Stitch", "Cross-platform Python remote-administration payload.", "https://github.com/nathanlopez/Stitch", False),
         ("MSFvenom Payload Creator", "Wrapper that simplifies msfvenom payload generation.", "https://github.com/g0tmi1k/msfpc", False),
         ("Venom", "Shellcode generator/handler that wraps msfvenom.", "https://github.com/r00t-3xp10it/venom", False),
-        ("Spycam", "Payload to remotely access a victim's camera.", None, False),
+        ("Spycam", "Payload to remotely access a victim's camera.", "https://github.com/indexnotfound404/spycam", False),
         ("Mob-Droid", "Generate Android (APK) Metasploit payloads.", "https://github.com/kinghacker0/Mob-Droid", False),
-        ("Enigma", "Multiplatform payload dropper/obfuscator.", None, False),
+        ("Enigma", "Multiplatform payload dropper/obfuscator.", "https://github.com/UndeadSec/Enigma", False),
     ]},
 
     {"icon": "🧰", "name": "Exploit Framework", "attack": "Exploitation frameworks", "tools": [
@@ -175,9 +177,9 @@ CATEGORIES: list[dict] = [
     ]},
 
     {"icon": "⚡", "name": "DDOS Attack", "attack": "Denial-of-service (stress testing)", "tools": [
-        ("DDoS Script", "Simple script for flooding a target (stress test).", None, False),
+        ("DDoS Script", "Simple script for flooding a target (stress test).", "https://github.com/the-deepnet/ddos", False),
         ("SlowLoris", "Low-bandwidth DoS that holds many connections open.", "https://github.com/gkbrk/slowloris", False),
-        ("Asyncrone", "Asynchronous UDP/TCP flooder.", None, False),
+        ("Asyncrone", "Multifunction SYN-flood DoS weapon.", "https://github.com/fatihsnsy/aSYNcrone", False),
         ("UFOnet", "Botnet-style DDoS via open-redirect abuse.", "https://github.com/epsylon/ufonet", False),
         ("GoldenEye", "HTTP/S layer-7 DoS testing tool.", "https://github.com/jseidl/GoldenEye", False),
     ]},
@@ -188,20 +190,20 @@ CATEGORIES: list[dict] = [
 
     {"icon": "💥", "name": "XSS Attack", "attack": "Cross-site scripting (XSS)", "tools": [
         ("DalFox", "Fast, powerful parameter-analysis XSS scanner.", "https://github.com/hahwul/dalfox", False),
-        ("XSS Payload Generator", "Generate context-specific XSS payloads.", None, False),
-        ("Extended XSS Searcher", "Search reflected parameters for XSS at scale.", None, False),
-        ("XSS-Freak", "Crawls and tests a site for reflected XSS.", None, False),
+        ("XSS Payload Generator", "Generate context-specific XSS payloads (XSS-LOADER).", "https://github.com/capture0x/XSS-LOADER", False),
+        ("Extended XSS Searcher", "Search reflected parameters for XSS at scale.", "https://github.com/Damian89/extended-xss-search", False),
+        ("XSS-Freak", "Crawls and tests a site for reflected XSS.", "https://github.com/PR0PH3CY33/XSS-Freak", False),
         ("XSpear", "Ruby-based XSS scanner and parameter analyser.", "https://github.com/hahwul/XSpear", False),
         ("XSSCon", "Simple, smart XSS scanner.", "https://github.com/menkrep1337/XSSCon", False),
         ("XanXSS", "Reflected-XSS finder that mutates payloads.", "https://github.com/Ekultek/XanXSS", False),
         ("XSStrike", "Advanced XSS detection with context-aware payloads.", "https://github.com/s0md3v/XSStrike", False),
-        ("RVuln", "Multithreaded web-vulnerability (incl. XSS) scanner.", None, False),
+        ("RVuln", "Multithreaded web-vulnerability (incl. XSS) scanner.", "https://github.com/iinc0gnit0/RVuln", False),
     ]},
 
     {"icon": "🖼", "name": "Steganography", "attack": "Steganography (hiding data)", "tools": [
-        ("SteganoHide", "Hide and extract data inside images/audio.", None, False),
+        ("SteganoHide", "Hide and extract data inside images/audio (steghide wrapper).", None, False),
         ("StegoCracker", "Hide data in files and brute-force stego passwords.", "https://github.com/W1LDN16H7/StegoCracker", False),
-        ("Whitespace", "Encode hidden messages using whitespace characters.", None, False),
+        ("Whitespace", "Encode hidden messages using whitespace characters (snow10).", "https://github.com/beardog108/snow10", False),
     ]},
 
     {"icon": "🏢", "name": "Active Directory", "attack": "Active Directory attacks", "tools": [
@@ -227,25 +229,25 @@ CATEGORIES: list[dict] = [
     ]},
 
     {"icon": "✨", "name": "Other Tools", "attack": "Misc. offensive utilities", "tools": [
-        ("SocialMedia Bruteforce", "Brute-force social-media account logins.", None, False),
-        ("AllinOne SocialMedia Attack", "Bundle of social-media attack scripts.", None, False),
-        ("Facebook Attack", "Toolkit aimed at Facebook account attacks.", None, False),
-        ("Application Checker", "Inspect installed apps for security issues.", None, False),
-        ("Android Hacking Tools", "Collection of Android exploitation utilities.", None, False),
+        ("SocialMedia Bruteforce", "Bundle of social-media brute-force scripts (Instagram/Facebook/…).", None, False),
+        ("AllinOne SocialMedia Attack", "Combined social-media brute-force toolkit (Brute_Force).", "https://github.com/Matrix07ksa/Brute_Force", False),
+        ("Facebook Attack", "Facebook account brute-force (Brute_Force).", "https://github.com/Matrix07ksa/Brute_Force", False),
+        ("Application Checker", "Inspect installed apps for security issues (underhanded).", "https://github.com/jakuta-tech/underhanded", False),
+        ("Android Hacking Tools", "Built-in bundle of Android exploitation utilities.", None, False),
         ("Keydroid", "Android keylogger payload builder.", "https://github.com/F4dl0/keydroid", False),
-        ("MySMS", "Send/spoof SMS from the command line.", None, False),
+        ("MySMS", "Send/spoof SMS from the command line.", "https://github.com/papusingh2sms/mysms", False),
         ("Lockphish", "Phish the device lock-screen PIN/pattern via a link.", "https://github.com/JasonJerry/lockphish", False),
-        ("DroidCam / WishFish", "Phish for camera access through a shared link.", None, False),
-        ("EvilApp", "Bind a session-stealer into a legitimate Android app.", None, False),
+        ("DroidCam / WishFish", "Phish for camera access through a shared link.", "https://github.com/kinghacker0/WishFish", False),
+        ("EvilApp", "Bind a session-stealer into a legitimate Android app.", "https://github.com/crypticterminal/EvilApp", False),
         ("IDN Homograph Attack (EvilURL)", "Generate lookalike Unicode domains for phishing.", "https://github.com/UndeadSec/EvilURL", False),
-        ("Knockmail (Email Verify)", "Verify whether an email address exists.", None, False),
+        ("Knockmail (Email Verify)", "Verify whether an email address exists.", "https://github.com/heywoodlh/KnockMail", False),
         ("Hash Buster (Hash Cracking)", "Crack hashes using online lookup services.", "https://github.com/s0md3v/Hash-Buster", False),
-        ("WifiJammer-NG (Deauth)", "Continuously deauthenticate clients from Wi-Fi.", None, False),
+        ("WifiJammer-NG (Deauth)", "Continuously deauthenticate clients from Wi-Fi.", "https://github.com/MisterBianco/wifijammer-ng", False),
         ("KawaiiDeauther", "Mass Wi-Fi deauthentication / beacon flooding.", "https://github.com/aryanrtm/KawaiiDeauther", False),
         ("Sherlock (SocialMedia Finder)", "Hunt a username across 400+ social networks.", "https://github.com/sherlock-project/sherlock", False),
         ("SocialScan", "Check email/username availability on online platforms.", "https://github.com/iojw/socialscan", False),
-        ("Find SocialMedia By Facial Recognition", "Locate social profiles from a face image.", None, False),
-        ("Find SocialMedia By UserName", "Find accounts reusing a given username.", None, False),
+        ("Find SocialMedia By Facial Recognition", "Locate social profiles from a face image (social_mapper).", "https://github.com/Greenwolf/social_mapper", False),
+        ("Find SocialMedia By UserName", "Find accounts reusing a given username (finduser).", "https://github.com/xHak9x/finduser", False),
         ("Debinject (Payload Injector)", "Inject malicious payloads into .deb packages.", "https://github.com/UndeadSec/Debinject", False),
         ("Pixload", "Hide payloads inside valid image files (polyglots).", "https://github.com/chinarulezzz/pixload", False),
         ("Gospider (Web Crawling)", "Fast web spider written in Go for recon.", "https://github.com/jaeles-project/gospider", False),

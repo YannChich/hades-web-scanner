@@ -3866,14 +3866,22 @@ class TestRedTeamArsenal:
         from scanner.arsenal.arsenal_data import CATEGORIES
         from scanner.arsenal.redteam_arsenal import _tool_url
         assert len(CATEGORIES) >= 18
-        total = 0
+        total = linked = nolink = 0
         for c in CATEGORIES:
             assert c["icon"] and c["name"] and c["attack"] and c["tools"]
             for (name, desc, url, star) in c["tools"]:
                 total += 1
                 assert name and desc and isinstance(star, bool)
-                assert _tool_url(url, name).startswith("https://")   # every link resolves
+                resolved = _tool_url(url)
+                if url is None:
+                    nolink += 1
+                    assert resolved == ""                 # no link is ever invented
+                else:
+                    linked += 1
+                    assert resolved.startswith(("http://", "https://"))   # a real project link
         assert total >= 150
+        # Almost every tool now carries a real link; only built-ins/bundles have none.
+        assert nolink <= 12 and linked >= total - 12
 
     def test_html_page_generation(self, tmp_path):
         from pathlib import Path

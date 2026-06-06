@@ -11,7 +11,6 @@ import html
 import os
 import webbrowser
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 from loguru import logger
 from rich.console import Console
@@ -26,11 +25,9 @@ def _e(text: str) -> str:
     return html.escape(str(text), quote=True)
 
 
-def _tool_url(url: str | None, name: str) -> str:
-    """A real repo when known, otherwise a GitHub repository search that always resolves."""
-    if url and url.startswith("http"):
-        return url
-    return f"https://github.com/search?q={quote(name + ' security tool')}&type=repositories"
+def _tool_url(url: str | None) -> str:
+    """Return the project link, or '' when the tool has no public repository (no link is invented)."""
+    return url if url and url.startswith(("http://", "https://")) else ""
 
 
 _CSS = """
@@ -70,6 +67,7 @@ h1 .six{color:var(--red);}
 .tool .desc{color:var(--muted);font-size:.86rem;}
 .tool .gh{color:#58a6ff;font-size:.74rem;text-decoration:none;}
 .tool .gh:hover{text-decoration:underline;}
+.tool .nolink{color:#6e7681;font-size:.74rem;font-style:italic;}
 .empty{display:none;color:var(--muted);text-align:center;padding:40px;}
 .foot{margin-top:54px;padding-top:18px;border-top:1px solid #21262d;color:#484f58;text-align:center;font-size:.8rem;}
 .legend{color:var(--muted);font-size:.78rem;text-align:center;margin-top:6px;}
@@ -92,17 +90,22 @@ q.addEventListener('input',()=>{
 
 
 def _tool_card(name: str, desc: str, url: str | None, star: bool, category: str) -> str:
-    link = _tool_url(url, name)
+    link = _tool_url(url)
     search = _e(f"{name} {category} {desc}".lower())
     star_html = '<span class="star" title="Modern / essential pick">★</span>' if star else ""
     badge = f'<span class="badge">{_e(category)}</span>'
+    if link:
+        short = link.replace("https://", "").replace("http://", "")
+        name_html = (f'<a class="name" href="{_e(link)}" target="_blank" rel="noopener">{_e(name)}</a>')
+        link_html = (f'<a class="gh" href="{_e(link)}" target="_blank" rel="noopener">↗ {_e(short)}</a>')
+    else:
+        # No public repository for this tool — show that, and never invent a link.
+        name_html = f'<span class="name">{_e(name)}</span>'
+        link_html = '<span class="nolink">— no public repo</span>'
     return (
         f'<div class="tool" data-s="{search}">'
-        f'<div class="row"><a class="name" href="{_e(link)}" target="_blank" rel="noopener">'
-        f'{_e(name)}</a>{star_html}{badge}</div>'
-        f'<div class="desc">{_e(desc)}</div>'
-        f'<a class="gh" href="{_e(link)}" target="_blank" rel="noopener">↗ {_e(link.replace("https://", ""))}</a>'
-        f'</div>'
+        f'<div class="row">{name_html}{star_html}{badge}</div>'
+        f'<div class="desc">{_e(desc)}</div>{link_html}</div>'
     )
 
 

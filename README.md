@@ -320,7 +320,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
 | `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
-| `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 179 offensive tools by attack type, each with a GitHub link (no scan; also menu option **666**) |
+| `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 179 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
