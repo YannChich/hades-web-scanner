@@ -98,7 +98,8 @@ evidence**, and every piece of evidence comes with the next move.
   stack, matches it to real CVEs from a local vulnerability database, and ranks each by a Hades CVE
   Priority Score that fuses CVSS, FIRST EPSS exploit probability and the CISA KEV catalog. 100% free,
   no API key — built from CISA KEV, FIRST EPSS and the NVD 2.0 API; the local SQLite database is
-  auto-created and auto-refreshed.
+  auto-created and auto-refreshed. Run `python tools/build_vulndb.py` once to bulk-load the **entire
+  NVD corpus** (~270k CVEs) for fully **offline** matching — incrementally refreshed thereafter.
 
 **Intelligence and reporting layer**
 - Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
@@ -208,6 +209,9 @@ python main.py --url https://example.com --profile oob_scan
 # CVE Vulnerability Intelligence — run the interactive menu and pick option 8
 python main.py --url https://example.com          # then choose [8] CVE Vulnerability Intelligence
 
+# (one-time) bulk-load the full NVD corpus for offline CVE matching — optional NVD_API_KEY speeds it up
+python tools/build_vulndb.py                       # then cve_scan matches ~270k CVEs locally, offline
+
 # Also export JSON or PDF on top of the HTML
 python main.py --url https://example.com --output json
 
@@ -302,6 +306,7 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 - **`oob_scan`** — out-of-band detection of blind SSRF / RCE / stored XSS via a self-hosted callback listener.
 - **`cve_scan`** (menu option 8) — CVE Vulnerability Intelligence: stack fingerprint → CPE → CVE matching
   against a local KEV/EPSS/NVD database, ranked by the Hades CVE Priority Score (CVSS + EPSS + CISA KEV).
+  `tools/build_vulndb.py` bulk-loads the full NVD corpus (~270k CVEs) for offline matching.
 
 </details>
 

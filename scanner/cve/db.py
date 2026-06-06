@@ -102,13 +102,14 @@ def get_conn(path: Path | None = None) -> sqlite3.Connection:
 
 
 def db_exists(path: Path | None = None) -> bool:
-    """True if the database file exists and has at least KEV or EPSS synced."""
+    """True if the database file exists and has at least KEV, EPSS or the full NVD corpus synced."""
     p = path or DB_PATH
     if not p.is_file():
         return False
     try:
         conn = sqlite3.connect(str(p))
-        row = conn.execute("SELECT COUNT(*) FROM sync_state WHERE source IN ('cisa_kev','epss')").fetchone()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sync_state WHERE source IN ('cisa_kev','epss','nvd_full')").fetchone()
         conn.close()
         return bool(row and row[0])
     except sqlite3.Error:

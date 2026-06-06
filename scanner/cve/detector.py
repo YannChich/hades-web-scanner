@@ -156,12 +156,15 @@ def _finalize(items: list[CveFinding]) -> tuple[list[CveFinding], list[tuple[str
 
 
 def run(engine: ScanEngine) -> list[Finding]:
-    from scanner.cve.feed_downloader import query_nvd, update_vulndb_if_stale
+    from scanner.cve.feed_downloader import (has_full_nvd, nvd_corpus_size, query_nvd,
+                                             update_vulndb_if_stale)
 
     if not update_vulndb_if_stale(7) and not db_exists():
         return [_info("CVE Database Unavailable",
                       "Could not build or reach the local CVE database (KEV/EPSS feeds). "
                       "Check connectivity and re-run; the rest of Hades is unaffected.")]
+
+    offline = has_full_nvd()   # full corpus bulk-loaded → match everything locally, no NVD calls
 
     findings: list[Finding] = []
     conn = get_conn()
@@ -176,7 +179,8 @@ def run(engine: ScanEngine) -> list[Finding]:
         queried: set[str] = set()
         for tech in techs:
             for cand in candidates(tech):
-                if cand.cpe_prefix not in queried and len(queried) < _MAX_PRODUCTS:
+                # On-demand NVD fetch only when the full corpus is NOT present (else it's all local).
+                if not offline and cand.cpe_prefix not in queried and len(queried) < _MAX_PRODUCTS:
                     queried.add(cand.cpe_prefix)
                     data = query_nvd(virtual_match=cand.cpe_prefix)
                     if data:
@@ -198,10 +202,16 @@ def run(engine: ScanEngine) -> list[Finding]:
             findings.append(report.to_finding(cf, engine.url))
 
         confirmed = sum(1 for c in results if c.confidence in ("CONFIRMED", "LIKELY"))
+        if offline:
+            source = (f"Sources: full local NVD corpus ({nvd_corpus_size():,} CVEs, offline) "
+                      "+ CISA KEV / FIRST EPSS enrichment.")
+        else:
+            source = ("Sources: local KEV/EPSS database + NVD 2.0 on demand (free, no API key). "
+                      "For maximum coverage and offline matching, build the full corpus once: "
+                      "python tools/build_vulndb.py")
         findings.append(_info(
             f"CVE Intelligence Summary: {len(results)} CVE(s) across {len(techs)} technology(ies)",
-            f"{confirmed} confirmed/likely; {sum(1 for c in results if c.kev)} in CISA KEV. "
-            "Sources: local KEV/EPSS database + NVD 2.0 (free, no API key)."))
+            f"{confirmed} confirmed/likely; {sum(1 for c in results if c.kev)} in CISA KEV. {source}"))
     finally:
         conn.close()
 

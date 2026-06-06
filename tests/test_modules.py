@@ -541,6 +541,65 @@ class TestCVE:
         assert any(f.raw["cve_id"] == "CVE-2021-23017" and f.raw["kev"] for f in cves)
         assert any(f.raw["cve_confidence"] == "CONFIRMED" for f in cves)
 
+    def test_nvd_date_windows(self):
+        from datetime import datetime, timezone
+        from scanner.cve.feed_downloader import _date_windows, _nvd_date
+        d = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        assert _nvd_date(d) == "2024-01-01T00:00:00.000+00:00"
+        # a > 110-day span must be split into multiple NVD-legal windows (each < 120 days)
+        wins = _date_windows(datetime(2023, 1, 1, tzinfo=timezone.utc),
+                             datetime(2024, 1, 1, tzinfo=timezone.utc))
+        assert len(wins) >= 3 and all(isinstance(a, str) and isinstance(b, str) for a, b in wins)
+
+    @staticmethod
+    def _mk_nvd_vuln(i: int) -> dict:
+        return {"cve": {
+            "id": f"CVE-9999-{1000 + i}", "published": "2024-01-01T00:00:00",
+            "lastModified": "2024-02-01T00:00:00",
+            "descriptions": [{"lang": "en", "value": f"test vuln {i}"}],
+            "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "vectorString": "CVSS:3.1/AV:N"},
+                                           "baseSeverity": "HIGH"}]},
+            "weaknesses": [{"description": [{"value": "CWE-79"}]}],
+            "references": [{"url": "https://nvd.nist.gov/vuln/detail/x"}],
+            "configurations": [{"nodes": [{"cpeMatch": [{
+                "criteria": "cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*", "vulnerable": True,
+                "versionStartIncluding": "0.1.0", "versionEndExcluding": "1.21.0"}]}]}]}}
+
+    def test_full_corpus_pagination_then_offline_match(self, tmp_path, monkeypatch):
+        """Bulk-load paginates the whole corpus locally, then the detector matches with no network."""
+        from scanner.cve import db as cvedb, feed_downloader as fd, detector
+        from scanner.cve.models import DetectedTech
+        from scanner.engine import ScanEngine
+
+        monkeypatch.setattr(cvedb, "DB_PATH", tmp_path / "v.sqlite")
+        monkeypatch.setattr(fd, "_nvd_delay", lambda: 0)            # no real sleeping
+        corpus = [self._mk_nvd_vuln(i) for i in range(3)]
+
+        def fake_get(_client, params):                              # 2 CVEs per page
+            start = params["startIndex"]
+            page = corpus[start:start + 2]
+            return {"totalResults": len(corpus), "resultsPerPage": len(page),
+                    "startIndex": start, "vulnerabilities": page}
+        monkeypatch.setattr(fd, "_nvd_get", fake_get)
+
+        ingested = fd.build_full_nvd()
+        assert ingested == 3
+        assert fd.nvd_corpus_size() == 3 and fd.has_full_nvd() is True
+
+        # Detector must now run fully offline — query_nvd is forbidden.
+        monkeypatch.setattr(fd, "update_vulndb_if_stale", lambda *a, **k: True)
+        def _boom(*a, **k):
+            raise AssertionError("query_nvd must not be called when the full corpus is present")
+        monkeypatch.setattr(fd, "query_nvd", _boom)
+        monkeypatch.setattr(detector, "_collect_tech", lambda eng: [
+            DetectedTech(name="nginx", version="1.18.0", type="web_server",
+                         source="Server header", confidence=0.9, evidence="Server: nginx/1.18.0")])
+
+        findings = detector.run(ScanEngine("https://target.test", rate_delay=0))
+        cves = [f for f in findings if f.raw.get("cve_id")]
+        assert cves and all(c.raw["cve_id"].startswith("CVE-9999-") for c in cves)
+        assert any("offline" in f.description for f in findings if "Summary" in f.title)
+
 
 # ---------------------------------------------------------------------------
 # Out-of-band / blind-vuln (OAST) tests
