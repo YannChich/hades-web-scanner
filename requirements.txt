@@ -39,5 +39,9 @@ python-nmap>=0.7.1
 # Markdown -> HTML for the RedTeam-Tools reference PDF (docs/make_redteam_tools.py)
 markdown>=3.6
 
+# Offensive TLS/SSL handshake audit (scanner/tls/hephaestus_tls.py — tls_scan / menu option 9).
+# Optional: the module degrades gracefully with an install hint if it is missing.
+sslyze>=6.0
+
 # Test runner (dev) — run: pytest tests/
 pytest>=8.0

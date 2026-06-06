@@ -116,6 +116,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
     "engage": ["scanner.offensive.engage"],
     "oob_scan": ["scanner.oob.oob_detect"],
     "cve_scan": ["scanner.cve.detector"],
+    "tls_scan": ["scanner.tls.hephaestus_tls"],
 }
 
 # ---------------------------------------------------------------------------
@@ -264,6 +265,7 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "subdomain_scan":   ["performing-subdomain-enumeration-with-subfinder"],
     "port_scan":        ["scanning-network-with-nmap-advanced"],
     "ssl_check":        ["performing-ssl-tls-security-assessment"],
+    "hephaestus_tls":   ["performing-ssl-tls-security-assessment"],
     "cloud_buckets":    ["auditing-aws-s3-bucket-permissions",
                          "conducting-cloud-penetration-testing",
                          "performing-gcp-penetration-testing-with-gcpbucketbrute"],
@@ -328,6 +330,8 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "oob_detect":      ["nuclei"],
     # ── CVE intelligence ──
     "cve_vulnerability": ["nuclei"],
+    # ── Offensive TLS validation ──
+    "hephaestus_tls":  ["testssl.sh", "sslscan"],
 }
 
 # Tools named by Hades that are NOT in the bundled RedTeam-Tools PDF (AI red-team

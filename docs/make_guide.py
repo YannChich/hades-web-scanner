@@ -366,6 +366,19 @@ CVE = [
         "Detection-only intelligence — it reports exposure, it never exploits."),
 ]
 
+TLS = [
+    module("tls_scan", "Offensive TLS/SSL Attack Surface (menu option 9)",
+        "A dedicated profile driven by the SSLyze handshake engine. It negotiates TLS the way an attacker probes it and flags legacy protocols (SSLv2/SSLv3, TLS 1.0/1.1), weak/anonymous/NULL cipher suites, missing forward secrecy, certificate trust/expiry/hostname/weak-signature problems, TLS compression (CRIME), and insecure renegotiation.",
+        "Transport-layer crypto is what protects every credential and cookie in transit; a downgrade or weak cipher quietly undoes all of it.",
+        "Enables on-path downgrade attacks, traffic decryption/sniffing and adversary-in-the-middle (MITRE T1557 / T1040), mapped to CWE-326 / CWE-295 and OWASP A02:2021.",
+        "Handshake-only and read-only — no exploitation, brute force, DoS or interception. SSLyze is an optional dependency; the module degrades gracefully if it is missing."),
+    module("tls_scan — known TLS vulns", "Heartbleed · ROBOT · CCS Injection",
+        "Beyond configuration, it runs SSLyze's safe handshake probes for the high-impact TLS vulnerability classes: Heartbleed (CVE-2014-0160), ROBOT (RSA padding oracle), and the OpenSSL ChangeCipherSpec injection flaw (CVE-2014-0224).",
+        "These are the bugs that leak private keys or let an attacker decrypt sessions outright — the difference between 'weak' and 'owned'.",
+        "Heartbleed leaks process memory (keys/cookies) → Critical; ROBOT/CCS enable RSA decryption / AitM → High.",
+        "Each finding includes attacker impact, technical evidence and references, and identifies the strongest supported and weakest accepted configuration."),
+]
+
 OUTPUT = [
     module("scorer", "Security Score & Grade",
         "Turns all findings into a single 0-100 score and an A-F grade, subtracting points by severity with diminishing returns per module and a confidence weighting.",
@@ -406,7 +419,7 @@ def build():
     story.append(Spacer(1, 8 * mm))
     disclaimer = ("<b>For authorised security testing only.</b> Scanning systems without explicit "
                   "written permission is illegal. For each of the 43 scan modules — and the dedicated "
-                  "Database, AI/LLM, Engagement, Out-of-Band and CVE Intelligence profiles — this guide "
+                  "Database, AI/LLM, Engagement, Out-of-Band, CVE Intelligence and TLS profiles — this guide "
                   "explains, in plain language: <b>what it checks</b>, the <b>consequence of a finding</b>, "
                   "and the <b>type of attack</b> it enables.")
     story.append(Table([[Paragraph(disclaimer, BODY)]], colWidths=[doc.width - 20 * mm],
@@ -460,7 +473,8 @@ def build():
                           ("6 · Active Engagement — engage", ENGAGE),
                           ("7 · Out-of-Band / Blind Vulns — oob_scan", OOB),
                           ("8 · CVE Vulnerability Intelligence — cve_scan", CVE),
-                          ("9 · Scoring &amp; Output", OUTPUT)]:
+                          ("9 · TLS / SSL Attack Surface — tls_scan", TLS),
+                          ("10 · Scoring &amp; Output", OUTPUT)]:
         story.append(Paragraph(heading, CAT))
         story.extend(mods)
         story.append(PageBreak())

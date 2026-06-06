@@ -3677,3 +3677,121 @@ class TestPlaybookHtmlRendering:
         f.skill_refs = [{"name": "z", "description": "d", "href": gh, "tags": [], "mitre": []}]
         generate_html([f], "http://d.test", 30, output_path=str(tmp_path / "reports"))
         assert f.skill_refs[0]["href"] == gh                    # GitHub renders Markdown already
+
+
+# ---------------------------------------------------------------------------
+# hephaestus_tls — offensive TLS audit (SSLyze) — tls_scan / menu option 9
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace as _NS    # noqa: E402
+
+
+def _att(result):
+    return _NS(status=_NS(name="COMPLETED"), result=result)
+
+
+def _cipher(name, anon=False, ks=256, eph=None):
+    return _NS(cipher_suite=_NS(name=name, openssl_name=name, is_anonymous=anon, key_size=ks),
+               ephemeral_key=eph)
+
+
+def _ciphers(specs):
+    return _att(_NS(accepted_cipher_suites=[_cipher(*s) if isinstance(s, tuple) else _cipher(s)
+                                            for s in specs]))
+
+
+class TestHephaestusTls:
+    def test_profile_registered_and_menu(self):
+        from config import PROFILE_MODULES
+        assert PROFILE_MODULES["tls_scan"] == ["scanner.tls.hephaestus_tls"]
+
+    def test_host_port_parsing(self):
+        from scanner.tls.hephaestus_tls import _host_port
+        assert _host_port("https://example.com") == ("example.com", 443)
+        assert _host_port("https://example.com:8443/x") == ("example.com", 8443)
+        assert _host_port("example.com") == ("example.com", 443)
+
+    def test_protocol_severity_mapping(self):
+        from scanner.tls.hephaestus_tls import _analyze_protocols
+        sr = _NS(ssl_3_0_cipher_suites=_ciphers(["DES-CBC3-SHA"]),
+                 tls_1_0_cipher_suites=_ciphers(["AES128-SHA"]),
+                 tls_1_2_cipher_suites=_ciphers([("ECDHE-RSA-AES128-GCM-SHA256", False, 128, object())]))
+        findings, supported = _analyze_protocols(sr, "t.test", 443)
+        sev = {f.title: f.severity for f in findings}
+        assert sev.get("SSL 3.0 Enabled") == Severity.HIGH
+        assert sev.get("TLS 1.0 Enabled") == Severity.MEDIUM
+        assert sev.get("TLS 1.3 Not Supported") == Severity.LOW   # 1.2 present, 1.3 absent
+        assert "SSL 3.0" in supported and "TLS 1.2" in supported
+
+    def test_weak_and_anonymous_ciphers(self):
+        from scanner.tls.hephaestus_tls import _analyze_ciphers
+        sr = _NS(tls_1_2_cipher_suites=_ciphers([
+            ("RC4-MD5", False, 128, None),            # weak
+            ("ADH-AES128-SHA", True, 128, object()),  # anonymous
+            ("ECDHE-RSA-AES256-GCM-SHA384", False, 256, object())]))
+        titles = {f.title: f.severity for f in _analyze_ciphers(sr, "t.test", 443)}
+        assert titles.get("Anonymous/NULL Cipher Suites Accepted") == Severity.HIGH
+        assert titles.get("Weak Cipher Suites Accepted") == Severity.MEDIUM
+
+    def test_no_forward_secrecy(self):
+        from scanner.tls.hephaestus_tls import _analyze_ciphers
+        sr = _NS(tls_1_2_cipher_suites=_ciphers([("AES256-SHA", False, 256, None)]))   # static RSA only
+        titles = [f.title for f in _analyze_ciphers(sr, "t.test", 443)]
+        assert "No Forward Secrecy" in titles
+
+    def test_forward_secrecy_present_not_flagged(self):
+        from scanner.tls.hephaestus_tls import _analyze_ciphers
+        sr = _NS(tls_1_2_cipher_suites=_ciphers([("ECDHE-RSA-AES128-GCM-SHA256", False, 128, object())]))
+        assert "No Forward Secrecy" not in [f.title for f in _analyze_ciphers(sr, "t.test", 443)]
+
+    def test_known_tls_vulnerabilities(self):
+        from scanner.tls.hephaestus_tls import _analyze_vulns
+        sr = _NS(heartbleed=_att(_NS(is_vulnerable_to_heartbleed=True)),
+                 openssl_ccs_injection=_att(_NS(is_vulnerable_to_ccs_injection=True)),
+                 robot=_att(_NS(robot_result=_NS(name="VULNERABLE_STRONG_ORACLE"))),
+                 tls_compression=_att(_NS(supports_compression=True)),
+                 session_renegotiation=_att(_NS(supports_secure_renegotiation=False)))
+        sev = {f.title.split(" (")[0]: f.severity for f in _analyze_vulns(sr, "t.test", 443)}
+        assert sev.get("Heartbleed") == Severity.CRITICAL
+        assert sev.get("OpenSSL CCS Injection") == Severity.HIGH
+        assert sev.get("ROBOT Attack Exposure") == Severity.HIGH
+        assert sev.get("TLS Compression Enabled") == Severity.MEDIUM
+        assert sev.get("Insecure Renegotiation Supported") == Severity.MEDIUM
+
+    def test_certificate_findings(self):
+        from scanner.tls.hephaestus_tls import _cert_findings
+        # expired + hostname mismatch
+        exp = {"days_left": -5, "expiry": "2020-01-01", "subject": "CN=old",
+               "hostname_match": False, "self_signed": False, "trusted": True, "weak_sig": False}
+        sev = {f.title: f.severity for f in _cert_findings(exp, "t.test", 443)}
+        assert sev.get("Certificate Expired") == Severity.HIGH
+        assert sev.get("Certificate Hostname Mismatch") == Severity.HIGH
+        # self-signed
+        ss = {"days_left": 200, "expiry": "x", "subject": "CN=self", "hostname_match": True,
+              "self_signed": True, "trusted": False, "weak_sig": False}
+        assert any(f.title == "Self-Signed / Untrusted Certificate" and f.severity == Severity.HIGH
+                   for f in _cert_findings(ss, "t.test", 443))
+        # weak signature -> MEDIUM
+        ws = {"days_left": 200, "expiry": "x", "subject": "CN=ok", "hostname_match": True,
+              "self_signed": False, "trusted": True, "weak_sig": True, "sig": "sha1"}
+        assert any(f.title == "Weakly Signed Certificate" and f.severity == Severity.MEDIUM
+                   for f in _cert_findings(ws, "t.test", 443))
+        # all good -> INFO valid chain
+        ok = {"days_left": 200, "expiry": "x", "subject": "CN=ok", "hostname_match": True,
+              "self_signed": False, "trusted": True, "weak_sig": False}
+        valid = _cert_findings(ok, "t.test", 443)
+        assert valid and valid[0].severity == Severity.INFO
+
+    def test_finding_carries_offensive_schema(self):
+        from scanner.tls.hephaestus_tls import _analyze_vulns
+        f = _analyze_vulns(_NS(heartbleed=_att(_NS(is_vulnerable_to_heartbleed=True))), "t.test", 443)[0]
+        assert f.module == "hephaestus_tls" and f.cwe and f.owasp.startswith("A02:2021")
+        assert f.raw["offensive_impact"] and f.raw["evidence"] and f.raw["references"]
+        assert f.raw["affected_component"] == "TLS/SSL endpoint (t.test:443)"
+        assert "T1557" in f.mitre
+
+    def test_run_graceful_when_host_unresolvable(self):
+        from scanner.tls import hephaestus_tls
+        eng = _NS(url="https://nonexistent.invalid.host.local")
+        fs = hephaestus_tls.run(eng)
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO and "Skipped" in fs[0].title

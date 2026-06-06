@@ -67,6 +67,7 @@ PROFILES = [
     ("engage", "Active exploitation engagement: confirms bugs then proves impact with benign payloads (RCE via id/uname, LFI read, SSRF to cloud metadata), writing evidence to loot/. Authorisation-gated."),
     ("oob_scan", "Out-of-band (OAST) blind-vuln detection: blind SSRF / RCE / stored XSS via a self-hosted callback listener; auto public tunnel (cloudflared/ngrok) so it works behind NAT."),
     ("cve_scan", "CVE Vulnerability Intelligence (also interactive menu option 8): fingerprints the stack, matches real CVEs (2020+) from a local KEV/EPSS/NVD database, ranked by a Hades CVE Priority Score. Build the full offline corpus once with tools/build_vulndb.py."),
+    ("tls_scan", "Offensive TLS/SSL audit (also interactive menu option 9) via SSLyze: legacy protocols, weak/anon ciphers, no forward secrecy, certificate trust/expiry/hostname issues, TLS compression, insecure renegotiation, and Heartbleed/ROBOT/CCS injection. Handshake-only; needs the optional sslyze package."),
 ]
 
 MODULES = [
@@ -78,6 +79,7 @@ MODULES = [
     "        open_redirect · ssrf_detect · cve_mapping · default_creds",
     "DB:     db_security   (run via --profile db_scan — dedicated red-team database audit)",
     "CVE:    cve_vulnerability   (menu option 8 — CVE intelligence; build the corpus with tools/build_vulndb.py)",
+    "TLS:    hephaestus_tls   (menu option 9 / --profile tls_scan — offensive TLS audit via SSLyze)",
 ]
 
 EXAMPLES = [
@@ -93,6 +95,7 @@ EXAMPLES = [
     ("DB audit + auto-exploit confirmed SQLi", "py main.py -u http://testaspnet.vulnweb.com -p db_scan --exploit"),
     ("CVE intelligence (interactive menu, option 8)", "py main.py -u https://example.com"),
     ("Build the full offline CVE corpus (once)", "py tools/build_vulndb.py"),
+    ("Offensive TLS/SSL audit (SSLyze)", "py main.py -u https://example.com -p tls_scan"),
     ("Show all flags", "py main.py --help"),
 ]
 

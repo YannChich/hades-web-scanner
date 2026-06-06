@@ -107,6 +107,12 @@ evidence**, and every piece of evidence comes with the next move.
   auto-created and auto-refreshed. Run `python tools/build_vulndb.py` once to bulk-load the **entire
   NVD corpus** (~270k CVEs) for fully **offline** matching — incrementally refreshed thereafter.
   Reports only CVEs from **2020 onward** (older ones are filtered out as noise).
+- `tls_scan` (interactive **menu option 9**) — offensive TLS/SSL attack-surface audit via the **SSLyze**
+  handshake engine: legacy protocols (SSLv2/3, TLS 1.0/1.1), weak/anonymous/NULL ciphers, missing
+  forward secrecy, certificate trust/expiry/hostname/weak-signature issues, TLS compression (CRIME),
+  insecure renegotiation, and confirmable TLS vulns (**Heartbleed, ROBOT, OpenSSL CCS injection**) —
+  each rated by what it enables on the wire (downgrade, sniffing, AitM) and mapped to CWE / OWASP /
+  ATT&CK. Handshake-only and read-only; `sslyze` is an optional dependency.
 
 **Intelligence and reporting layer**
 - Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
@@ -260,6 +266,9 @@ python main.py --url https://example.com --profile oob_scan
 # CVE Vulnerability Intelligence — run the interactive menu and pick option 8
 python main.py --url https://example.com          # then choose [8] CVE Vulnerability Intelligence
 
+# Offensive TLS/SSL audit (SSLyze) — protocols, ciphers, certs, Heartbleed/ROBOT/CCS
+python main.py --url https://example.com --profile tls_scan
+
 # (one-time) bulk-load the full NVD corpus for offline CVE matching — optional NVD_API_KEY speeds it up
 python tools/build_vulndb.py                       # then cve_scan matches ~270k CVEs locally, offline
 
@@ -276,7 +285,7 @@ python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` (`cve_scan` is menu option 8) |
+| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--output` | `-o` | — | Extra report format on top of the always-generated HTML: `json` `pdf` |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
@@ -307,6 +316,7 @@ python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies
 | `engage` | Offensive | Active engagement — auto-exploit confirmed RCE/LFI/SSRF |
 | `oob_scan` | Offensive | Out-of-band detection of blind SSRF/RCE/XSS |
 | `cve_scan` | Intelligence | CVE Vulnerability Intelligence (menu option 8) — CVE matching + KEV/EPSS prioritisation |
+| `tls_scan` | Red team | Offensive TLS/SSL audit (menu option 9) — SSLyze protocols/ciphers/certs + Heartbleed/ROBOT/CCS |
 
 ---
 
@@ -358,6 +368,9 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 - **`cve_scan`** (menu option 8) — CVE Vulnerability Intelligence: stack fingerprint → CPE → CVE matching
   against a local KEV/EPSS/NVD database, ranked by the Hades CVE Priority Score (CVSS + EPSS + CISA KEV).
   `tools/build_vulndb.py` bulk-loads the full NVD corpus (~270k CVEs) for offline matching.
+- **`tls_scan`** (menu option 9, `scanner/tls/hephaestus_tls.py`) — offensive TLS/SSL audit via SSLyze:
+  legacy protocols, weak/anon/NULL ciphers, no forward secrecy, certificate trust/expiry/hostname/weak
+  signature, TLS compression, insecure renegotiation, Heartbleed / ROBOT / CCS injection.
 
 </details>
 
@@ -447,6 +460,7 @@ hades-web-scanner/
 │   ├── recon/  web/  vulns/ # The 43 scan modules
 │   ├── db/   ai/   offensive/   oob/   # Red-team profiles (db_scan, ai_scan, engage, oob_scan)
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
+│   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
 │   ├── intel/               # Skills-library enrichment (playbooks)
 │   └── output/              # Console, scoring, attack path, JSON/HTML/PDF reports
 ├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)

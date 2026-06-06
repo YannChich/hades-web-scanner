@@ -61,7 +61,8 @@ DISCLAIMER = (
     "The author assumes no liability for misuse."
 )
 
-PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage", "oob_scan", "cve_scan")
+PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage", "oob_scan",
+            "cve_scan", "tls_scan")
 OUTPUT_FORMATS = ("json", "html", "pdf")
 
 
@@ -152,9 +153,11 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]6[/accent]. [ok]Engagement (auto-pwn)[/ok] Actively EXPLOIT confirmed vulns (RCE/LFI/SSRF) — asks for authorisation")
     console.print("  [accent]7[/accent]. [ok]OOB / Blind vulns[/ok]   Out-of-band detection of blind SSRF/RCE/XSS via callbacks")
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
+    console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
     console.print()
 
-    choice = Prompt.ask("[ok]  Choice[/ok]", choices=["1", "2", "3", "4", "5", "6", "7", "8"], default="2").strip()
+    choice = Prompt.ask("[ok]  Choice[/ok]",
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="2").strip()
 
     match choice:
         case "1":
@@ -172,6 +175,8 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "oob_scan", None
         case "8":
             return "cve_scan", None
+        case "9":
+            return "tls_scan", None
         case _:
             return "full", None
 
