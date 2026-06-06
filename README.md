@@ -1,182 +1,133 @@
-# Hades
+<p align="center">
+  <img src="assets/hades.png" alt="Hades" width="760">
+</p>
 
-> A terminal-based web security scanner inspired by Kali Linux tools.
-> Performs 45+ automated checks across recon, web analysis, and vulnerability detection —
-> plus an **offensive injection arsenal** with active verification and an opt-in **sqlmap launcher** —
-> all from a single command.
->
-> Every finding is mapped to **CWE / OWASP / MITRE ATT&CK** (with a CVSS score and a stable ID),
-> linked to a step-by-step **expert playbook** and the relevant **RedTeam tools**, and woven into a
-> single copy-paste **kill-chain attack path**. Ships a dedicated **AI/LLM security audit**
-> (`ai_scan`) and a red-team **database audit** (`db_scan`).
+<h3 align="center">Find the vulnerability. Prove it. Map the path to impact.</h3>
 
-```
- ██╗  ██╗ █████╗ ██████╗ ███████╗███████╗
- ██║  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝
- ███████║███████║██║  ██║█████╗  ███████╗
- ██╔══██║██╔══██║██║  ██║██╔══╝  ╚════██║
- ██║  ██║██║  ██║██████╔╝███████╗███████║
- ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝
-        web security scanner
-```
-
-> The tool is branded **Hades**; the Python package folder is still `webscan/`.
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-b3122a?style=for-the-badge&labelColor=0d0d0d" alt="License">
+  <img src="https://img.shields.io/badge/python-3.10+-7b2fbf?style=for-the-badge&labelColor=0d0d0d&logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/github/repo-size/YannChich/hades-web-scanner?style=for-the-badge&labelColor=0d0d0d&color=b3122a" alt="Repo size">
+  <img src="https://img.shields.io/badge/platform-Linux%20|%20macOS%20|%20Windows-7b2fbf?style=for-the-badge&labelColor=0d0d0d" alt="Platform">
+  <img src="https://img.shields.io/badge/status-active-b3122a?style=for-the-badge&labelColor=0d0d0d" alt="Status: active">
+</p>
 
 ---
 
-## Screenshots
+**Hades is a terminal-based, red-team web security scanner that does not just *find* weaknesses — it *proves* them.**
 
-> _Screenshots to be added after first full test run._
-> Place terminal captures in `docs/screenshots/` and reference them here.
+It runs 43 checks across reconnaissance, misconfiguration and vulnerability detection, confirms each
+finding with an evaluated payload / timing / content signature (no blind guessing), maps it to
+**CWE / OWASP / MITRE ATT&CK** with a CVSS score, links a step-by-step **expert playbook**, and weaves
+everything into a single copy-paste **kill-chain attack path** — then exports a polished, self-contained
+HTML report. On top of the standard scan, dedicated red-team profiles audit **databases**, the
+**AI/LLM** attack surface, run an **active exploitation engagement**, and catch **blind, out-of-band**
+vulnerabilities other scanners miss. One command.
 
-| Scan in progress | HTML Report |
-|-----------------|-------------|
-| _(terminal screenshot)_ | _(browser screenshot)_ |
+```text
+python main.py --url https://target.tld
+```
+
+> [!IMPORTANT]
+> Hades is for **authorised security testing only**. See the [Disclaimer](#disclaimer).
+
+---
+
+## Table of Contents
+
+- [Why Hades](#why-hades)
+- [Features](#features)
+- [Reports Preview](#reports-preview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Scan Profiles](#scan-profiles)
+- [Modules](#modules)
+- [Example Output](#example-output)
+- [Cross-Referenced Integrations](#cross-referenced-integrations)
+- [Roadmap](#roadmap)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [Disclaimer](#disclaimer)
+- [License](#license)
+
+---
+
+## Why Hades
+
+Most scanners hand you a list of *maybe*. Hades is built around a different promise: **every finding is
+evidence**, and every piece of evidence comes with the next move.
+
+- **Proof, not noise.** Injection modules confirm the bug (evaluated math for SSTI, scaling time delays
+  for blind injection, command output for RCE, file content for LFI) before reporting it.
+- **Context for every finding.** CWE, OWASP category, MITRE ATT&CK technique, a representative CVSS
+  score, a stable finding ID, a reproducible PoC command, the matching expert playbook, and the relevant
+  offensive tools — attached automatically.
+- **A path, not a pile.** All actionable findings are ordered into one kill-chain attack path
+  (Reconnaissance to Impact), with copy-paste commands at each step.
+- **Client-ready output.** A dark, self-contained HTML report is generated for *every* scan and opens in
+  your browser automatically.
 
 ---
 
 ## Features
 
-### Recon Modules
-- [x] Basic info — IP, server, load time, OS fingerprint
-- [x] WHOIS lookup — registrar, creation/expiry dates, name servers
-- [x] DNS security — MX, SPF, DMARC, DKIM checks
-- [x] SSL/TLS — certificate expiry, self-signed, hostname mismatch, legacy protocols
-- [x] Port scan — open port discovery with accept-all (honeypot/WAF) detection
-- [x] WAF / CDN detection — Cloudflare, CloudFront, Akamai, Sucuri, Imperva, Fastly…
-- [x] Technology stack — server, language, framework, JS libraries, CMS (Wappalyzer-style)
-- [x] **JS recon** — mines JavaScript for leaked secrets (AWS/Google/Stripe/GitHub/Slack/private keys) and hidden API endpoints
-- [x] **Cloud buckets** — discovers open/existing S3, GCS and Azure Blob storage buckets
-- [x] **Git dumper** — extracts remotes, committer emails and the tracked-file list from an exposed `.git`
-- [x] **Wayback mining** — pulls archived URLs & parameters from the Internet Archive (attack-surface expansion)
+**Detection engine**
+- 43 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
+- Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
+- Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
 
-### Web Analysis Modules
-- [x] Security headers — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- [x] robots.txt — disallow entries, sensitive path exposure
-- [x] Sitemap — sitemap.xml parsing
-- [x] CMS detection — WordPress, Joomla, Drupal, Magento, Shopify, Wix, Squarespace, Ghost, TYPO3, PrestaShop
-- [x] Admin panel discovery — CMS-targeted + generic path bruteforce
-- [x] Directory scanning — wordlist bruteforce with wildcard/soft-404 detection
-- [x] Subdomain enumeration
-- [x] Broken links — internal dead link detection (WAF-403 collapse aware)
-- [x] HTTP methods — OPTIONS probe, dangerous method flagging (PUT, DELETE, TRACE, CONNECT)
-- [x] Backup files — `.bak`, `.old`, `.zip`, `.sql` exposure
-- [x] Sensitive files — `.env`, `wp-config.php`, `.git/config`, `phpinfo.php`, `.htpasswd`…
-- [x] Cookie analysis — HttpOnly, Secure, SameSite flags
-- [x] Redirect chain — HTTP → HTTPS redirect analysis
-- [x] Email exposure — scraped email addresses on pages
-- [x] Favicon hash — fingerprinting via MurmurHash
-- [x] CORS misconfiguration — reflected origin, wildcard, null origin, credentials
-- [x] Clickjacking — X-Frame-Options / CSP frame-ancestors
-- [x] Directory listing — open listing detection
-- [x] Blacklist check — IP / domain reputation lookup
-- [x] Screenshot — homepage capture via Playwright (self-healing browser install)
+**Offensive injection arsenal (active verification)**
+- SQLi, XSS, command injection, SSTI, LFI/path traversal, open redirect and SSRF — each *proven*, with a
+  clickable proof link and a ready exploitation command.
+- JWT attacks (`alg:none`, weak-secret cracking, claim disclosure), 401/403 access-control bypass, CVE
+  mapping via the NVD, and a default-credentials advisory.
 
-### Offensive Injection Arsenal (active verification)
-Every injection module **proves** the bug (evaluated payload / timing / content signature), not
-just reflection — so findings are high-confidence and low-noise. URL parameters **and** form
-fields from the shared crawler are tested, and each finding carries a clickable **proof link**.
+**Dedicated red-team profiles**
+- `db_scan` — database exposure audit: port/banner fingerprint, unauthenticated access with live data
+  extraction, SQL/NoSQL injection, secret-file and connection-string hunting, exposed admin GUIs, a DB
+  Exposure Score and an exploitation Attack Path.
+- `ai_scan` — AI/LLM attack surface mapped to the OWASP LLM Top 10 and MITRE ATLAS: SDK fingerprinting,
+  exposed AI keys, unauthenticated local LLM servers (Ollama, vLLM, LM Studio), and prompt-injection.
+- `engage` — exploitation-first engagement that actively proves impact with benign payloads (RCE proof
+  via `id`, arbitrary file read, SSRF to cloud metadata) and writes evidence files.
+- `oob_scan` — out-of-band (OAST) detection of blind SSRF / RCE / stored XSS via a self-hosted callback
+  listener, with an automatic public tunnel (cloudflared / ngrok) so it works behind NAT.
 
-- [x] SQL injection — error / boolean-blind / time-blind, with a ready `sqlmap` command
-- [x] XSS — context-aware reflected XSS on URL parameters and form inputs
-- [x] Command injection — OS command exec (time-based + output signatures)
-- [x] SSTI — Server-Side Template Injection (math-probe confirmation, engine fingerprint)
-- [x] LFI / path traversal — `/etc/passwd`, `win.ini`, PHP wrapper, content-signature confirmed
-- [x] Open redirect — sentinel-URL `Location`/meta/JS confirmation
-- [x] SSRF — in-band (cloud metadata / `file://`) detection
-- [x] **JWT attacks** — `alg:none`, weak HMAC secret cracking (offline wordlist), sensitive-claim disclosure
-- [x] **Auth bypass** — 401/403 bypass via path mutations, `X-Original-URL`/`X-Forwarded-For` headers, verb tampering
-- [x] **Credential spraying** — opt-in (`--bruteforce`): sprays common credentials at login forms & HTTP Basic-Auth (authorised targets only)
-- [x] CVE mapping — NVD API lookup for detected software versions
-- [x] Default credentials — advisory only (never submits credentials)
+**Intelligence and reporting layer**
+- Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
+  unified kill-chain attack path — surfaced in the console, JSON and HTML.
+- Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
+- Always-on HTML report (auto-opened), plus optional JSON and PDF export, and timestamped logs.
 
-### Database Security Audit (`--profile db_scan`) — red team
-A dedicated module (`scanner/db/db_security.py`) that turns Hades into a focused DB attack tool:
+> A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
+> it enables — is generated as a PDF: [`docs/Hades_Modules_Guide.pdf`](docs/Hades_Modules_Guide.pdf).
 
-- [x] DB port scan + banner/version fingerprint (MySQL, PostgreSQL, MSSQL, Oracle, MongoDB, Redis, Elasticsearch, CouchDB, Cassandra, Memcached)
-- [x] **Unauthenticated access** with live **data extraction** — Redis (keys sample + `DBSIZE`, plus `CONFIG`→RCE detection), Elasticsearch (indices + doc counts), CouchDB (`_all_dbs`), MongoDB, Memcached
-- [x] SQL **and** NoSQL injection on crawled parameters (confirmed SQLi is sqlmap-exploitable)
-- [x] **Secret-file hunting** — `.env`, `database.yml`, `my.cnf`, `wp-config.php`, `appsettings.json`, `docker-compose.yml`… (credentials redacted in the report)
-- [x] Leaked DB connection strings in page/JS source, GraphQL introspection, exposed admin GUIs (phpMyAdmin, Adminer, Fauxton, Kibana…), dump/SQLite files, framework debug leaks, DB-port TLS posture
-- [x] **Expanded attack surface** — SQL injection via **HTTP headers & cookies** (`User-Agent`, `Referer`, `X-Forwarded-For`…), **NoSQL authentication bypass** on login forms (`{"$ne":""}`), and **cloud database exposure** (Firebase Realtime DB `/.json`, Firestore REST, Supabase)
-- [x] **DB Exposure Score** (0–100 + grade), an ordered **Attack Path** of copy-paste exploitation commands (tagged with **MITRE ATT&CK** techniques), and a **Loot** summary of the data actually pulled — in the console panel **and** the HTML report
+---
 
-### Active exploitation (opt-in, `--exploit`)
-The `--exploit` flag turns `db_scan` from detection into a **red-team engagement** — it actively
-**proves impact** on authorised targets and writes the extracted data as **evidence files** under
-`loot/<host>_<timestamp>/`:
-- [x] **Live data extraction** — dumps real Redis key values, Elasticsearch `_search` / CouchDB `_all_docs` sample records, and an **in-band SQLi** banner pull (DB version/user) without sqlmap
-- [x] **Credential reuse** — replays credentials harvested from leaked `.env` / connection strings against the discovered DB hosts and confirms which ones actually open
-- [x] Launches the real **sqlmap** against confirmed SQL injections (from both the injection arsenal and `db_scan`) after a per-target authorisation confirmation
-- [x] **Detection-only by default** — nothing is extracted or exploited without `--exploit` + confirmation
+## Reports Preview
 
-### AI / LLM Security Audit (`--profile ai_scan`)
-A dedicated module (`scanner/ai/llm_recon.py`) that audits the AI attack surface most scanners
-ignore — mapped to the **OWASP LLM Top 10 (2025)** and **MITRE ATLAS**:
+Every scan produces a dark, self-contained HTML report (framework badges, a security-score gauge, the
+kill-chain attack path, matched playbooks, and the DB/AI panels).
 
-- [x] **AI technology fingerprinting** — detects LLM SDKs/providers in the page & JS (OpenAI, Anthropic, LangChain, LlamaIndex, HuggingFace, Cohere, Gemini, Vercel AI SDK, Gradio, Streamlit, Flowise, Ollama)
-- [x] **Exposed AI API keys** — provider-specific patterns (`sk-ant-…`, `sk-…`, `hf_…`, `AIza…`, Replicate, Cohere), redacted in the report
-- [x] **Unauthenticated local LLM servers** — Ollama (11434), LM Studio, vLLM, LocalAI, text-generation-webui — with model enumeration
-- [x] **Exposed AI dev UIs / inference APIs** — Flowise, Gradio, open `/v1/models`
-- [x] **Prompt-injection surface** — flags live chat/inference endpoints; with `--exploit`, sends a **benign canary** to actively confirm prompt injection (and probe system-prompt leakage)
-- [x] Findings carry an **AI/LLM Exposure panel** plus OWASP-LLM + ATLAS tags, so they flow through the same scoring, playbook, attack-path and report machinery — detection-only by default
+<p align="center">
+  <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">
+</p>
 
-### Active Engagement (`--profile engage`) — auto-pwn
-A dedicated orchestrator (`scanner/offensive/engage.py`) that turns Hades from a scanner into an
-**auto-exploitation engine**. It is **exploitation-first**: picking this profile authorises active
-exploitation (a one-line confirmation prompt — or pass `--exploit`). It runs the active injection
-arsenal to confirm bugs, then actively **proves impact** with *benign* payloads on the authorised
-target and writes evidence files under `loot/<host>_<timestamp>/`:
+<!--
+  SCREENSHOTS — drop your images here and they will render above/below automatically:
+    assets/screenshots/hades-report.png    HTML report (e.g. a scan of http://rest.vulnweb.com)
+    assets/screenshots/hades-console.png   terminal output (findings table + attack path)
+  Suggested demo target (authorised test site): http://rest.vulnweb.com
+    python main.py --url http://rest.vulnweb.com --profile full
+-->
 
-- [x] **Command injection → RCE proof** — runs a harmless command (`id`, `uname -a`) and captures the output
-- [x] **LFI / path traversal → arbitrary file read** — reads and saves `/etc/passwd`
-- [x] **SSRF → internal/cloud access** — fetches cloud-metadata / `file://` and saves the response
-- [x] SQL injection continues through the dedicated **sqlmap launcher** (auto-offered with `--exploit`)
-- [x] Emits a **💀 Active Engagement panel** (proven footholds + loot + evidence paths) and an engagement score; every step joins the kill-chain Attack Path
-- [x] **Gated, not silent** — exploitation only runs after you authorise the engagement (confirmation prompt or `--exploit`); without it, `engage` falls back to detection-only. No destructive actions, no persistence/backdoor, no DoS — proof of impact only
-
-### Out-of-Band / Blind Vulnerabilities (`--profile oob_scan`) — OAST
-A dedicated module (`scanner/oob/oob_detect.py`) that catches the vulnerabilities which leave **no
-trace in the HTTP response** — the ones most scanners miss — by making the *server* call back to a
-**self-hosted callback listener** (no external dependency):
-
-- [x] **Blind SSRF** — injects a unique OAST URL; a callback proves the server fetched it
-- [x] **Blind OS command injection / RCE** — `;curl <oast>` style payloads that beacon out on execution
-- [x] **Blind / stored XSS** — `<script src=<oast>>` / `<img src=<oast>>` beacons (fire when the payload is later rendered)
-- [x] **Token correlation** — every payload carries a unique token, so a callback pinpoints the exact injection point (and the callback's source IP is the target itself)
-- [x] Confirmed blind bugs are mapped (CWE/OWASP/ATT&CK), linked to the `performing-blind-ssrf-exploitation` playbook, and join the kill-chain Attack Path
-- [x] **Works behind NAT** — if `cloudflared` (free, no account) or `ngrok` is installed, Hades auto-starts a **public tunnel** to the listener so a remote target can call back from anywhere. Otherwise it uses the host's LAN IP; override with `--oob-host` (public IP / tunnel)
-
-> **Reachability:** the target must reach the listener. On a workstation behind a router, `localhost`
-> / `192.168.x.x` won't work — install [`cloudflared`](https://github.com/cloudflare/cloudflared)
-> (`cloudflared tunnel --url` quick tunnels need no account) and Hades will auto-expose the listener,
-> or pass `--oob-host` with a public address (VPS / domain / ngrok / cloudflared tunnel).
-
-### Intelligence & Reporting Layer
-Every finding (across all profiles) is enriched into an actionable, client-ready record:
-
-- [x] **Framework mapping** — each finding carries a **CWE**, an **OWASP** category, **MITRE ATT&CK** technique(s), a representative **CVSS** score, a **stable finding ID** (diffable across runs), and a reproducible **PoC** command
-- [x] **Expert playbooks** — findings are matched to step-by-step procedures from a local clone of the [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills) library (optional; silently skipped if absent). Set `HADES_SKILLS_PATH` to point at it
-- [x] **RedTeam tools per finding** — each finding names the relevant offensive tools (`nuclei`, `gobuster`, `sqlmap`, `subzy`, `garak`…), so the report is self-contained for clients
-- [x] **Unified kill-chain Attack Path** — all actionable findings are assembled into an ordered, copy-paste exploitation plan grouped by **MITRE ATT&CK tactic** (Reconnaissance → … → Impact), in console, JSON, and HTML
-- [x] **RedTeam-Tools reference PDF** — `docs/make_redteam_tools.py` bundles the entire [RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools) catalogue (150+ tools) into a single self-contained PDF with a *"Hades finding → RedTeam tools"* cross-reference, so a client needs no repo access
-
-### Output
-- [x] Rich terminal UI — coloured findings, progress bars, ASCII banner
-- [x] Risk scorer — weighted 0–100 score with severity grade (INFO never affects the score)
-- [x] Clickable verification/proof links for confirmed findings
-- [x] Per-finding **framework badges** (CWE / OWASP / ATT&CK / CVSS), **playbook** links, and **RedTeam tool** references
-- [x] **Kill-chain Attack Path** section (console + JSON + HTML)
-- [x] JSON report export (findings, framework mapping, playbooks, attack path)
-- [x] HTML report export — dark Kali-inspired theme, CSS gauges, attack-path, playbooks, DB & AI panels
-- [x] PDF report export
-- [x] Timestamped log files via loguru
+> Terminal capture coming soon. To generate your own demo, scan an authorised test target such as
+> `http://rest.vulnweb.com` and the HTML report opens automatically.
 
 ---
 
 ## Installation
-
-### Manual (pip)
 
 **Requirements:** Python 3.10+
 
@@ -186,308 +137,281 @@ cd hades-web-scanner
 
 pip install -r requirements.txt
 
-# Install Playwright's bundled Chromium (needed for screenshots only; also self-heals at runtime)
+# Chromium for screenshots and PDF rendering (also self-heals at runtime)
 playwright install chromium
 
-# Optional — only needed for the --exploit sqlmap launcher
+# Optional — only for the --exploit sqlmap launcher
 pip install sqlmap
 ```
 
-> ### ⭐ Recommended — clone the two cross-reference repos for 100% functionality
->
-> Hades cross-references two external knowledge bases. **Clone them *next to* the project first**
-> so every **📘 playbook link** and the **RedTeam-Tools PDF** resolve locally with no missing links:
->
-> ```bash
-> # run these in the PARENT folder, alongside hades-web-scanner/
-> git clone https://github.com/mukul975/Anthropic-Cybersecurity-Skills   # 📘 expert playbooks
-> git clone https://github.com/A-poc/RedTeam-Tools                        # 🛠 red-team tool catalogue
-> ```
->
-> Resulting layout:
->
-> ```
-> <parent>/
-> ├── hades-web-scanner/                # this project
-> ├── Anthropic-Cybersecurity-Skills/   # playbook library (auto-detected)
-> └── RedTeam-Tools/                    # tool catalogue (auto-detected)
-> ```
->
-> Both are auto-detected from sibling paths (or point Hades at the skills library explicitly with
-> `export HADES_SKILLS_PATH=/path/to/Anthropic-Cybersecurity-Skills`). Without them Hades still runs —
-> playbook references fall back to GitHub links and the PDF is fetched from GitHub — but cloning them
-> first gives the full local, offline experience with zero broken links.
-
-### Docker
+**Docker**
 
 ```bash
-# Build the image
 docker compose -f docker/docker-compose.yml build
-
-# Run an interactive scan
-docker compose -f docker/docker-compose.yml run --rm webscan
+docker compose -f docker/docker-compose.yml run --rm webscan --url https://example.com
 ```
 
----
+**Recommended — full local experience (optional)**
 
-## Cross-referenced integrations
-
-Hades cross-references two external knowledge bases —
-**[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)** (📘 playbooks)
-and **[RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools)** (🛠 tools + PDF).
-
-> 👉 **For 100% functionality, `git clone` both repos *before* running Hades** — see the
-> [Installation](#installation) section's *Recommended* setup. This guarantees every playbook link
-> and the PDF resolve locally, with no broken links.
-
-A plain clone still runs — here is exactly what changes if you skip cloning them:
-
-| Capability | Both repos cloned (100%) | Plain clone (graceful fallback) |
-|------------|--------------------------|---------------------------------|
-| Scan, profiles, framework mapping, attack path | ✅ | ✅ |
-| **RedTeam tool references** (🛠 per finding) | ✅ | ✅ (names are built in) |
-| **Playbook references** (📘 per finding) | ✅ full local skill text + `file://` links | ✅ via bundled `scanner/intel/playbooks.json` → **GitHub** links |
-| **RedTeam-Tools reference PDF** | ✅ offline build | ✅ README fetched from GitHub |
+Hades cross-references two external knowledge bases. Clone them *next to* the project so every playbook
+link and the RedTeam-Tools PDF resolve locally. Without them Hades still runs and falls back to GitHub
+links — nothing breaks.
 
 ```bash
-# (maintainers) refresh the bundled playbook index from the full skills library:
-python tools/build_playbooks_bundle.py
+# run in the PARENT folder, alongside hades-web-scanner/
+git clone https://github.com/mukul975/Anthropic-Cybersecurity-Skills   # expert playbooks
+git clone https://github.com/A-poc/RedTeam-Tools                        # red-team tool catalogue
 ```
 
 ---
 
 ## Usage
 
-### Interactive mode (menu-driven — minimal flags)
-
-Run with just the URL (or nothing) and Hades walks you through the choices, so you rarely need
-flags:
+**Interactive (menu-driven, minimal flags)** — run with just a URL and Hades walks you through the
+scan type and exploitation choices:
 
 ```bash
-python main.py --url http://testasp.vulnweb.com/
+python main.py --url http://testphp.vulnweb.com/
 # or fully interactive (also prompts for the URL):
 python main.py
 ```
 
-It then asks for:
-1. **Scan type** — Quick · Full · Single module · Database · AI/LLM · Engagement (auto-pwn)
-2. **Active exploitation** — offered for offensive profiles (`db_scan`, `ai_scan`, `full`); `engage`
-   asks for its own authorisation; `oob_scan` catches blind bugs via out-of-band callbacks
+Every scan always generates the HTML report and auto-opens it (`--no-open` to disable).
 
-**Every scan** (quick → engagement) always generates the rich **HTML report** and **auto-opens it
-in your browser** when it finishes — pass `--no-open` to disable, or `--output json|pdf` to also
-export those formats. Any flag you *do* pass (e.g. `--profile`, `--exploit`) skips the matching
-prompt, so scripting still works.
-
-### CLI mode
+**Command line**
 
 ```bash
-# Full scan with HTML report
-python main.py --url https://example.com --profile full --output html
+# Full scan (default profile)
+python main.py --url https://example.com --profile full
 
-# Quick passive scan
+# Quick passive surface scan
 python main.py --url https://example.com --profile quick
 
-# Dedicated database security audit (red-team DB module)
-python main.py --url https://example.com --profile db_scan --output html
+# Database security audit (red-team)
+python main.py --url https://example.com --profile db_scan
 
-# Dedicated AI/LLM security audit (prompt injection, exposed keys & LLM servers)
-python main.py --url https://example.com --profile ai_scan --output html
+# AI / LLM attack-surface audit
+python main.py --url https://example.com --profile ai_scan
 
-# AI audit with active prompt-injection confirmation (canary; authorised targets only)
-python main.py --url https://example.com --profile ai_scan --exploit
-
-# Active engagement (auto-pwn): picking 'engage' authorises exploitation (asks for confirmation)
+# Active exploitation engagement (asks for authorisation)
 python main.py --url https://example.com --profile engage
-# …or authorise non-interactively (CI / scripts):
-python main.py --url https://example.com --profile engage --exploit
 
-# Out-of-band (OAST) detection of blind SSRF/RCE/XSS — set a reachable callback host if behind NAT
-python main.py --url https://example.com --profile oob_scan --oob-host 203.0.113.10
+# Out-of-band / blind vulnerabilities (auto-tunnels via cloudflared behind NAT)
+python main.py --url https://example.com --profile oob_scan
 
-# Database audit AND auto-launch sqlmap on any confirmed SQLi (authorised targets only)
-python main.py --url http://testaspnet.vulnweb.com --profile db_scan --exploit
+# Also export JSON or PDF on top of the HTML
+python main.py --url https://example.com --output json
 
-# Scan through Burp Suite proxy
-python main.py --url https://example.com --proxy http://127.0.0.1:8080
-
-# Authenticated scan with session cookie
-python main.py --url https://example.com --cookies "session=abc123; token=xyz"
-
-# Custom wordlist + bearer token
-python main.py --url https://example.com --wordlist /path/to/list.txt --auth-token eyJ...
-
-# Increase thread count for faster scanning
-python main.py --url https://example.com --threads 20
+# Through a proxy, with a session cookie
+python main.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies "session=abc123"
 ```
 
-### Docker
-
-```bash
-# Non-interactive with flags
-docker compose -f docker/docker-compose.yml run --rm webscan \
-  --url https://example.com --profile full --output html
-
-# With NVD API key for CVE lookups
-NVD_API_KEY=your-key docker compose -f docker/docker-compose.yml run --rm webscan \
-  --url https://example.com
-```
-
-### All CLI options
+<details>
+<summary><b>All command-line options</b></summary>
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | Scan profile: `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` |
-| `--output` | `-o` | — | **Extra** report format on top of the always-generated HTML: `json` `pdf` |
-| `--no-open` | | `false` | Don't auto-open the HTML report in a browser when the scan finishes |
-| `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel when behind NAT) |
-| `--oob-port` | | `0` | Port for the OAST callback listener (`0` = auto-pick a free port) |
-| `--exploit` | | `false` | Opt-in: launch sqlmap on confirmed SQL injections (authorised targets only) |
-| `--bruteforce` | | `false` | Opt-in: spray common credentials at login forms & Basic-Auth (authorised targets only) |
+| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` |
+| `--output` | `-o` | — | Extra report format on top of the always-generated HTML: `json` `pdf` |
+| `--no-open` | | `false` | Do not auto-open the HTML report in a browser |
+| `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
+| `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
+| `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
+| `--oob-port` | | `0` | OAST callback listener port (`0` = auto-pick) |
 | `--proxy` | | — | HTTP/HTTPS proxy URL |
 | `--threads` | `-t` | `10` | Concurrent thread count |
 | `--ignore-robots` | | `false` | Ignore robots.txt restrictions |
 | `--wordlist` | `-w` | built-in | Custom wordlist path |
 | `--cookies` | | — | Cookie header string |
-| `--auth-token` | | — | Bearer token for Authorization header |
+| `--auth-token` | | — | Bearer token for the Authorization header |
+
+</details>
 
 ---
 
 ## Scan Profiles
 
-| Profile | Speed | Description | Modules |
-|---------|-------|-------------|---------|
-| `quick` | ⚡ Fast | Passive surface scan | basic\_info, headers, ssl, robots |
-| `passive` | 🔍 Moderate | No active probing | All recon + web passive modules |
-| `cms` | 🎯 Targeted | CMS-focused | CMS detect, admin panels, CVE mapping |
-| `full` | 🔥 Thorough | Everything (default) | All 45+ modules incl. injection arsenal |
-| `db_scan` | 🛢 Red team | Database security audit | `scanner/db/db_security.py` only |
-| `ai_scan` | 🤖 Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) | `scanner/ai/llm_recon.py` only |
-| `engage` | 💀 Offensive | Active engagement — auto-exploit confirmed vulns (RCE/LFI/SSRF) | `scanner/offensive/engage.py` only |
-| `oob_scan` | 📡 Offensive | Out-of-band detection of **blind** SSRF/RCE/XSS via OAST callbacks | `scanner/oob/oob_detect.py` only |
+| Profile | Type | Description |
+|---------|------|-------------|
+| `quick` | Fast | Passive surface scan (basic info, headers, SSL, robots) |
+| `passive` | Moderate | All recon and passive web modules, no active probing |
+| `cms` | Targeted | CMS detection, admin panels, CVE mapping |
+| `full` | Thorough | Everything, including the injection arsenal (default) |
+| `db_scan` | Red team | Database security audit |
+| `ai_scan` | Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) |
+| `engage` | Offensive | Active engagement — auto-exploit confirmed RCE/LFI/SSRF |
+| `oob_scan` | Offensive | Out-of-band detection of blind SSRF/RCE/XSS |
 
 ---
 
-## Output Files
+## Modules
 
-| Type | Location | Created when |
-|------|----------|-------------|
-| Log file | `logs/webscan_YYYYMMDD_HHMMSS.log` | Every run |
-| JSON report | `reports/webscan_report_YYYYMMDD_HHMMSS.json` | `--output json` |
-| HTML report | `reports/webscan_report_YYYYMMDD_HHMMSS.html` | `--output html` |
-| PDF report | `reports/webscan_report_YYYYMMDD_HHMMSS.pdf` | `--output pdf` |
+Each finding is enriched with CWE / OWASP / MITRE ATT&CK / CVSS, a PoC, a matched playbook and the
+relevant RedTeam tools. Full plain-language explanations live in
+[`docs/Hades_Modules_Guide.pdf`](docs/Hades_Modules_Guide.pdf).
 
-There are also reference PDFs under `docs/`, regenerated by their scripts:
-`docs/Hades_Modules_Guide.pdf` (`python docs/make_guide.py`), `docs/Hades_Flags_Cheatsheet.pdf`
-(`python docs/make_flags.py`), and a complete **bilingual (FR/EN) Database Security manual**
-`docs/Hades_Database_Security_Manual.pdf` (`python docs/make_db_manual.py`) — a beginner-friendly,
-two-column guide to the `db_scan` module.
+<details open>
+<summary><b>Reconnaissance (11)</b></summary>
 
-A self-contained **RedTeam-Tools reference PDF** is produced by `python docs/make_redteam_tools.py`
-(`docs/Hades_RedTeam_Tools_Reference.pdf`, ~22 MB) — the full 150+ tool catalogue plus a
-*"Hades finding → RedTeam tools"* cross-reference. It is **git-ignored** (large, regenerable);
-run the script to (re)create it on demand.
+`basic_info` &middot; `whois_lookup` &middot; `dns_check` (SPF/DKIM/DMARC) &middot; `ssl_check` &middot;
+`port_scan` &middot; `waf_detect` &middot; `tech_stack` &middot; `js_recon` (leaked secrets + hidden
+endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (exposed `.git`) &middot;
+`wayback` (archive URL mining)
+
+</details>
+
+<details>
+<summary><b>Website &amp; Misconfiguration (20)</b></summary>
+
+`headers_check` &middot; `robots_txt` &middot; `sitemap` &middot; `cms_detect` &middot; `admin_panel`
+&middot; `dir_scan` &middot; `subdomain_scan` (+ takeover) &middot; `broken_links` &middot;
+`http_methods` &middot; `backup_files` &middot; `sensitive_files` &middot; `cookie_analysis` &middot;
+`redirect_chain` &middot; `email_exposure` &middot; `favicon_hash` &middot; `cors_check` &middot;
+`clickjacking` &middot; `dir_listing` &middot; `blacklist_check` &middot; `screenshot`
+
+</details>
+
+<details>
+<summary><b>Vulnerability Detection (12)</b></summary>
+
+`sqli_detect` &middot; `xss_detect` &middot; `command_injection` &middot; `ssti_detect` &middot;
+`lfi_detect` &middot; `open_redirect` &middot; `ssrf_detect` &middot; `jwt_attacks` &middot;
+`auth_bypass` &middot; `bruteforce` (opt-in) &middot; `cve_mapping` &middot; `default_creds`
+
+</details>
+
+<details>
+<summary><b>Red-team profiles</b></summary>
+
+- **`db_scan`** — DB port/banner fingerprint, unauthenticated access with live extraction, SQL/NoSQL
+  injection, secret-file and connection-string hunting, exposed admin GUIs, DB Exposure Score + Attack Path.
+- **`ai_scan`** — AI SDK fingerprinting, exposed AI keys, unauthenticated local LLM servers, exposed AI
+  UIs, prompt-injection surface (OWASP LLM Top 10 + MITRE ATLAS).
+- **`engage`** — active exploitation: RCE proof, arbitrary file read, SSRF to cloud metadata, with evidence files.
+- **`oob_scan`** — out-of-band detection of blind SSRF / RCE / stored XSS via a self-hosted callback listener.
+
+</details>
 
 ---
 
-## Technologies
+## Example Output
 
-| Library | Purpose |
-|---------|---------|
-| [httpx](https://www.python-httpx.org/) | Async-compatible HTTP client |
-| [Rich](https://rich.readthedocs.io/) | Terminal colours, tables, progress bars |
-| [dnspython](https://www.dnspython.org/) | DNS record queries |
-| [python-whois](https://pypi.org/project/python-whois/) | WHOIS lookups |
-| [cryptography](https://cryptography.io/) | SSL/TLS certificate parsing |
-| [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/) | HTML parsing |
-| [Playwright](https://playwright.dev/python/) | Headless browser screenshots + RedTeam-Tools reference PDF |
-| [Markdown](https://pypi.org/project/Markdown/) | Renders the RedTeam-Tools README into the reference PDF |
-| [weasyprint](https://weasyprint.org/) | PDF report export (needs native GTK libs; unavailable on Windows) |
-| [reportlab](https://www.reportlab.com/) | PDF generation for the modules guide / flags cheat-sheet |
-| [loguru](https://loguru.readthedocs.io/) | Structured logging with timestamps |
-| [mmh3](https://pypi.org/project/mmh3/) | MurmurHash3 for favicon fingerprinting |
-| [sqlmap](https://sqlmap.org/) | **Optional** — launched by `--exploit` to exploit confirmed SQL injections |
+The unified kill-chain attack path, grouped by MITRE ATT&CK tactic with copy-paste commands:
+
+```text
+────────────────────────── Attack Path — Kill Chain ───────────────────────────
+  4 actionable step(s) across 3 ATT&CK phase(s), in attacker order.
+
+▼ Initial Access  TA0001
+   1.  CRITICAL  SQL Injection (error): id            SQLI-D65F · T1190
+                 $ sqlmap -u 'http://t/p?id=1' --batch --dbs
+                 playbook: exploiting-sql-injection-vulnerabilities    tools: nuclei
+▼ Credential Access  TA0006
+   2.  CRITICAL  .env file exposed                    SENSIT-7EDB · T1552.001
+                 $ curl -sk "http://t/.env"
+   3.  HIGH      Exposed .git directory               GIT-0D07 · T1552.001
+                 $ git-dumper http://t/.git/ ./loot_src
+▼ Discovery  TA0007
+   4.  LOW       Open port 6379 (Redis)               PORT-1F15
+                 $ nmap -sV -p 6379 10.0.0.5
+```
+
+Reports are written to `reports/` (HTML always; JSON/PDF on request) and logs to `logs/`.
+
+---
+
+## Cross-Referenced Integrations
+
+Hades cross-references two open-source knowledge bases:
+**[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)**
+(expert playbooks) and **[RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools)** (tool catalogue + PDF).
+
+Cloning them gives the full local experience; a plain clone degrades gracefully:
+
+| Capability | Both repos cloned | Plain clone (fallback) |
+|------------|-------------------|------------------------|
+| Scan, profiles, framework mapping, attack path | yes | yes |
+| RedTeam tool references (per finding) | yes | yes (names are built in) |
+| Playbook references | full local skill text + `file://` links | bundled index, links to GitHub |
+| RedTeam-Tools reference PDF | offline build | README fetched from GitHub |
+
+All credit for those catalogues goes to their authors ([@mukul975](https://github.com/mukul975),
+[@A-poc](https://github.com/A-poc)); Hades only references and links to them.
+
+---
+
+## Roadmap
+
+Hades is under active development. Planned and in-progress work:
+
+- [ ] Blind SQL injection over DNS (OAST DNS listener)
+- [ ] Authenticated / session-aware crawling and BOLA / IDOR testing
+- [ ] WAF-aware payload mutation (auto-bypass and re-confirm)
+- [ ] Nuclei template bridge (ingest results into the framework/playbook layer)
+- [ ] Expanded MITRE ATLAS coverage for the AI/LLM profile
+- [x] Out-of-band (OAST) blind-vulnerability detection with auto-tunnel
+- [x] Unified kill-chain attack path across all profiles
+- [x] AI/LLM and database red-team profiles
+
+---
+
+## Tech Stack
+
+`httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
+`cryptography` (TLS) &middot; `BeautifulSoup4` &middot; `Playwright` (Chromium screenshots + PDF) &middot;
+`Markdown` &middot; `reportlab` / `weasyprint` (PDFs) &middot; `loguru` &middot; `mmh3` &middot;
+`sqlmap` (optional, `--exploit`).
 
 ---
 
 ## Project Structure
 
-```
-webscan/
-├── main.py                  # Entry point — CLI, menu, argument parsing
-├── config.py                # Global settings, scan profiles, constants
-├── requirements.txt
+```text
+hades-web-scanner/
+├── main.py                  # Entry point — CLI, interactive menu, argument parsing
+├── config.py                # Profiles, taxonomy, cross-reference maps, constants
 ├── scanner/
-│   ├── engine.py            # Orchestration, threading, rate limiting
-│   ├── crawler.py           # Shared site crawler (params, forms, links, emails)
-│   ├── exploit.py           # Opt-in sqlmap launcher (--exploit)
-│   ├── recon/               # Passive reconnaissance modules
-│   ├── web/                 # Web analysis modules
-│   ├── vulns/               # Injection arsenal + CVE / default-cred modules
-│   ├── db/                  # db_scan profile — red-team database audit
-│   ├── ai/                  # ai_scan profile — AI/LLM attack-surface audit (llm_recon.py)
-│   ├── offensive/           # engage profile — active exploitation engagement (engage.py)
-│   ├── intel/               # Skills-library enrichment (skills_kb.py)
-│   └── output/              # Console, scoring, report generation, kill-chain attack_path.py
-├── wordlists/               # Directory, admin path, and subdomain lists
+│   ├── engine.py            # Orchestration, threading, rate limiting, HTML auto-open
+│   ├── crawler.py           # Shared site crawler
+│   ├── severity.py          # Single source of truth for severity ordering/styles
+│   ├── recon/  web/  vulns/ # The 43 scan modules
+│   ├── db/   ai/   offensive/   oob/   # Red-team profiles (db_scan, ai_scan, engage, oob_scan)
+│   ├── intel/               # Skills-library enrichment (playbooks)
+│   └── output/              # Console, scoring, attack path, JSON/HTML/PDF reports
 ├── docs/                    # Reference PDFs + their generator scripts
-│   ├── make_guide.py        # Generates Hades_Modules_Guide.pdf
-│   ├── make_flags.py        # Generates Hades_Flags_Cheatsheet.pdf
-│   ├── make_db_manual.py    # Generates Hades_Database_Security_Manual.pdf (bilingual FR/EN)
-│   └── make_redteam_tools.py # Generates Hades_RedTeam_Tools_Reference.pdf (git-ignored, ~22 MB)
-├── tools/                   # Dev utilities (import-health check)
-├── hook_check.py            # Claude Code PostToolUse hook entry point
-├── docker/
-│   ├── Dockerfile
-│   └── docker-compose.yml
-├── logs/                    # Auto-created on first run
-└── reports/                 # Auto-created on first run
+├── tools/                   # Dev utilities (import check, playbook bundle builder)
+├── tests/                   # pytest suite
+└── docker/                  # Dockerfile + compose
 ```
-
----
-
-## Legal Disclaimer
-
-> **This tool is for authorised security testing only.**
-> Scanning or exploiting systems, networks, or applications without explicit written permission
-> from the owner is **illegal** in most jurisdictions and may violate computer fraud laws (CFAA,
-> Computer Misuse Act, etc.).
-> Active injection is **detection-only by default**; actual exploitation (`--exploit` → sqlmap)
-> only runs after an explicit per-target authorisation confirmation.
-> The author assumes **no liability** for any misuse, damage, or legal consequences arising from
-> the use of this tool. Always obtain proper written authorisation before conducting any
-> security assessment.
 
 ---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/new-module`
-3. Add at least one test in `tests/test_modules.py`
-4. Open a pull request with a clear description of what the module detects
+Contributions are welcome.
 
-New scan modules must follow the `run(engine: ScanEngine) -> list[Finding]` signature and handle all exceptions gracefully without crashing the engine. Active injection modules must reuse `scanner/vulns/_common.py` (crawler params/forms, safe-mode check, proof URLs).
+1. Fork and create a feature branch: `git checkout -b feature/new-module`.
+2. Add at least one test in `tests/test_modules.py`.
+3. Open a pull request describing what the module detects.
+
+New scan modules follow the `run(engine: ScanEngine) -> list[Finding]` signature and must handle their
+own exceptions without crashing the engine. Active injection modules reuse `scanner/vulns/_common.py`
+(crawler parameters/forms, safe-mode check, proof URLs).
 
 ---
 
-## Credits & Cross-Referenced Projects
+## Disclaimer
 
-Hades cross-references two excellent open-source knowledge bases. **Clone them alongside the
-project** (see the [Installation](#installation) section) to unlock 100% of the playbook/tool
-references locally:
-
-- **[Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)** —
-  the expert **playbook** library Hades links each finding to (the 📘 references). Community project
-  by [@mukul975](https://github.com/mukul975).
-- **[RedTeam-Tools](https://github.com/A-poc/RedTeam-Tools)** — the **red-team tool catalogue** Hades
-  maps findings to (the 🛠 references and the bundled reference PDF). By [@A-poc](https://github.com/A-poc).
-
-All credit for those catalogues goes to their respective authors; Hades only references and links to them.
+Hades is intended for **authorised security testing only** — your own systems, or targets you have
+**explicit written permission** to assess. Scanning or exploiting systems without authorisation is
+illegal in most jurisdictions. Active exploitation is opt-in and gated behind a per-target confirmation;
+the project ships detection-only by default. The author accepts no liability for misuse.
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Released under the [MIT License](LICENSE).
+
+<p align="center"><sub>If Hades is useful to you, consider leaving a star — it helps the project grow.</sub></p>

@@ -20,11 +20,12 @@ ENV/
 .coverage
 htmlcov/
 
-# Hades runtime output (generated per scan — not source)
-logs/
-reports/
-screenshots/
-loot/
+# Hades runtime output (generated per scan — not source). Anchored to the repo root so
+# committed README assets under assets/screenshots/ are NOT ignored.
+/logs/
+/reports/
+/screenshots/
+/loot/
 
 # Large generated reference PDF (22 MB; regenerate via docs/make_redteam_tools.py)
 docs/Hades_RedTeam_Tools_Reference.pdf
