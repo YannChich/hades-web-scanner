@@ -3843,6 +3843,51 @@ class TestExpandedSkillMatching:
         assert all("subdomain" in s and "offensive" in s for s in bundle)
 
 
+class TestReportRefsCollapse:
+    """Per-finding detail is collapsed into an expandable <details> so the report stays scannable."""
+
+    def test_secondary_refs_collapsed_primary_visible(self):
+        from scanner.output.report_html import _refs_html
+        f = Finding(module="sqli_detect", title="SQLi: id", description="x",
+                    severity=Severity.CRITICAL, cwe="CWE-89", owasp="A03:2021 Injection", cvss=9.8)
+        f.mitre = ["T1190"]
+        f.redteam_tools = ["sqlmap"]
+        f.skill_refs = [{"name": "exploiting-sql-injection-vulnerabilities",
+                         "href": "https://x/y", "mitre": []}]
+        f.remediation_refs = [{"name": "implementing-web-application-logging-with-modsecurity",
+                               "href": "https://x/z", "mitre": []}]
+        f.poc = "sqlmap -u URL --batch"
+        html = _refs_html(f, "#f85149")
+        before = html.split("<details")[0]      # the always-visible part
+        # at-a-glance classification stays visible
+        for cls in ("ref-id", "ref-cvss", "ref-cwe", "ref-owasp"):
+            assert cls in before, f"{cls} should be visible up front"
+        # the heavy stuff is NOT in the always-visible row …
+        for cls in ("ref-mitre", "ref-tool", "ref-play", "ref-fix", "poc-block"):
+            assert cls not in before, f"{cls} should be collapsed"
+        # … it lives inside the <details>
+        assert "<details" in html and "</details>" in html
+        for cls in ("ref-mitre", "ref-tool", "ref-play", "ref-fix", "poc-block"):
+            assert cls in html, f"{cls} should still be present inside the details"
+
+    def test_no_details_for_sparse_finding(self):
+        from scanner.output.report_html import _refs_html
+        f = Finding(module="basic_info", title="IP Address", description="1.2.3.4",
+                    severity=Severity.INFO)
+        html = _refs_html(f, "#58a6ff")
+        assert "<details" not in html                 # nothing to collapse
+        assert '<div class="refs">' in html           # primary row (finding ID) still rendered
+
+    def test_poc_not_duplicated_in_description_cell(self):
+        from scanner.output.report_html import _findings_table_html
+        f = Finding(module="sqli_detect", title="SQLi", description="param id",
+                    severity=Severity.CRITICAL)
+        f.poc = "sqlmap -u URL --batch"
+        table = _findings_table_html([f])
+        # the PoC appears once (inside the details), not also in the description cell
+        assert table.count("poc-block") == 1
+
+
 # ---------------------------------------------------------------------------
 # hephaestus_tls — offensive TLS audit (SSLyze) — tls_scan / menu option 9
 # ---------------------------------------------------------------------------

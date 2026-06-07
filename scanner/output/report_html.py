@@ -231,6 +231,16 @@ a.ref-pill { text-decoration: none; cursor: pointer; transition: filter .15s, bo
 a.ref-pill:hover { text-decoration: none; filter: brightness(1.4); box-shadow: 0 0 0 1px currentColor; }
 a.ref-play:hover { text-decoration: none; background: #2d2150; filter: none; box-shadow: none; }
 a.ref-fix:hover  { text-decoration: none; background: #12351c; filter: none; box-shadow: none; }
+/* Per-finding expandable: keeps ATT&CK / tools / playbooks / PoC out of the way until wanted. */
+.ref-more { margin-top: 5px; }
+.ref-more > summary { color: #6e7681; font-size: 0.7rem; font-weight: 600; letter-spacing: .3px;
+  cursor: pointer; list-style: none; display: inline-block; padding: 1px 0; user-select: none; }
+.ref-more > summary::-webkit-details-marker { display: none; }
+.ref-more > summary::before { content: "▸ "; }
+.ref-more[open] > summary::before { content: "▾ "; }
+.ref-more > summary:hover { color: #9aa4af; }
+.ref-more > .refs { margin-top: 5px; }
+.ref-more > .poc-block { margin-top: 5px; }
 /* Recommended-playbooks section */
 .play-list { list-style: none; }
 .play-list li {
@@ -386,38 +396,60 @@ def _link_pill(cls: str, label: str, href: str, title: str, extra_style: str = "
 
 
 def _refs_html(f: Finding, sev_color: str) -> str:
-    """Compact framework-reference pills shown under a finding's title — each one clickable."""
+    """A finding's references: a compact always-visible classification row (ID/CVSS/CWE/OWASP), plus a
+    collapsible <details> holding the ATT&CK techniques, tools, playbooks and PoC — so the report stays
+    scannable instead of drowning each finding in a wall of badges."""
     raw = f.raw or {}
     cve_id = raw.get("cve_id", "")
-    pills: list[str] = []
 
-    # ID badge: a real CVE (-> NVD) for CVE findings, else the internal Hades finding ID.
-    if cve_id:
-        pills.append(_link_pill("ref-id", _e(cve_id), _cve_url(cve_id), f"View {cve_id} on NVD"))
+    # ── Primary: at-a-glance classification (always visible) ──
+    primary: list[str] = []
+    if cve_id:                                  # real CVE → NVD; else the internal Hades finding ID
+        primary.append(_link_pill("ref-id", _e(cve_id), _cve_url(cve_id), f"View {cve_id} on NVD"))
     else:
-        pills.append(f'<span class="ref-pill ref-id">{_e(f.finding_id)}</span>')
-
+        primary.append(f'<span class="ref-pill ref-id">{_e(f.finding_id)}</span>')
     if f.cvss is not None:
-        pills.append(_link_pill("ref-cvss", f"CVSS {f.cvss:g}", _cvss_url(f),
-                                "CVSS scoring (FIRST)", f"--sev-color:{sev_color};"))
+        primary.append(_link_pill("ref-cvss", f"CVSS {f.cvss:g}", _cvss_url(f),
+                                  "CVSS scoring (FIRST)", f"--sev-color:{sev_color};"))
     if f.cwe:
-        pills.append(_link_pill("ref-cwe", _e(f.cwe), _cwe_url(f.cwe), f"{f.cwe} on cwe.mitre.org"))
+        primary.append(_link_pill("ref-cwe", _e(f.cwe), _cwe_url(f.cwe), f"{f.cwe} on cwe.mitre.org"))
     if f.owasp:
-        code = f.owasp.split(" ")[0]      # short code, e.g. "A06:2021"
-        pills.append(_link_pill("ref-owasp", _e(code), _owasp_url(f.owasp), f"OWASP {code}"))
+        code = f.owasp.split(" ")[0]            # short code, e.g. "A06:2021"
+        primary.append(_link_pill("ref-owasp", _e(code), _owasp_url(f.owasp), f"OWASP {code}"))
+
+    # ── Secondary: how it's abused & what to do next (collapsed in <details>) ──
+    secondary: list[str] = []
     for tech in f.mitre:
-        pills.append(_link_pill("ref-mitre", _e(tech), _mitre_url(tech), f"ATT&CK {tech}"))
+        secondary.append(_link_pill("ref-mitre", _e(tech), _mitre_url(tech), f"ATT&CK {tech}"))
     for tool in (f.redteam_tools or []):
-        pills.append(_link_pill("ref-tool", f"🛠 {_e(tool)}", _tool_url(tool), f"Find {tool} on GitHub"))
+        secondary.append(_link_pill("ref-tool", f"🛠 {_e(tool)}", _tool_url(tool), f"Find {tool} on GitHub"))
     for s in (f.skill_refs or []):
         href = s.get("href") or "#"
-        pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" target="_blank" rel="noopener" '
-                     f'title="Open the offensive playbook">📘 {_e(s["name"])}</a>')
+        secondary.append(f'<a class="ref-pill ref-play" href="{_e(href)}" target="_blank" rel="noopener" '
+                         f'title="Open the offensive playbook">📘 {_e(s["name"])}</a>')
     for s in (getattr(f, "remediation_refs", None) or []):
         href = s.get("href") or "#"
-        pills.append(f'<a class="ref-pill ref-fix" href="{_e(href)}" target="_blank" rel="noopener" '
-                     f'title="Open the remediation playbook">🛡 Fix: {_e(s["name"])}</a>')
-    return f'<div class="refs">{"".join(pills)}</div>'
+        secondary.append(f'<a class="ref-pill ref-fix" href="{_e(href)}" target="_blank" rel="noopener" '
+                         f'title="Open the remediation playbook">🛡 Fix: {_e(s["name"])}</a>')
+
+    html = f'<div class="refs">{"".join(primary)}</div>'
+
+    poc_html = f'<div class="poc-block">$ {_e(f.poc)}</div>' if f.poc else ""
+    if secondary or poc_html:
+        bits: list[str] = []
+        if f.mitre:
+            bits.append("ATT&CK")
+        if f.redteam_tools:
+            bits.append("tools")
+        if f.skill_refs or getattr(f, "remediation_refs", None):
+            bits.append("playbooks")
+        if poc_html:
+            bits.append("PoC")
+        count = f" ({len(secondary)})" if secondary else ""
+        summary = f"Details — {' · '.join(bits)}{count}"
+        inner = (f'<div class="refs">{"".join(secondary)}</div>' if secondary else "") + poc_html
+        html += f'<details class="ref-more"><summary>{summary}</summary>{inner}</details>'
+    return html
 
 
 def _findings_table_html(findings: list[Finding]) -> str:
@@ -430,10 +462,7 @@ def _findings_table_html(findings: list[Finding]) -> str:
         color = _SEV_COLOR.get(sev, "#c9d1d9")
         bg    = _SEV_BG.get(sev, "transparent")
         desc = (f'<td class="desc-cell">{_e(f.description[:200])}'
-                f'{"…" if len(f.description) > 200 else ""}')
-        if f.poc:
-            desc += f'<div class="poc-block">$ {_e(f.poc)}</div>'
-        desc += "</td>"
+                f'{"…" if len(f.description) > 200 else ""}</td>')
         rows += (
             f'<tr style="--row-bg:{bg};">'
             f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'
