@@ -191,19 +191,43 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
 
 
 def prompt_login(url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Interactively collect login details for the authenticated IDOR scan (menu option 11)."""
-    console.print("\n[accent]Authenticated scan[/accent] — enter the login details "
-                  "[info](leave the Login URL blank to scan without logging in)[/info]:")
-    login_url = Prompt.ask("  [ok]Login URL[/ok] [info](form action / login page)[/info]",
-                           default=f"{url.rstrip('/')}/login").strip()
+    """Interactively collect login details for the authenticated IDOR scan (menu option 11).
+
+    Asks field-by-field (field name + value) so the user never has to hand-build the
+    "field=value&field=value" string — the common mistake of forgetting a field name.
+    """
+    from urllib.parse import urlencode
+
+    console.print("\n[accent]Authenticated scan — log in first[/accent]")
+    console.print("[info]  Tip: open the site's login page, right-click the username/password boxes →"
+                  " Inspect, and read each input's [/info][ok]name=\"...\"[/ok][info] attribute.[/info]")
+    console.print("[info]  Press Enter on the Login URL to skip and scan without logging in.[/info]\n")
+
+    login_url = Prompt.ask(
+        "  [ok]Login URL[/ok] [info]— the page/endpoint the login form submits to[/info]",
+        default=f"{url.rstrip('/')}/login").strip()
     if not login_url:
         return None, None, None
-    login_data = Prompt.ask("  [ok]Login data[/ok] "
-                            "[info](field=value pairs, e.g. pseudo=testhades&password=hades31)[/info]").strip()
-    login_check = Prompt.ask("  [ok]Logged-in text[/ok] "
-                             "[info](a word shown only once logged in, proves it worked)[/info]",
-                             default="Logout").strip()
-    return (login_url or None), (login_data or None), (login_check or None)
+
+    user_field = (Prompt.ask("  [ok]Username field name[/ok] [info](the input's name=, e.g. "
+                             "pseudo, login, email)[/info]", default="username").strip() or "username")
+    user_value = Prompt.ask(f"  [ok]Value for '{user_field}'[/ok] [info](your username)[/info]").strip()
+    pass_field = (Prompt.ask("  [ok]Password field name[/ok] [info](the input's name=, e.g. "
+                             "password, pass, pwd)[/info]", default="password").strip() or "password")
+    pass_value = Prompt.ask(f"  [ok]Value for '{pass_field}'[/ok] [info](your password — hidden)[/info]",
+                            password=True)
+    login_data = urlencode({user_field: user_value, pass_field: pass_value})
+
+    login_check = Prompt.ask(
+        "  [ok]Logged-in text[/ok] [info]— a word shown ONLY when logged in (e.g. your pseudo, "
+        "Logout, Déconnexion); matched case-insensitively[/info]",
+        default="Logout").strip()
+
+    console.print(f"\n  [info]→ Will POST to[/info] [ok]{login_url}[/ok] "
+                  f"[info]with[/info] [ok]{user_field}={user_value}&{pass_field}=••••••[/ok] "
+                  f"[info](+ any CSRF token), then check the page contains[/info] "
+                  f"[ok]\"{login_check}\"[/ok].\n")
+    return login_url, login_data, (login_check or None)
 
 
 # Profiles whose --exploit flag can be offered interactively (engage handles its own prompt).

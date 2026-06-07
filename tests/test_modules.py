@@ -4268,8 +4268,13 @@ class TestIdorDetect:
     def test_prompt_login_collects_details(self):
         import main
         from unittest.mock import patch
-        with patch("main.Prompt.ask", side_effect=["https://t/login", "u=a&p=b", "Logout"]):
-            assert main.prompt_login("https://t") == ("https://t/login", "u=a&p=b", "Logout")
+        # Order: login_url, username field, username value, password field, password value, check.
+        answers = ["https://t/login", "pseudo", "testhades", "password", "hades31", "Déconnexion"]
+        with patch("main.Prompt.ask", side_effect=answers):
+            url, data, check = main.prompt_login("https://t")
+        assert url == "https://t/login"
+        assert data == "pseudo=testhades&password=hades31"   # field names included automatically
+        assert check == "Déconnexion"
 
     def test_prompt_login_blank_url_cancels(self):
         import main

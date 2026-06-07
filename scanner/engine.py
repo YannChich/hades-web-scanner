@@ -323,7 +323,7 @@ class ScanEngine:
         ok = bool(self._client.cookies)
         if self.login_check:
             try:
-                ok = self.login_check in self.request("GET", self.url).text
+                ok = self.login_check.lower() in self.request("GET", self.url).text.lower()
             except httpx.HTTPError:
                 ok = False
         self.authenticated = ok
