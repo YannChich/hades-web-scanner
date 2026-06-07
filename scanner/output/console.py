@@ -54,7 +54,8 @@ def _confidence_cell(finding: "Finding") -> Text:
 _VERIFIABLE_MODULES: set[str] = {"dir_scan", "sensitive_files", "admin_panel",
                                  "dir_listing", "backup_files", "robots_txt",
                                  "sqli_detect", "xss_detect", "command_injection",
-                                 "ssti_detect", "lfi_detect", "open_redirect", "ssrf_detect"}
+                                 "ssti_detect", "lfi_detect", "open_redirect", "ssrf_detect",
+                                 "idor_detect"}
 
 
 def _format_refs(finding: "Finding") -> str:

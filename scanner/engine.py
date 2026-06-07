@@ -185,6 +185,9 @@ class ScanEngine:
         wordlist: Optional[str] = None,
         cookies: Optional[str] = None,
         auth_token: Optional[str] = None,
+        login_url: Optional[str] = None,
+        login_data: Optional[str] = None,
+        login_check: Optional[str] = None,
         rate_delay: float = DEFAULT_RATE_DELAY,
         modules: Optional[list[str]] = None,
         exploit: bool = False,
@@ -202,6 +205,12 @@ class ScanEngine:
         self.wordlist     = wordlist
         self.cookies      = cookies
         self.auth_token   = auth_token
+        # Authenticated scanning: establish a session so the crawler + every active module
+        # operate logged in. login_data is form-encoded creds ("user=admin&password=secret").
+        self.login_url    = login_url
+        self.login_data   = login_data
+        self.login_check  = login_check
+        self.authenticated = False
         # Opt-in offensive mode: when True, modules may actively exploit/extract
         # (gated, authorised targets only). Mirrors the --exploit CLI flag.
         self.exploit      = exploit
@@ -213,12 +222,17 @@ class ScanEngine:
 
         self._rate_limiter = RateLimiter(rate_delay)
         self._client       = self._build_client()
+        self._anon_client: Optional[httpx.Client] = None   # lazy, for access-control checks
         self.findings: list[Finding] = []
 
         # Shared crawl cache — populated lazily on first get_crawl() call and
         # reused by every module so parallel scans share a single crawl.
         self._crawl_result = None
         self._crawl_lock   = threading.Lock()
+
+        # Establish an authenticated session before any module runs (best-effort).
+        if self.login_url and self.login_data:
+            self._establish_session()
 
     # ------------------------------------------------------------------
     # HTTP helpers (all module traffic must flow through here)
@@ -257,6 +271,64 @@ class ScanEngine:
     def head(self, path: str = "", **kwargs) -> httpx.Response:
         target = f"{self.url}{path}" if path else self.url
         return self.request("HEAD", target, **kwargs)
+
+    def request_anonymous(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Rate-limited request with NO session cookie or auth header — used by access-control
+        checks to tell whether an object is reachable without being logged in."""
+        if self._anon_client is None:
+            mounts = (
+                {"http://": httpx.HTTPTransport(proxy=self.proxy),
+                 "https://": httpx.HTTPTransport(proxy=self.proxy)}
+                if self.proxy else None
+            )
+            self._anon_client = httpx.Client(
+                headers={"User-Agent": USER_AGENT}, mounts=mounts,
+                follow_redirects=True, timeout=DEFAULT_TIMEOUT, verify=False,
+            )
+        self._rate_limiter.acquire()
+        return self._anon_client.request(method, url, **kwargs)
+
+    def _establish_session(self) -> None:
+        """Log in so the shared client carries the session for the crawler and every module.
+
+        Best-effort and never fatal: GET the login page to pick up a CSRF cookie + hidden form
+        fields, merge them with the supplied credentials, then POST. Cookies persist in self._client,
+        so the crawl and all active modules run authenticated.
+        """
+        from urllib.parse import parse_qsl                 # local import
+        from scanner.crawler import extract_forms          # local import avoids a cycle
+
+        creds = dict(parse_qsl(self.login_data or "", keep_blank_values=True))
+        login_url = self.login_url if self.login_url.startswith(("http://", "https://")) \
+            else f"{self.url}/{self.login_url.lstrip('/')}"
+        action, data = login_url, dict(creds)
+        try:
+            page = self.request("GET", login_url)
+            forms = extract_forms(login_url, page.text)
+            # Prefer the form whose fields cover the supplied creds (the real login form).
+            form = next((f for f in forms if any(k in f.fields for k in creds)),
+                        forms[0] if forms else None)
+            if form is not None:
+                data = {**form.fields, **creds}            # keep hidden CSRF tokens, override creds
+                action = form.action or login_url
+        except httpx.HTTPError as exc:
+            logger.debug(f"login: GET {login_url} failed ({exc}); posting credentials directly")
+
+        try:
+            self.request("POST", action, data=data)
+        except httpx.HTTPError as exc:
+            logger.warning(f"login: POST {action} failed: {exc}")
+            return
+
+        ok = bool(self._client.cookies)
+        if self.login_check:
+            try:
+                ok = self.login_check in self.request("GET", self.url).text
+            except httpx.HTTPError:
+                ok = False
+        self.authenticated = ok
+        logger.info(f"login: session {'established' if ok else 'NOT confirmed'} "
+                    f"(cookies={len(self._client.cookies)}) via {action}")
 
     # ------------------------------------------------------------------
     # Shared crawl (lazy, thread-safe — modules call this instead of crawling)
@@ -347,6 +419,8 @@ class ScanEngine:
 
     def close(self) -> None:
         self._client.close()
+        if self._anon_client is not None:
+            self._anon_client.close()
 
     def __enter__(self) -> "ScanEngine":
         return self
@@ -379,6 +453,9 @@ def run_scan(
     wordlist: Optional[str] = None,
     cookies: Optional[str] = None,
     auth_token: Optional[str] = None,
+    login_url: Optional[str] = None,
+    login_data: Optional[str] = None,
+    login_check: Optional[str] = None,
     modules: Optional[list[str]] = None,
     exploit: bool = False,
     bruteforce: bool = False,
@@ -396,12 +473,20 @@ def run_scan(
         wordlist=wordlist,
         cookies=cookies,
         auth_token=auth_token,
+        login_url=login_url,
+        login_data=login_data,
+        login_check=login_check,
         modules=modules,
         exploit=exploit,
         bruteforce=bruteforce,
         oob_host=oob_host,
         oob_port=oob_port,
     ) as engine:
+        if engine.authenticated:
+            console.print("[dim]  🔓 Authenticated session established — scanning the logged-in surface.[/dim]")
+        elif login_url:
+            console.print("[yellow]  ⚠ Login not confirmed — continuing unauthenticated "
+                          "(check --login-data / --login-check).[/yellow]")
         findings = engine.run_scan()
 
     # Knowledge-base enrichment: attach matching expert playbooks from the skills

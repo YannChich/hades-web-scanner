@@ -341,6 +341,23 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="TOKEN",
         help="Bearer token for Authorization header",
     )
+    parser.add_argument(
+        "--login-url",
+        metavar="URL",
+        help="Log in before scanning so the crawler + active modules run authenticated "
+             "(form action or login page; relative to --url is fine). Use with --login-data",
+    )
+    parser.add_argument(
+        "--login-data",
+        metavar="STRING",
+        help='Login credentials as form data (e.g. "username=admin&password=secret"); '
+             "CSRF hidden fields on the login form are picked up automatically",
+    )
+    parser.add_argument(
+        "--login-check",
+        metavar="STRING",
+        help='Text that proves the session is authenticated (e.g. "Logout") — used to confirm login',
+    )
 
     return parser
 
@@ -430,6 +447,9 @@ def main() -> None:
         wordlist=args.wordlist,
         cookies=args.cookies,
         auth_token=args.auth_token,
+        login_url=args.login_url,
+        login_data=args.login_data,
+        login_check=args.login_check,
         modules=modules,
         exploit=exploit,
         bruteforce=args.bruteforce,

@@ -90,6 +90,7 @@ _VULNS: list[str] = [
     "scanner.vulns.ssrf_detect",
     "scanner.vulns.jwt_attacks",
     "scanner.vulns.auth_bypass",
+    "scanner.vulns.idor_detect",
     "scanner.vulns.bruteforce",
     "scanner.vulns.cve_mapping",
     "scanner.vulns.default_creds",
@@ -197,6 +198,7 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "ssrf_detect":       {"cwe": "CWE-918", "owasp": "A10:2021 Server-Side Request Forgery",        "mitre": ["T1190"]},
     "jwt_attacks":       {"cwe": "CWE-347", "owasp": "A02:2021 Cryptographic Failures",             "mitre": ["T1212"]},
     "auth_bypass":       {"cwe": "CWE-287", "owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1212"]},
+    "idor_detect":       {"cwe": "CWE-639", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1190"]},
     "bruteforce":        {"cwe": "CWE-307", "owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1110"]},
     "default_creds":     {"cwe": "CWE-1392","owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1078.001"]},
     "cve_mapping":       {"cwe": "CWE-1035","owasp": "A06:2021 Vulnerable and Outdated Components",  "mitre": ["T1190"]},
@@ -273,6 +275,9 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "dns_check":        ["performing-dns-enumeration-and-zone-transfer"],
     "waf_detect":       ["performing-web-application-firewall-bypass"],
     "command_injection":["exploiting-api-injection-vulnerabilities"],
+    "idor_detect":      ["exploiting-idor-vulnerabilities",
+                         "testing-for-broken-access-control",
+                         "testing-api-for-broken-object-level-authorization"],
 }
 
 # ---------------------------------------------------------------------------
@@ -300,6 +305,7 @@ MODULE_REMEDIATION_MAP: dict[str, list[str]] = {
     "default_creds":     ["configuring-multi-factor-authentication-with-duo"],
     "bruteforce":        ["configuring-multi-factor-authentication-with-duo"],
     "auth_bypass":       ["implementing-passwordless-authentication-with-fido2"],
+    "idor_detect":       ["detecting-broken-object-property-level-authorization"],
     "cve_mapping":       ["implementing-epss-score-for-vulnerability-prioritization"],
     "cve_vulnerability": ["implementing-epss-score-for-vulnerability-prioritization"],
     "db_security":       ["implementing-pam-for-database-access"],
@@ -352,6 +358,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "bruteforce":      ["Hydra", "crackmapexec"],
     "default_creds":   ["Hydra"],
     "auth_bypass":     ["nuclei"],
+    "idor_detect":     ["nuclei"],
     # ── AI / LLM (external red-team tools — not in the RedTeam-Tools catalogue) ──
     "llm_recon":       ["garak", "PyRIT", "promptfoo"],
     # ── Active exploitation engagement ──

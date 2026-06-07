@@ -4112,3 +4112,164 @@ class TestRedTeamArsenal:
     def test_arsenal_flag_registered(self):
         import main
         assert main.build_parser().parse_args(["--arsenal"]).arsenal is True
+
+
+class _RecordTransport(httpx.BaseTransport):
+    """Mock transport that records every request (prefix-matched responses)."""
+
+    def __init__(self, responses: dict):
+        self.responses = responses
+        self.requests: list = []
+
+    def handle_request(self, request: httpx.Request):
+        self.requests.append(request)
+        u = str(request.url)
+        for key, resp in self.responses.items():
+            if u.startswith(key):
+                return resp
+        return httpx.Response(404, text="")
+
+
+class TestAuthenticatedSession:
+    def _engine(self, transport) -> ScanEngine:
+        eng = ScanEngine("https://example.com", rate_delay=0)
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    def test_login_establishes_session_and_replays_csrf(self):
+        login_form = ('<form method="post" action="/login">'
+                      '<input type="hidden" name="csrf" value="tok123">'
+                      '<input name="username"><input type="password" name="password"></form>')
+        t = _RecordTransport({
+            "https://example.com/login": httpx.Response(
+                200, html=login_form, headers={"set-cookie": "session=abc; Path=/"}),
+            "https://example.com": httpx.Response(200, html="<p>Welcome admin — Logout</p>"),
+        })
+        eng = self._engine(t)
+        eng.login_url, eng.login_data, eng.login_check = (
+            "/login", "username=admin&password=secret", "Logout")
+        eng._establish_session()
+        assert eng.authenticated is True
+        assert eng._client.cookies.get("session") == "abc"     # cookie persisted in the shared jar
+        posts = [r for r in t.requests if r.method == "POST"]
+        assert posts, "a login POST should have been sent"
+        body = posts[0].content
+        assert b"username=admin" in body and b"password=secret" in body
+        assert b"csrf=tok123" in body                           # hidden CSRF field replayed
+        eng.close()
+
+    def test_login_not_confirmed_when_check_absent(self):
+        t = _RecordTransport({
+            "https://example.com/login": httpx.Response(
+                200, html='<form method="post" action="/login"><input name="username"></form>'),
+            "https://example.com": httpx.Response(200, html="<p>Please log in</p>"),
+        })
+        eng = self._engine(t)
+        eng.login_url, eng.login_data, eng.login_check = "/login", "username=admin&password=x", "Logout"
+        eng._establish_session()
+        assert eng.authenticated is False
+        eng.close()
+
+    def test_request_anonymous_bypasses_session_client(self):
+        sess = _RecordTransport({"https://example.com/x": httpx.Response(200, text="SESSION")})
+        anon = _RecordTransport({"https://example.com/x": httpx.Response(200, text="ANON")})
+        eng = ScanEngine("https://example.com", rate_delay=0)
+        eng._client = httpx.Client(transport=sess, follow_redirects=True, verify=False)
+        eng._anon_client = httpx.Client(transport=anon, follow_redirects=True, verify=False)
+        r = eng.request_anonymous("GET", "https://example.com/x")
+        assert r.text == "ANON"          # routed through the anonymous client …
+        assert not sess.requests         # … and never touched the session client
+        eng.close()
+
+
+class TestIdorDetect:
+    def _eng(self, responses: dict, **kw) -> ScanEngine:
+        kw.setdefault("rate_delay", 0)
+        eng = ScanEngine("https://example.com", **kw)
+        eng._client = httpx.Client(transport=MockTransport(responses), follow_redirects=True, verify=False)
+        return eng
+
+    @staticmethod
+    def _crawl(eng, param_urls):
+        from scanner.crawler import CrawlResult
+        eng._crawl_result = CrawlResult(parametrised_urls=list(param_urls))
+
+    # A big shared template + a small differing owner line ⇒ "different object, same page type".
+    _NAV = "<nav>" + "Home Profile Orders Settings Logout " * 18 + "</nav>"
+
+    def _record(self, owner):
+        return ("<html><body>" + self._NAV + "<h1>Account</h1><p>Owner: " + owner +
+                "</p><footer>(c) corp test corp test corp test</footer></body></html>")
+
+    def test_idor_enumeration_detected(self):
+        from scanner.vulns import idor_detect
+        eng = self._eng({
+            "https://example.com/account?id=5": httpx.Response(200, html=self._record("Alice Anderson 5")),
+            "https://example.com/account?id=6": httpx.Response(200, html=self._record("Robert Brown 6")),
+        })
+        self._crawl(eng, ["https://example.com/account?id=5"])
+        findings = idor_detect.run(eng)
+        assert findings, "expected an IDOR enumeration finding"
+        f = findings[0]
+        assert f.module == "idor_detect" and f.severity.value == "high"
+        assert "id=6" in f.raw.get("proof_url", "")
+        eng.close()
+
+    def test_bola_missing_authz_detected(self):
+        from scanner.vulns import idor_detect
+        obj = "<html><body>" + ("private account record " * 50) + "<p>Owner id 10</p></body></html>"
+        eng = self._eng({"https://example.com/doc?id=10": httpx.Response(200, html=obj)})
+        eng._anon_client = httpx.Client(
+            transport=MockTransport({"https://example.com/doc?id=10": httpx.Response(200, html=obj)}),
+            follow_redirects=True, verify=False)
+        eng.authenticated = True
+        self._crawl(eng, ["https://example.com/doc?id=10"])
+        findings = idor_detect.run(eng)
+        assert any("without a session" in f.title for f in findings)
+        eng.close()
+
+    def test_no_fp_on_identical_pages(self):
+        from scanner.vulns import idor_detect
+        same = "<html><body>" + ("catalogue product page " * 50) + "</body></html>"
+        eng = self._eng({
+            "https://example.com/p?id=5": httpx.Response(200, html=same),
+            "https://example.com/p?id=6": httpx.Response(200, html=same),
+        })
+        self._crawl(eng, ["https://example.com/p?id=5"])
+        assert idor_detect.run(eng) == []          # identical objects (ratio ~1.0) → not flagged
+        eng.close()
+
+    def test_non_id_params_ignored(self):
+        from scanner.vulns import idor_detect
+        # 'cat' is not an object-reference name → never probed (keeps catalogue params out of noise).
+        eng = self._eng({
+            "https://example.com/list?cat=5": httpx.Response(200, html=self._record("A 5")),
+            "https://example.com/list?cat=6": httpx.Response(200, html=self._record("B 6")),
+        })
+        self._crawl(eng, ["https://example.com/list?cat=5"])
+        assert idor_detect.run(eng) == []
+        eng.close()
+
+    def test_skipped_in_safe_mode(self):
+        import config
+        from scanner.vulns import idor_detect
+        eng = self._eng({"https://example.com/account?id=5": httpx.Response(200, html="x" * 400)},
+                        rate_delay=config.SAFE_MODE_RATE_DELAY)
+        self._crawl(eng, ["https://example.com/account?id=5"])
+        assert idor_detect.run(eng) == []
+        eng.close()
+
+    def test_idor_wired(self):
+        import config
+        from scanner.output.console import _VERIFIABLE_MODULES
+        assert "scanner.vulns.idor_detect" in config.PROFILE_MODULES["full"]
+        assert config.FINDING_TAXONOMY["idor_detect"]["cwe"] == "CWE-639"
+        assert "idor_detect" in _VERIFIABLE_MODULES
+        assert main_login_flags_registered()
+
+
+def main_login_flags_registered() -> bool:
+    import main
+    ns = main.build_parser().parse_args(
+        ["--url", "https://x", "--login-url", "/login", "--login-data", "u=a&p=b", "--login-check", "Logout"])
+    return ns.login_url == "/login" and ns.login_data == "u=a&p=b" and ns.login_check == "Logout"

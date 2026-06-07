@@ -129,6 +129,10 @@ evidence**, and every piece of evidence comes with the next move.
   clickable proof link and a ready exploitation command.
 - JWT attacks (`alg:none`, weak-secret cracking, claim disclosure), 401/403 access-control bypass, CVE
   mapping via the NVD, and a default-credentials advisory.
+- **IDOR / BOLA** (broken access control): tampers object-reference ids in URL params and path segments
+  to surface other users' objects, and — when scanning with a session — flags objects served without it.
+- **Authenticated scanning**: log in once (`--login-url` / `--login-data`, CSRF tokens auto-replayed) and
+  the shared crawler *and every active module* test the logged-in surface, not just the anonymous one.
 
 **Dedicated red-team profiles**
 - `db_scan` — database exposure audit: port/banner fingerprint, unauthenticated access with live data
@@ -333,6 +337,11 @@ python tools/build_vulndb.py                       # then cve_scan matches ~270k
 
 # Every scan writes both an HTML report (auto-opened) and a JSON report — no flag needed.
 
+# Authenticated scan — log in first, then crawl + test the logged-in surface (IDOR/BOLA included)
+python hades.py --url https://example.com \
+  --login-url https://example.com/login \
+  --login-data "username=admin&password=secret" --login-check "Logout"
+
 # Through a proxy, with a session cookie
 python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookies "session=abc123"
 ```
@@ -357,6 +366,9 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--wordlist` | `-w` | built-in | Custom wordlist path |
 | `--cookies` | | — | Cookie header string |
 | `--auth-token` | | — | Bearer token for the Authorization header |
+| `--login-url` | | — | Log in before scanning so the crawler + active modules run **authenticated** (form action / login page; relative to `--url` is fine). Use with `--login-data` |
+| `--login-data` | | — | Login credentials as form data (e.g. `"username=admin&password=secret"`); CSRF hidden fields are auto-replayed |
+| `--login-check` | | — | Text proving the session is authenticated (e.g. `"Logout"`) — confirms the login |
 
 </details>
 
@@ -407,11 +419,12 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 </details>
 
 <details>
-<summary><b>Vulnerability Detection (12)</b></summary>
+<summary><b>Vulnerability Detection (13)</b></summary>
 
 `sqli_detect` &middot; `xss_detect` &middot; `command_injection` &middot; `ssti_detect` &middot;
 `lfi_detect` &middot; `open_redirect` &middot; `ssrf_detect` &middot; `jwt_attacks` &middot;
-`auth_bypass` &middot; `bruteforce` (opt-in) &middot; `cve_mapping` &middot; `default_creds`
+`auth_bypass` &middot; `idor_detect` (IDOR / BOLA &mdash; access control) &middot;
+`bruteforce` (opt-in) &middot; `cve_mapping` &middot; `default_creds`
 
 </details>
 
@@ -486,7 +499,7 @@ All credit for those catalogues goes to their authors ([@mukul975](https://githu
 Hades is under active development. Planned and in-progress work:
 
 - [ ] Blind SQL injection over DNS (OAST DNS listener)
-- [ ] Authenticated / session-aware crawling and BOLA / IDOR testing
+- [x] Authenticated / session-aware crawling and BOLA / IDOR testing
 - [ ] WAF-aware payload mutation (auto-bypass and re-confirm)
 - [ ] Nuclei template bridge (ingest results into the framework/playbook layer)
 - [ ] Expanded MITRE ATLAS coverage for the AI/LLM profile
