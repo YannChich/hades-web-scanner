@@ -98,6 +98,8 @@ def build_svg(out_path: str) -> None:
         console.print(f"  [accent]{num:>3}[/accent].  [ok]{name:<32}[/ok]  [info]{desc}[/info]")
     console.print(f"  [accent]{'10':>3}[/accent].  [ok]{'Skills Library':<32}[/ok]  "
                   "[info]Browse the 754 expert playbooks Hades draws on (no scan)[/info]")
+    console.print(f"  [accent]{'11':>3}[/accent].  [ok]{'IDOR / Access Control':<32}[/ok]  "
+                  "[info]Authenticated scan for broken access control (asks for the login)[/info]")
     console.print(f"  [danger]{'666':>3}[/danger].  [danger]{'RedTeam Arsenal':<32}[/danger]  "
                   "[info]Open the offensive-tools reference page (no scan)[/info]")
     console.print()

@@ -154,11 +154,12 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
     console.print("  [accent]10[/accent]. [ok]Skills Library[/ok]   Browse the 754 expert playbooks Hades draws on (no scan)")
+    console.print("  [accent]11[/accent]. [ok]IDOR / Access Control[/ok]  Authenticated scan for broken access control (IDOR/BOLA) — asks for the login")
     console.print("  [danger]666[/danger]. [danger]RedTeam Arsenal[/danger]   Open the offensive-tools reference page (no scan — ignores the target)")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
-                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "666"],
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "666"],
                         default="2").strip()
 
     match choice:
@@ -183,8 +184,26 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "arsenal", None
         case "10":
             return "skills", None
+        case "11":
+            return "auth_idor", None
         case _:
             return "full", None
+
+
+def prompt_login(url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Interactively collect login details for the authenticated IDOR scan (menu option 11)."""
+    console.print("\n[accent]Authenticated scan[/accent] — enter the login details "
+                  "[info](leave the Login URL blank to scan without logging in)[/info]:")
+    login_url = Prompt.ask("  [ok]Login URL[/ok] [info](form action / login page)[/info]",
+                           default=f"{url.rstrip('/')}/login").strip()
+    if not login_url:
+        return None, None, None
+    login_data = Prompt.ask("  [ok]Login data[/ok] "
+                            "[info](field=value pairs, e.g. pseudo=testhades&password=hades31)[/info]").strip()
+    login_check = Prompt.ask("  [ok]Logged-in text[/ok] "
+                             "[info](a word shown only once logged in, proves it worked)[/info]",
+                             default="Logout").strip()
+    return (login_url or None), (login_data or None), (login_check or None)
 
 
 # Profiles whose --exploit flag can be offered interactively (engage handles its own prompt).
@@ -423,6 +442,14 @@ def main() -> None:
         open_skills_library(open_browser=not args.no_open)
         return
 
+    # Login details: from flags by default; menu option 11 collects them interactively and
+    # runs the IDOR / access-control module authenticated.
+    login_url, login_data, login_check = args.login_url, args.login_data, args.login_check
+    if profile == "auth_idor":
+        login_url, login_data, login_check = prompt_login(url)
+        modules = ["scanner.vulns.idor_detect"]
+        profile = "idor_detect"          # display label only — `modules` overrides the engine profile
+
     # The HTML and JSON reports are always generated (see run_scan).
 
     # --- Active exploitation ---
@@ -447,9 +474,9 @@ def main() -> None:
         wordlist=args.wordlist,
         cookies=args.cookies,
         auth_token=args.auth_token,
-        login_url=args.login_url,
-        login_data=args.login_data,
-        login_check=args.login_check,
+        login_url=login_url,
+        login_data=login_data,
+        login_check=login_check,
         modules=modules,
         exploit=exploit,
         bruteforce=args.bruteforce,

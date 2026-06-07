@@ -69,11 +69,12 @@ confidence level, the evidence behind it, and a fix, so you know what's real and
 > profiles, CVE intelligence, TLS audit…). The install is clean on Linux, macOS and Windows; the
 > optional extras (`playwright`, `sslyze`) are skipped gracefully if you don't install them.
 
-Prefer to point and shoot? Launch `python hades.py` and pick a scan — options **1 to 9**, or **666**
-for the RedTeam Arsenal:
+Prefer to point and shoot? Launch `python hades.py` and pick a scan — options **1 to 9**, **10** for the
+Skills Library, **11** for an authenticated IDOR / access-control scan (it asks for your login), or
+**666** for the RedTeam Arsenal:
 
 <p align="center">
-  <img src="assets/screenshots/hades-menu.svg" alt="Hades interactive menu — scan options 1 to 9 and 666" width="820">
+  <img src="assets/screenshots/hades-menu.svg" alt="Hades interactive menu — scan options 1 to 11 and 666" width="820">
 </p>
 
 ---

@@ -4259,6 +4259,24 @@ class TestIdorDetect:
         assert idor_detect.run(eng) == []
         eng.close()
 
+    def test_menu_option_11_maps_to_auth_idor(self):
+        import main
+        from unittest.mock import patch
+        with patch("main.Prompt.ask", return_value="11"):
+            assert main.prompt_scan_choice() == ("auth_idor", None)
+
+    def test_prompt_login_collects_details(self):
+        import main
+        from unittest.mock import patch
+        with patch("main.Prompt.ask", side_effect=["https://t/login", "u=a&p=b", "Logout"]):
+            assert main.prompt_login("https://t") == ("https://t/login", "u=a&p=b", "Logout")
+
+    def test_prompt_login_blank_url_cancels(self):
+        import main
+        from unittest.mock import patch
+        with patch("main.Prompt.ask", side_effect=[""]):
+            assert main.prompt_login("https://t") == (None, None, None)
+
     def test_idor_wired(self):
         import config
         from scanner.output.console import _VERIFIABLE_MODULES
