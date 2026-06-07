@@ -190,30 +190,75 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "full", None
 
 
+def _autodetect_login_form(*urls: str) -> "Optional[tuple[str, Optional[str], str]]":
+    """Fetch a login page and read its form: return (action_url, username_field, password_field).
+
+    Returns None if no form with a password input is found (or the page can't be fetched), so the
+    caller can fall back to asking for the field names manually. Best-effort, never fatal.
+    """
+    import httpx
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    for u in urls:
+        if not u:
+            continue
+        try:
+            resp = httpx.get(u, follow_redirects=True, verify=False, timeout=10,
+                             headers={"User-Agent": "Hades/1.0 (authenticated-scan setup)"})
+        except Exception:  # noqa: BLE001 — best-effort one-off setup fetch
+            continue
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for form in soup.find_all("form"):
+            pw = form.find("input", attrs={"type": "password"})
+            if not pw or not pw.get("name"):
+                continue
+            user_field = None
+            for inp in form.find_all("input"):
+                itype = (inp.get("type") or "text").lower()
+                if itype in ("text", "email", "tel") and inp.get("name"):
+                    user_field = inp.get("name")
+                    break
+            return urljoin(u, form.get("action") or u), user_field, pw.get("name")
+    return None
+
+
 def prompt_login(url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Interactively collect login details for the authenticated IDOR scan (menu option 11).
 
-    Asks field-by-field (field name + value) so the user never has to hand-build the
-    "field=value&field=value" string — the common mistake of forgetting a field name.
+    Reads the login form automatically (real field names + submit URL) so the user only types their
+    username/password values; falls back to asking for the field names if the form can't be read.
     """
     from urllib.parse import urlencode
 
     console.print("\n[accent]Authenticated scan — log in first[/accent]")
-    console.print("[info]  Tip: open the site's login page, right-click the username/password boxes →"
-                  " Inspect, and read each input's [/info][ok]name=\"...\"[/ok][info] attribute.[/info]")
     console.print("[info]  Press Enter on the Login URL to skip and scan without logging in.[/info]\n")
 
     login_url = Prompt.ask(
-        "  [ok]Login URL[/ok] [info]— the page/endpoint the login form submits to[/info]",
+        "  [ok]Login page URL[/ok] [info]— the page that shows the login form[/info]",
         default=f"{url.rstrip('/')}/login").strip()
     if not login_url:
         return None, None, None
 
-    user_field = (Prompt.ask("  [ok]Username field name[/ok] [info](the input's name=, e.g. "
-                             "pseudo, login, email)[/info]", default="username").strip() or "username")
+    detected = _autodetect_login_form(login_url, url)
+    if detected:
+        action, user_field, pass_field = detected
+        login_url = action                       # use the form's real submit URL (fixes guessed URLs)
+        console.print(f"  [ok]✓ Login form detected[/ok] [info]— submits to[/info] [ok]{action}[/ok]"
+                      f"[info]; fields:[/info] user=[ok]{user_field or '?'}[/ok], "
+                      f"password=[ok]{pass_field}[/ok]. [info]Press Enter to accept each.[/info]")
+        user_default = user_field or "username"
+    else:
+        console.print("  [warn]Couldn't read the form automatically.[/warn] [info]Type the field "
+                      "NAMES from each input's [/info][ok]name=\"...\"[/ok][info] attribute "
+                      "(right-click the box → Inspect) — not the visible label.[/info]")
+        user_default, pass_field = "username", "password"
+
+    user_field = (Prompt.ask("  [ok]Username field name[/ok]", default=user_default).strip()
+                  or user_default)
     user_value = Prompt.ask(f"  [ok]Value for '{user_field}'[/ok] [info](your username)[/info]").strip()
-    pass_field = (Prompt.ask("  [ok]Password field name[/ok] [info](the input's name=, e.g. "
-                             "password, pass, pwd)[/info]", default="password").strip() or "password")
+    pass_field = (Prompt.ask("  [ok]Password field name[/ok]", default=pass_field).strip()
+                  or pass_field)
     pass_value = Prompt.ask(f"  [ok]Value for '{pass_field}'[/ok] [info](your password — hidden)[/info]",
                             password=True)
     login_data = urlencode({user_field: user_value, pass_field: pass_value})

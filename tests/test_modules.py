@@ -4265,16 +4265,29 @@ class TestIdorDetect:
         with patch("main.Prompt.ask", return_value="11"):
             assert main.prompt_scan_choice() == ("auth_idor", None)
 
-    def test_prompt_login_collects_details(self):
+    def test_prompt_login_manual_when_form_not_detected(self):
         import main
         from unittest.mock import patch
         # Order: login_url, username field, username value, password field, password value, check.
         answers = ["https://t/login", "pseudo", "testhades", "password", "hades31", "Déconnexion"]
-        with patch("main.Prompt.ask", side_effect=answers):
+        with patch("main._autodetect_login_form", return_value=None), \
+             patch("main.Prompt.ask", side_effect=answers):
             url, data, check = main.prompt_login("https://t")
         assert url == "https://t/login"
-        assert data == "pseudo=testhades&password=hades31"   # field names included automatically
+        assert data == "pseudo=testhades&password=hades31"   # field names typed manually
         assert check == "Déconnexion"
+
+    def test_prompt_login_autodetects_form_fields(self):
+        import main
+        from unittest.mock import patch
+        # Form auto-detected → real action URL + field names pre-filled; user just presses Enter
+        # on the field-name prompts and types the values.
+        answers = ["https://t/login", "", "testhades", "", "hades31", "Logout"]
+        with patch("main._autodetect_login_form", return_value=("https://t/do_login", "pseudo", "pwd")), \
+             patch("main.Prompt.ask", side_effect=answers):
+            url, data, check = main.prompt_login("https://t")
+        assert url == "https://t/do_login"                   # the form's real submit action is used
+        assert data == "pseudo=testhades&pwd=hades31"        # detected field names applied
 
     def test_prompt_login_blank_url_cancels(self):
         import main
