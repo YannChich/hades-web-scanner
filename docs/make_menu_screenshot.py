@@ -96,10 +96,10 @@ def build_svg(out_path: str) -> None:
     console.print("[info]What would you like to run?[/info]")
     for num, name, desc in MENU:
         console.print(f"  [accent]{num:>3}[/accent].  [ok]{name:<32}[/ok]  [info]{desc}[/info]")
+    console.print(f"  [accent]{'10':>3}[/accent].  [ok]{'Skills Library':<32}[/ok]  "
+                  "[info]Browse the 754 expert playbooks Hades draws on (no scan)[/info]")
     console.print(f"  [danger]{'666':>3}[/danger].  [danger]{'RedTeam Arsenal':<32}[/danger]  "
                   "[info]Open the offensive-tools reference page (no scan)[/info]")
-    console.print(f"  [accent]{'777':>3}[/accent].  [ok]{'Skills Library':<32}[/ok]  "
-                  "[info]Browse the 754 expert playbooks Hades draws on (no scan)[/info]")
     console.print()
     console.print("[accent]>[/accent]  Choose an option [info][2][/info]: [banner]█[/banner]")
 

@@ -153,12 +153,12 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]7[/accent]. [ok]OOB / Blind vulns[/ok]   Out-of-band detection of blind SSRF/RCE/XSS via callbacks")
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
+    console.print("  [accent]10[/accent]. [ok]Skills Library[/ok]   Browse the 754 expert playbooks Hades draws on (no scan)")
     console.print("  [danger]666[/danger]. [danger]RedTeam Arsenal[/danger]   Open the offensive-tools reference page (no scan — ignores the target)")
-    console.print("  [accent]777[/accent]. [ok]Skills Library[/ok]    Browse the 754 expert playbooks Hades draws on (no scan)")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
-                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "666", "777"],
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "666"],
                         default="2").strip()
 
     match choice:
@@ -181,7 +181,7 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "tls_scan", None
         case "666":
             return "arsenal", None
-        case "777":
+        case "10":
             return "skills", None
         case _:
             return "full", None
@@ -283,7 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--skills",
         action="store_true",
         help="Open the Skills Library — a searchable page of the expert playbooks Hades draws on, "
-             "grouped by subdomain (no scan; also available as menu option 777)",
+             "grouped by subdomain (no scan; also available as menu option 10)",
     )
     parser.add_argument(
         "--oob-host",
@@ -400,7 +400,7 @@ def main() -> None:
         open_arsenal(open_browser=not args.no_open)
         return
 
-    # Menu option 777 — open the Skills Library reference page instead of scanning.
+    # Menu option 10 — open the Skills Library reference page instead of scanning.
     if profile == "skills":
         from scanner.intel.skills_library import open_skills_library
         open_skills_library(open_browser=not args.no_open)

@@ -165,7 +165,7 @@ evidence**, and every piece of evidence comes with the next move.
 - Backed by the **754-skill Anthropic-Cybersecurity-Skills library**: findings are matched to playbooks
   by ATT&CK technique + tags (not just a hardcoded list), and each finding pairs an **offensive**
   playbook (how to exploit it) with a curated **blue-team remediation** playbook (how to detect/fix it).
-- Browse the whole library as a searchable **Skills Library** page (`--skills` / menu **777**) — all
+- Browse the whole library as a searchable **Skills Library** page (`--skills` / menu **10**) — all
   754 playbooks grouped by subdomain, with offensive/defensive markers and ATT&CK chips.
 - Every reference badge in the HTML report is **clickable** — CVE → NVD, CVSS → the FIRST calculator,
   CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
@@ -326,7 +326,7 @@ python hades.py --url https://example.com --profile tls_scan
 python hades.py --arsenal          # opens an HTML catalogue (no scan; also menu option 666)
 
 # Skills Library — a searchable page of the 754 expert playbooks Hades draws on, by subdomain
-python hades.py --skills           # opens an HTML catalogue (no scan; also menu option 777)
+python hades.py --skills           # opens an HTML catalogue (no scan; also menu option 10)
 
 # (one-time) bulk-load the full NVD corpus for offline CVE matching — optional NVD_API_KEY speeds it up
 python tools/build_vulndb.py                       # then cve_scan matches ~270k CVEs locally, offline
@@ -346,7 +346,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
-| `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **777**) |
+| `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
