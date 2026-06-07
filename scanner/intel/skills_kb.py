@@ -94,6 +94,17 @@ def _load_bundle() -> dict[str, dict]:
     return {s["name"]: s for s in data if s.get("name")}
 
 
+def github_url(name: str) -> str:
+    """Upstream GitHub (Markdown-rendered) URL for a skill, from the bundle. '' if unknown.
+
+    Used as a safe fallback for the HTML report: when a local SKILL.md cannot be rendered to a
+    styled page (the `markdown` lib is missing, or a read/render error), the playbook badge is
+    repointed here so it opens a rendered page on GitHub instead of a raw .md file.
+    """
+    entry = _load_bundle().get(name)
+    return (entry or {}).get("url", "") if entry else ""
+
+
 # ---------------------------------------------------------------------------
 # Minimal SKILL.md frontmatter parsing (no YAML dependency)
 # ---------------------------------------------------------------------------

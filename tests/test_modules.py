@@ -3678,6 +3678,61 @@ class TestPlaybookHtmlRendering:
         generate_html([f], "http://d.test", 30, output_path=str(tmp_path / "reports"))
         assert f.skill_refs[0]["href"] == gh                    # GitHub renders Markdown already
 
+    def test_github_url_helper_resolves_bundle(self):
+        from scanner.intel.skills_kb import github_url
+        u = github_url("exploiting-sql-injection-vulnerabilities")
+        assert u.startswith("https://github.com/") and u.endswith("SKILL.md")
+        assert github_url("does-not-exist-zzz") == ""
+
+    def test_unreadable_local_md_falls_back_to_github(self, tmp_path):
+        # A local file:// SKILL.md href that cannot be read must NOT stay a raw .md link:
+        # the badge is repointed to the skill's GitHub (rendered) page.
+        from scanner.engine import Finding, Severity
+        from scanner.output.report_html import generate_html
+        from scanner.intel.skills_kb import github_url
+
+        name = "exploiting-sql-injection-vulnerabilities"
+        missing = tmp_path / "skills" / name / "SKILL.md"   # never created → unreadable
+        f = Finding(module="sqli_detect", title="SQLi", description="x", severity=Severity.CRITICAL)
+        f.skill_refs = [{"name": name, "description": "d", "href": missing.as_uri(),
+                         "tags": [], "mitre": []}]
+        generate_html([f], "http://d.test", 40, output_path=str(tmp_path / "reports"))
+        href = f.skill_refs[0]["href"]
+        assert href == github_url(name)
+        assert href.startswith("https://github.com/") and not href.startswith("file:")
+
+    def test_missing_markdown_lib_repoints_to_github(self, tmp_path, monkeypatch):
+        # When the `markdown` library is absent, a local SKILL.md cannot be rendered — the badge
+        # must fall back to the GitHub page (rendered), never a raw file:// .md (the reported bug).
+        import builtins
+        from scanner.engine import Finding, Severity
+        from scanner.output.report_html import generate_html
+        from scanner.intel.skills_kb import github_url
+
+        name = "exploiting-sql-injection-vulnerabilities"
+        skilldir = tmp_path / "skills" / name
+        skilldir.mkdir(parents=True)
+        md = skilldir / "SKILL.md"
+        md.write_text("# x\n", encoding="utf-8")             # exists locally, but markdown is missing
+
+        real_import = builtins.__import__
+
+        def fake_import(n, *a, **k):
+            if n == "markdown":
+                raise ImportError("simulated missing markdown")
+            return real_import(n, *a, **k)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        f = Finding(module="sqli_detect", title="SQLi", description="x", severity=Severity.CRITICAL)
+        f.skill_refs = [{"name": name, "description": "d", "href": md.as_uri(),
+                         "tags": [], "mitre": []}]
+        generate_html([f], "http://d.test", 40, output_path=str(tmp_path / "reports"))
+        href = f.skill_refs[0]["href"]
+        assert href == github_url(name)
+        assert href.startswith("https://github.com/") and "/blob/" in href
+        assert not href.startswith("file:")                 # never a raw local .md
+
 
 # ---------------------------------------------------------------------------
 # hephaestus_tls — offensive TLS audit (SSLyze) — tls_scan / menu option 9

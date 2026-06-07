@@ -729,15 +729,28 @@ def _playbook_page(skill: dict, md_text: str) -> str:
 def _render_playbooks_to_html(findings: list[Finding], output_dir: str) -> None:
     """Render local SKILL.md playbooks to styled HTML and rewrite each finding's href in place.
 
-    Clicking a playbook badge then opens a readable page instead of raw Markdown. GitHub (https)
-    links are left untouched — GitHub already renders Markdown. No-op if `markdown` is unavailable.
+    Clicking a playbook badge then opens a readable page instead of raw Markdown. If local
+    rendering is not possible — the `markdown` library is missing, or a file can't be read or
+    rendered — the badge is repointed to the skill's GitHub page (which renders Markdown) so it
+    never opens a raw .md file. GitHub (https) links are left untouched.
     """
+    from scanner.intel.skills_kb import github_url  # noqa: PLC0415
+
     try:
         import markdown  # noqa: F401
+        have_markdown = True
     except ImportError:
-        return
+        have_markdown = False
+
     pb_dir = Path(output_dir) / "playbooks"
     rendered: dict[str, str] = {}
+
+    def _fallback(name: str, s: dict) -> None:
+        """Repoint a badge to the GitHub-rendered page; leave it unchanged if no URL is known."""
+        gh = github_url(name)
+        if gh:
+            s["href"] = rendered[name] = gh
+
     for f in findings:
         for s in getattr(f, "skill_refs", None) or []:
             href = s.get("href", "")
@@ -747,11 +760,15 @@ def _render_playbooks_to_html(findings: list[Finding], output_dir: str) -> None:
             if name in rendered:
                 s["href"] = rendered[name]
                 continue
+            if not have_markdown:
+                _fallback(name, s)
+                continue
             try:
                 md_path = Path(url2pathname(urlparse(href).path))
                 md_text = md_path.read_text(encoding="utf-8")
             except OSError as exc:
                 logger.debug(f"report_html: cannot read playbook {name}: {exc}")
+                _fallback(name, s)
                 continue
             try:
                 pb_dir.mkdir(parents=True, exist_ok=True)
@@ -759,10 +776,10 @@ def _render_playbooks_to_html(findings: list[Finding], output_dir: str) -> None:
                 out.write_text(_playbook_page(s, md_text), encoding="utf-8")
             except Exception as exc:  # noqa: BLE001 — rendering must never break the report
                 logger.debug(f"report_html: cannot render playbook {name}: {exc}")
+                _fallback(name, s)
                 continue
             uri = out.resolve().as_uri()
-            s["href"] = uri
-            rendered[name] = uri
+            s["href"] = rendered[name] = uri
 
 
 def generate_html(
