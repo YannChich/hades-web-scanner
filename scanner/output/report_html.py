@@ -19,6 +19,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
+from scanner.output import web_theme
 from scanner.output.scorer import calculate_score
 from scanner.severity import HTML_BG as _SEV_BG
 from scanner.severity import HTML_COLOR as _SEV_COLOR
@@ -38,37 +39,29 @@ _GRADE_COLOR: dict[str, str] = {
 # CSS
 # ---------------------------------------------------------------------------
 
-_CSS = """
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: 'Courier New', Courier, monospace;
-  background: #0a0e1a;
-  color: #c9d1d9;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-a { color: #60a5fa; text-decoration: none; }
-a:hover { text-decoration: underline; }
+_CSS = web_theme.ROOT_VARS + web_theme.BASE_CSS + """
+/* ── Report-specific layout (palette, body font & reset come from web_theme) ── */
 
 /* ── Header ── */
 .header {
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-  border-bottom: 1px solid #00ff4133;
-  padding: 32px 40px 24px;
+  background: linear-gradient(135deg, var(--bg-2) 0%, var(--surface) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 30px 40px 22px;
 }
 .header h1 {
-  font-size: 2.4rem;
-  color: #00ff41;
-  letter-spacing: 4px;
-  text-shadow: 0 0 20px #00ff4155;
+  font-family: var(--mono);
+  font-size: 2.3rem;
+  color: var(--red);
+  letter-spacing: 6px;
+  text-shadow: 0 0 22px var(--red-glow);
   margin-bottom: 4px;
 }
-.header .tagline { color: #8b949e; font-size: 0.85rem; letter-spacing: 2px; }
-.meta { margin-top: 16px; display: flex; gap: 32px; flex-wrap: wrap; }
-.meta-item { color: #8b949e; font-size: 0.82rem; }
-.meta-item span { color: #c9d1d9; font-weight: bold; }
+.header .prompt { font-family: var(--mono); color: var(--green); font-size: 0.8rem; letter-spacing: .5px; }
+.header .prompt .pdim { color: var(--muted); }
+.header .tagline { color: var(--muted); font-size: 0.8rem; letter-spacing: 2px; margin-top: 2px; }
+.meta { margin-top: 16px; display: flex; gap: 28px; flex-wrap: wrap; }
+.meta-item { color: var(--muted); font-size: 0.8rem; }
+.meta-item span { color: var(--ink); font-weight: 600; font-family: var(--mono); }
 
 /* ── Main layout ── */
 .container { max-width: 1200px; margin: 0 auto; padding: 32px 40px; }
@@ -78,16 +71,16 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 48px;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 28px 36px;
-  margin-bottom: 32px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 26px 34px;
+  margin-bottom: 30px;
   flex-wrap: wrap;
 }
 
 .gauge-wrap { text-align: center; }
-.gauge-label { font-size: 0.75rem; color: #8b949e; letter-spacing: 2px; margin-top: 10px; }
+.gauge-label { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 2px; margin-top: 10px; }
 
 .gauge {
   width: 140px;
@@ -99,16 +92,16 @@ a:hover { text-decoration: underline; }
   justify-content: center;
   background: conic-gradient(
     var(--gauge-color) calc(var(--score-pct) * 1%  * 3.6deg),
-    #21262d 0deg
+    #1b2330 0deg
   );
-  box-shadow: 0 0 24px var(--gauge-glow);
+  box-shadow: 0 0 26px var(--gauge-glow);
 }
 .gauge::before {
   content: '';
   position: absolute;
   width: 104px;
   height: 104px;
-  background: #161b22;
+  background: var(--surface-2);
   border-radius: 50%;
 }
 .gauge-inner {
@@ -116,17 +109,18 @@ a:hover { text-decoration: underline; }
   z-index: 1;
   text-align: center;
 }
-.gauge-score { font-size: 1.8rem; font-weight: bold; color: var(--gauge-color); }
-.gauge-total { font-size: 0.7rem; color: #8b949e; }
+.gauge-score { font-family: var(--mono); font-size: 1.9rem; font-weight: bold; color: var(--gauge-color); }
+.gauge-total { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
 
 .grade-badge {
-  font-size: 3.5rem;
+  font-family: var(--mono);
+  font-size: 3.4rem;
   font-weight: bold;
   color: var(--grade-color);
-  text-shadow: 0 0 20px var(--grade-color);
+  text-shadow: 0 0 18px var(--grade-color);
   line-height: 1;
 }
-.grade-label { font-size: 0.75rem; color: #8b949e; letter-spacing: 2px; margin-top: 4px; }
+.grade-label { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 2px; margin-top: 4px; }
 
 .counts-grid {
   display: grid;
@@ -136,58 +130,62 @@ a:hover { text-decoration: underline; }
   min-width: 280px;
 }
 .count-card {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 12px 8px;
   text-align: center;
   border-top: 3px solid var(--sev-color);
 }
-.count-card .sev-name { font-size: 0.65rem; color: #8b949e; letter-spacing: 1px; }
-.count-card .sev-num  { font-size: 1.6rem; font-weight: bold; color: var(--sev-color); }
+.count-card .sev-name { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 1px; }
+.count-card .sev-num  { font-family: var(--mono); font-size: 1.6rem; font-weight: bold; color: var(--sev-color); }
 
 /* ── Section headings ── */
 .section-title {
-  font-size: 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
   letter-spacing: 3px;
-  color: #8b949e;
+  color: var(--muted);
   text-transform: uppercase;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid var(--border-soft);
   padding-bottom: 8px;
   margin-bottom: 16px;
   margin-top: 36px;
 }
+.section-title::before { content: "\\2590 "; color: var(--red); }
 
 /* ── Findings table ── */
 .findings-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
 }
 .findings-table th {
-  background: #161b22;
-  color: #8b949e;
-  font-weight: normal;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   padding: 10px 12px;
   text-align: left;
-  border-bottom: 1px solid #30363d;
+  border-bottom: 1px solid var(--border);
 }
 .findings-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid #21262d;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
   vertical-align: top;
 }
 .findings-table tr { background: var(--row-bg); }
-.findings-table tr:hover td { background: #ffffff08; }
+.findings-table tr:hover td { background: rgba(255,255,255,0.03); }
 
 .sev-badge {
+  font-family: var(--mono);
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.68rem;
+  border-radius: 5px;
+  font-size: 0.66rem;
   font-weight: bold;
   letter-spacing: 1px;
   color: var(--sev-color);
@@ -196,73 +194,75 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 .module-tag {
-  color: #8b949e;
-  font-size: 0.78rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  font-size: 0.74rem;
   white-space: nowrap;
 }
-.title-cell { color: #e6edf3; font-weight: bold; }
-.desc-cell  { color: #8b949e; max-width: 420px; }
-.rec-cell   { color: #60a5fa; max-width: 260px; font-size: 0.78rem; }
+.title-cell { color: var(--bright); font-weight: 600; }
+.desc-cell  { color: var(--muted); max-width: 440px; }
+.rec-cell   { color: var(--blue); max-width: 260px; font-size: 0.78rem; }
 
 /* ── Framework reference pills (ID / CVSS / CWE / OWASP / ATT&CK) ── */
 .refs { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; }
 .ref-pill {
+  font-family: var(--mono);
   display: inline-block;
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 0.64rem;
   font-weight: bold;
-  letter-spacing: 0.5px;
-  border: 1px solid #30363d;
-  background: #0d1117;
-  color: #8b949e;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--muted);
   white-space: nowrap;
 }
-.ref-id    { color: #c9d1d9; border-color: #484f58; }
+.ref-id    { color: var(--ink); border-color: #3b4350; }
 .ref-cvss  { color: var(--sev-color); border-color: var(--sev-color); }
-.ref-cwe   { color: #d2a8ff; border-color: #6e40c9; }
-.ref-owasp { color: #ffa657; border-color: #bb8009; }
-.ref-mitre { color: #79c0ff; border-color: #1f6feb; }
-.ref-tool  { color: #e3b341; border-color: #9e6a03; background: #1c1808; }
-.ref-play  { color: #d2a8ff; border-color: #8957e5; background: #1d162e; }
-.ref-fix   { color: #56d364; border-color: #238636; background: #0c1f12; }
+.ref-cwe   { color: var(--purple); border-color: var(--purple-line); }
+.ref-owasp { color: var(--orange); border-color: #bb8009; }
+.ref-mitre { color: var(--blue); border-color: #1f6feb; }
+.ref-tool  { color: var(--yellow); border-color: #9e6a03; background: #1c1808; }
+.ref-play  { color: var(--purple); border-color: var(--purple-line); background: #1a1430; }
+.ref-fix   { color: var(--green); border-color: var(--green-deep); background: #0c1f12; }
 /* Every reference badge is a link to its canonical explanation page. */
 a.ref-pill { text-decoration: none; cursor: pointer; transition: filter .15s, box-shadow .15s; }
-a.ref-pill:hover { text-decoration: none; filter: brightness(1.4); box-shadow: 0 0 0 1px currentColor; }
-a.ref-play:hover { text-decoration: none; background: #2d2150; filter: none; box-shadow: none; }
+a.ref-pill:hover { text-decoration: none; filter: brightness(1.35); box-shadow: 0 0 0 1px currentColor; }
+a.ref-play:hover { text-decoration: none; background: #241a3d; filter: none; box-shadow: none; }
 a.ref-fix:hover  { text-decoration: none; background: #12351c; filter: none; box-shadow: none; }
 /* Per-finding expandable: keeps ATT&CK / tools / playbooks / PoC out of the way until wanted. */
 .ref-more { margin-top: 5px; }
-.ref-more > summary { color: #6e7681; font-size: 0.7rem; font-weight: 600; letter-spacing: .3px;
-  cursor: pointer; list-style: none; display: inline-block; padding: 1px 0; user-select: none; }
+.ref-more > summary { font-family: var(--mono); color: var(--faint); font-size: 0.7rem; font-weight: 600;
+  letter-spacing: .3px; cursor: pointer; list-style: none; display: inline-block; padding: 1px 0; user-select: none; }
 .ref-more > summary::-webkit-details-marker { display: none; }
-.ref-more > summary::before { content: "▸ "; }
-.ref-more[open] > summary::before { content: "▾ "; }
-.ref-more > summary:hover { color: #9aa4af; }
+.ref-more > summary::before { content: "▸ "; color: var(--red); }
+.ref-more[open] > summary::before { content: "▾ "; color: var(--green); }
+.ref-more > summary:hover { color: var(--muted); }
 .ref-more > .refs { margin-top: 5px; }
 .ref-more > .poc-block { margin-top: 5px; }
 /* Recommended-playbooks section */
 .play-list { list-style: none; }
 .play-list li {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-left: 3px solid #8957e5;
-  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--purple-line);
+  border-radius: 6px;
   padding: 12px 16px;
   margin-bottom: 10px;
 }
-.play-list .play-name { color: #d2a8ff; font-weight: bold; font-size: 0.9rem; }
-.play-list .play-meta { color: #79c0ff; font-size: 0.7rem; letter-spacing: 1px; margin: 3px 0; }
-.play-list .play-desc { color: #8b949e; font-size: 0.82rem; }
+.play-list .play-name { font-family: var(--mono); color: var(--purple); font-weight: bold; font-size: 0.88rem; }
+.play-list .play-meta { font-family: var(--mono); color: var(--blue); font-size: 0.7rem; letter-spacing: 1px; margin: 3px 0; }
+.play-list .play-desc { color: var(--muted); font-size: 0.82rem; }
 .poc-block {
   margin-top: 6px;
-  padding: 6px 9px;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-left: 3px solid #39d353;
-  border-radius: 4px;
-  color: #39d353;
-  font: 0.72rem/1.5 ui-monospace, 'Courier New', monospace;
+  padding: 7px 10px;
+  background: var(--code);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  color: var(--green);
+  font: 0.74rem/1.5 var(--mono);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
@@ -271,24 +271,24 @@ a.ref-fix:hover  { text-decoration: none; background: #12351c; filter: none; box
 /* ── Recommendations ── */
 .rec-list { list-style: none; }
 .rec-list li {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-left: 3px solid #ffd700;
-  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 6px;
   padding: 12px 16px;
   margin-bottom: 10px;
   font-size: 0.84rem;
 }
-.rec-list .rec-module { color: #ffd700; font-size: 0.72rem; letter-spacing: 1px; }
-.rec-list .rec-text   { color: #c9d1d9; margin-top: 4px; }
+.rec-list .rec-module { font-family: var(--mono); color: var(--blue); font-size: 0.72rem; letter-spacing: 1px; }
+.rec-list .rec-text   { color: var(--ink); margin-top: 4px; }
 
 /* ── Footer ── */
 .footer {
   text-align: center;
   padding: 24px;
-  color: #484f58;
+  color: var(--faint);
   font-size: 0.75rem;
-  border-top: 1px solid #21262d;
+  border-top: 1px solid var(--border-soft);
   margin-top: 48px;
 }
 """
@@ -454,7 +454,7 @@ def _refs_html(f: Finding, sev_color: str) -> str:
 
 def _findings_table_html(findings: list[Finding]) -> str:
     if not findings:
-        return "<p style='color:#8b949e;'>No findings recorded.</p>"
+        return "<p style='color:var(--muted);'>No findings recorded.</p>"
 
     rows = ""
     for f in findings:
@@ -509,7 +509,7 @@ def _db_section_html(findings: list[Finding]) -> str:
     score_f = next((f for f in db if f.raw.get("db_category") == "score"), None)
     score = int(score_f.raw.get("score", 0)) if score_f else 0
     grade = score_f.raw.get("grade", "") if score_f else ""
-    color = _DB_GRADE_COLOR.get(grade, "#8b949e")
+    color = _DB_GRADE_COLOR.get(grade, "var(--muted)")
 
     rows = ""
     for f in sorted(db, key=lambda x: _SEV_ORDER.index(x.severity.value)):
@@ -530,15 +530,15 @@ def _db_section_html(findings: list[Finding]) -> str:
     attack_html = ""
     if plan:
         def _step_html(s: dict) -> str:
-            attack = (f'<span style="margin-left:8px;color:#bc8cff;font:600 11px ui-monospace,'
+            attack = (f'<span style="margin-left:8px;color:var(--purple);font:600 11px ui-monospace,'
                       f'monospace;">⟦{_e(s["attack"])}⟧</span>' if s.get("attack") else "")
-            evidence = (f'<div style="margin-top:4px;color:#39d353;font:12px ui-monospace,'
+            evidence = (f'<div style="margin-top:4px;color:var(--green);font:12px ui-monospace,'
                         f'monospace;">⧉ evidence: {_e(s["evidence"])}</div>' if s.get("evidence") else "")
             return (
                 f'<li><span class="sev-badge" style="--sev-color:{_SEV_COLOR.get(s["severity"], "#c9d1d9")};'
                 f'--sev-bg:{_SEV_BG.get(s["severity"], "transparent")};">{s["severity"].upper()}</span> '
-                f'{_e(s["title"])}{attack}<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
-                f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
+                f'{_e(s["title"])}{attack}<pre style="margin:6px 0 0 0;padding:8px 10px;background:var(--bg-2);'
+                f'border:1px solid var(--border);border-radius:6px;color:var(--green);overflow-x:auto;'
                 f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre>{evidence}</li>'
             )
         steps = "".join(_step_html(s) for s in plan)
@@ -568,8 +568,8 @@ def _db_section_html(findings: list[Finding]) -> str:
     return f"""
   <div class="section-title">Database Security</div>
   <div style="margin:0 0 18px 0;">
-    <div style="font:600 13px/1 system-ui;color:#8b949e;margin-bottom:6px;">DB EXPOSURE SCORE</div>
-    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;height:26px;overflow:hidden;">
+    <div style="font:600 13px/1 system-ui;color:var(--muted);margin-bottom:6px;">DB EXPOSURE SCORE</div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;height:26px;overflow:hidden;">
       <div style="width:{score}%;height:100%;background:{color};
                   display:flex;align-items:center;justify-content:flex-end;padding-right:10px;
                   color:#0d1117;font:700 13px system-ui;">{score}/100</div>
@@ -601,33 +601,33 @@ def _attack_path_html(findings: list[Finding], base_url: str) -> str:
         for s in g["steps"]:
             sev = s["severity"]
             mitre = "".join(_link_pill("ref-mitre", _e(t), _mitre_url(t), f"ATT&CK {t}") for t in s["mitre"])
-            cmd = (f'<pre style="margin:6px 0 0 0;padding:8px 10px;background:#0d1117;'
-                   f'border:1px solid #30363d;border-radius:6px;color:#39d353;overflow-x:auto;'
+            cmd = (f'<pre style="margin:6px 0 0 0;padding:8px 10px;background:var(--bg-2);'
+                   f'border:1px solid var(--border);border-radius:6px;color:var(--green);overflow-x:auto;'
                    f'font:600 12px/1.5 ui-monospace,monospace;">$ {_e(s["command"])}</pre>'
                    if s["command"] else "")
-            play = (f'<div style="margin-top:4px;color:#d2a8ff;font-size:0.78rem;">'
+            play = (f'<div style="margin-top:4px;color:var(--purple);font-size:0.78rem;">'
                     f'📘 {_e(s["playbook"])}</div>' if s["playbook"] else "")
-            tools = (f'<div style="margin-top:4px;color:#e3b341;font-size:0.78rem;">'
+            tools = (f'<div style="margin-top:4px;color:var(--yellow);font-size:0.78rem;">'
                      f'🛠 tools: {_e(", ".join(s["tools"]))}</div>' if s["tools"] else "")
-            evid = (f'<div style="margin-top:4px;color:#39d353;font:12px ui-monospace,monospace;">'
+            evid = (f'<div style="margin-top:4px;color:var(--green);font:12px ui-monospace,monospace;">'
                     f'⧉ evidence: {_e(s["evidence"])}</div>' if s["evidence"] else "")
             steps += (
-                f'<li><span style="color:#8b949e;">#{s["n"]}</span> '
+                f'<li><span style="color:var(--muted);">#{s["n"]}</span> '
                 f'<span class="sev-badge" style="--sev-color:{_SEV_COLOR.get(sev, "#c9d1d9")};'
                 f'--sev-bg:{_SEV_BG.get(sev, "transparent")};">{sev.upper()}</span> '
-                f'<span style="color:#e6edf3;font-weight:bold;">{_e(s["title"])}</span> '
-                f'<span style="color:#8b949e;font-size:0.72rem;">[{_e(s["id"])}]</span> {mitre}'
+                f'<span style="color:var(--bright);font-weight:bold;">{_e(s["title"])}</span> '
+                f'<span style="color:var(--muted);font-size:0.72rem;">[{_e(s["id"])}]</span> {mitre}'
                 f'{cmd}{play}{tools}{evid}</li>'
             )
         blocks += (
-            f'<div class="section-title" style="font-size:15px;margin-top:16px;color:#79c0ff;">'
-            f'▼ {_e(g["phase"])} <span style="color:#484f58;font-size:12px;">{_e(g["tactic"])}</span></div>'
+            f'<div class="section-title" style="font-size:15px;margin-top:16px;color:var(--blue);">'
+            f'▼ {_e(g["phase"])} <span style="color:var(--faint);font-size:12px;">{_e(g["tactic"])}</span></div>'
             f'<ol class="rec-list">{steps}</ol>'
         )
 
     return f"""
   <div class="section-title">Attack Path — Kill Chain</div>
-  <p style="color:#8b949e;font-size:0.8rem;margin-bottom:8px;">
+  <p style="color:var(--muted);font-size:0.8rem;margin-bottom:8px;">
     {total} actionable step(s) grouped by MITRE ATT&CK tactic in attacker order. Commands are
     copy-paste — authorised targets only.
   </p>
@@ -656,7 +656,7 @@ def _playbooks_html(findings: list[Finding]) -> str:
         )
     return f"""
   <div class="section-title">Recommended Playbooks</div>
-  <p style="color:#8b949e;font-size:0.8rem;margin-bottom:14px;">
+  <p style="color:var(--muted);font-size:0.8rem;margin-bottom:14px;">
     Expert procedures matched from the cybersecurity skills library — each link opens the full
     step-by-step playbook (detection, exploitation, and remediation).
   </p>
@@ -676,7 +676,7 @@ def _recommendations_html(findings: list[Finding]) -> str:
             break
 
     if not recs:
-        return "<p style='color:#8b949e;'>No recommendations available.</p>"
+        return "<p style='color:var(--muted);'>No recommendations available.</p>"
 
     items = "".join(
         f'<li><div class="rec-module">{_e(mod)}</div>'
@@ -695,33 +695,29 @@ def _recommendations_html(findings: list[Finding]) -> str:
 # ---------------------------------------------------------------------------
 
 _PLAYBOOK_CSS = """
-:root{--bg:#0d1117;--panel:#161b22;--ink:#c9d1d9;--muted:#8b949e;--accent:#d2a8ff;--border:#30363d;--code:#0b0f14;}
-*{box-sizing:border-box;}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 -apple-system,Segoe UI,Roboto,sans-serif;}
-.wrap{max-width:900px;margin:0 auto;padding:32px 22px 80px;}
-.pb-head{border-bottom:2px solid #8957e5;padding-bottom:14px;margin-bottom:22px;}
-.pb-kicker{color:#8957e5;font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
-h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:#fff;}
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
 .pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
 .pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
-.pb-tag{font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid #6e40c9;color:var(--accent);
-  background:#1d162e;border-radius:10px;padding:2px 8px;white-space:nowrap;}
-.pb-tag.atk{border-color:#1f6feb;color:#79c0ff;background:#0d1117;}
-.content h1,.content h2,.content h3{color:#fff;margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
 .content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
-.content a{color:#58a6ff;} .content strong{color:#fff;}
-.content code{background:var(--code);color:#79c0ff;padding:2px 6px;border-radius:5px;font-size:.86em;
-  font-family:ui-monospace,Consolas,monospace;}
-.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid #39d353;border-radius:8px;
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
   padding:14px 16px;overflow-x:auto;}
-.content pre code{background:none;color:#39d353;padding:0;}
+.content pre code{background:none;color:var(--green);padding:0;}
 .content table{border-collapse:collapse;width:100%;margin:1em 0;}
 .content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
-.content th{background:var(--panel);color:#fff;}
-.content blockquote{border-left:3px solid #6e40c9;margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--panel);}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
 .content ul,.content ol{padding-left:1.4em;}
-.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid #21262d;color:#484f58;font-size:.8rem;}
-.pb-foot a{color:#8957e5;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
 """
 
 
@@ -747,7 +743,7 @@ def _playbook_page(skill: dict, md_text: str) -> str:
     desc = _e((skill.get("description") or "").strip())
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Playbook — {_e(title)}</title><style>{_PLAYBOOK_CSS}</style></head>
+<title>Playbook — {_e(title)}</title><style>{web_theme.ROOT_VARS}{web_theme.BASE_CSS}{_PLAYBOOK_CSS}</style></head>
 <body><div class="wrap">
   <div class="pb-head">
     <div class="pb-kicker">📘 Expert Playbook · Hades</div>
@@ -857,7 +853,8 @@ def generate_html(
 
 <div class="header">
   <h1>HADES</h1>
-  <div class="tagline">WEB SECURITY SCANNER  •  AUTOMATED VULNERABILITY REPORT</div>
+  <div class="prompt"><span class="pdim">$</span> hades <span class="pdim">--target</span> {_e(url)} <span class="pdim">--profile full --report</span></div>
+  <div class="tagline">WEB SECURITY SCANNER  ·  AUTOMATED VULNERABILITY REPORT</div>
   <div class="meta">
     <div class="meta-item">TARGET &nbsp;<span>{_e(url)}</span></div>
     <div class="meta-item">SCAN DATE &nbsp;<span>{_e(timestamp_human)}</span></div>

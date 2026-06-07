@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from scanner.intel.skills_kb import all_skills, github_url
+from scanner.output import web_theme
 
 console = Console()
 
@@ -28,35 +29,30 @@ def _e(text: str) -> str:
 
 
 _CSS = """
-:root{--bg:#0a0a0f;--panel:#12141c;--card:#161b22;--ink:#c9d1d9;--muted:#8b949e;--red:#b3122a;
-  --purple:#8957e5;--accent:#d2a8ff;--border:#272d38;--atk:#79c0ff;--off:#ff7b72;--def:#56d364;}
-*{box-sizing:border-box;}
-body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#1a0c12 0%,var(--bg) 60%);
-  color:var(--ink);font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;}
 .wrap{max-width:1200px;margin:0 auto;padding:30px 22px 90px;}
-.head{text-align:center;border-bottom:2px solid var(--purple);padding-bottom:18px;margin-bottom:8px;}
+.head{text-align:center;border-bottom:2px solid var(--purple-line);padding-bottom:18px;margin-bottom:8px;}
 .kicker{font-size:2.4rem;}
-h1{margin:.2em 0 .1em;font-size:2rem;letter-spacing:3px;color:#fff;}
-h1 .hl{color:var(--purple);}
+h1{font-family:var(--mono);margin:.2em 0 .1em;font-size:2rem;letter-spacing:3px;color:var(--bright);}
+h1 .hl{color:var(--purple-line);text-shadow:0 0 18px rgba(137,87,229,.4);}
 .tag{color:var(--muted);letter-spacing:1px;font-size:.9rem;}
 .stats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:16px 0 6px;}
 .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 16px;}
-.stat b{color:#fff;font-size:1.25rem;} .stat span{color:var(--muted);font-size:.72rem;letter-spacing:1px;}
+.stat b{color:var(--bright);font-size:1.25rem;} .stat span{color:var(--muted);font-size:.72rem;letter-spacing:1px;}
 .legend{color:var(--muted);font-size:.78rem;text-align:center;margin-top:6px;}
 .search{position:sticky;top:0;z-index:5;padding:14px 0;background:linear-gradient(var(--bg),var(--bg) 70%,transparent);}
 #q{width:100%;padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:var(--card);
   color:var(--ink);font-size:1rem;outline:none;}
-#q:focus{border-color:var(--purple);box-shadow:0 0 0 2px #8957e533;}
+#q:focus{border-color:var(--purple-line);box-shadow:0 0 0 2px #8957e533;}
 .cat{margin-top:34px;}
-.cat-h{display:flex;align-items:baseline;gap:12px;border-left:4px solid var(--purple);padding-left:12px;margin-bottom:4px;}
-.cat-h h2{margin:0;font-size:1.35rem;color:#fff;text-transform:capitalize;}
+.cat-h{display:flex;align-items:baseline;gap:12px;border-left:4px solid var(--purple-line);padding-left:12px;margin-bottom:4px;}
+.cat-h h2{margin:0;font-size:1.35rem;color:var(--bright);text-transform:capitalize;}
 .cat-h .count{margin-left:auto;color:var(--muted);font-size:.75rem;}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;margin-top:12px;}
 .skill{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;
   transition:border-color .15s,transform .15s;display:flex;flex-direction:column;gap:7px;}
-.skill:hover{border-color:var(--purple);transform:translateY(-2px);}
+.skill:hover{border-color:var(--purple-line);transform:translateY(-2px);}
 .skill .row{display:flex;align-items:center;gap:8px;}
-.skill a.name{color:#fff;font-weight:700;font-size:.98rem;text-decoration:none;line-height:1.3;}
+.skill a.name{color:var(--bright);font-weight:700;font-size:.98rem;text-decoration:none;line-height:1.3;}
 .skill a.name:hover{color:var(--accent);text-decoration:underline;}
 .intent{margin-left:auto;font-size:.58rem;font-weight:700;letter-spacing:.5px;border-radius:9px;
   padding:2px 8px;white-space:nowrap;border:1px solid;}
@@ -67,7 +63,7 @@ h1 .hl{color:var(--purple);}
 .chip{font-size:.62rem;border-radius:8px;padding:2px 7px;border:1px solid var(--border);color:var(--muted);}
 .chip.atk{color:var(--atk);border-color:#1f6feb;background:#0b1530;}
 .empty{display:none;color:var(--muted);text-align:center;padding:40px;}
-.foot{margin-top:54px;padding-top:18px;border-top:1px solid #21262d;color:#484f58;text-align:center;font-size:.8rem;}
+.foot{margin-top:54px;padding-top:18px;border-top:1px solid var(--border-soft);color:var(--faint);text-align:center;font-size:.8rem;}
 """
 
 _JS = """
@@ -123,7 +119,7 @@ def _build_html() -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hades — Skills Library</title><style>{_CSS}</style></head>
+<title>Hades — Skills Library</title><style>{web_theme.ROOT_VARS}{web_theme.BASE_CSS}{_CSS}</style></head>
 <body><div class="wrap">
   <div class="head">
     <div class="kicker">📚</div>

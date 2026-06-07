@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from scanner.arsenal.arsenal_data import CATEGORIES
+from scanner.output import web_theme
 
 console = Console()
 
@@ -31,45 +32,40 @@ def _tool_url(url: str | None) -> str:
 
 
 _CSS = """
-:root{--bg:#0a0a0f;--panel:#12141c;--card:#161b22;--ink:#c9d1d9;--muted:#8b949e;--red:#b3122a;
-  --purple:#8957e5;--accent:#d2a8ff;--border:#272d38;--star:#e3b341;}
-*{box-sizing:border-box;}
-body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#1a0c12 0%,var(--bg) 60%);
-  color:var(--ink);font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;}
 .wrap{max-width:1200px;margin:0 auto;padding:30px 22px 90px;}
 .head{text-align:center;border-bottom:2px solid var(--red);padding-bottom:18px;margin-bottom:8px;}
 .skull{font-size:2.6rem;}
-h1{margin:.2em 0 .1em;font-size:2rem;letter-spacing:3px;color:#fff;}
-h1 .six{color:var(--red);}
+h1{font-family:var(--mono);margin:.2em 0 .1em;font-size:2rem;letter-spacing:3px;color:var(--bright);}
+h1 .six{color:var(--red);text-shadow:0 0 18px var(--red-glow);}
 .tag{color:var(--muted);letter-spacing:1px;font-size:.9rem;}
 .stats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:16px 0 6px;}
 .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 16px;}
-.stat b{color:#fff;font-size:1.25rem;} .stat span{color:var(--muted);font-size:.72rem;letter-spacing:1px;}
+.stat b{font-family:var(--mono);color:var(--bright);font-size:1.25rem;} .stat span{color:var(--muted);font-size:.72rem;letter-spacing:1px;}
 .search{position:sticky;top:0;z-index:5;padding:14px 0;background:linear-gradient(var(--bg),var(--bg) 70%,transparent);}
 #q{width:100%;padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:var(--card);
   color:var(--ink);font-size:1rem;outline:none;}
-#q:focus{border-color:var(--purple);box-shadow:0 0 0 2px #8957e533;}
+#q:focus{border-color:var(--red);box-shadow:0 0 0 2px var(--red-glow);}
 .cat{margin-top:34px;}
-.cat-h{display:flex;align-items:baseline;gap:12px;border-left:4px solid var(--purple);padding-left:12px;margin-bottom:4px;}
-.cat-h h2{margin:0;font-size:1.35rem;color:#fff;}
+.cat-h{display:flex;align-items:baseline;gap:12px;border-left:4px solid var(--red);padding-left:12px;margin-bottom:4px;}
+.cat-h h2{font-family:var(--mono);margin:0;font-size:1.35rem;color:var(--bright);}
 .cat-h .why{color:var(--accent);font-size:.82rem;}
-.cat-h .count{margin-left:auto;color:var(--muted);font-size:.75rem;}
+.cat-h .count{font-family:var(--mono);margin-left:auto;color:var(--muted);font-size:.75rem;}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;margin-top:12px;}
 .tool{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;
   transition:border-color .15s,transform .15s;display:flex;flex-direction:column;gap:7px;}
-.tool:hover{border-color:var(--purple);transform:translateY(-2px);}
+.tool:hover{border-color:var(--red);transform:translateY(-2px);}
 .tool .row{display:flex;align-items:center;gap:8px;}
-.tool a.name{color:#fff;font-weight:700;font-size:1.02rem;text-decoration:none;}
+.tool a.name{color:var(--bright);font-weight:700;font-size:1.02rem;text-decoration:none;}
 .tool a.name:hover{color:var(--accent);text-decoration:underline;}
 .star{color:var(--star);}
-.badge{margin-left:auto;font-size:.6rem;font-weight:700;letter-spacing:.5px;border:1px solid #6e40c9;
-  color:var(--accent);background:#1d162e;border-radius:9px;padding:2px 8px;white-space:nowrap;}
+.badge{font-family:var(--mono);margin-left:auto;font-size:.6rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--accent);background:#1a1430;border-radius:9px;padding:2px 8px;white-space:nowrap;}
 .tool .desc{color:var(--muted);font-size:.86rem;}
-.tool .gh{color:#58a6ff;font-size:.74rem;text-decoration:none;}
+.tool .gh{font-family:var(--mono);color:var(--link);font-size:.74rem;text-decoration:none;}
 .tool .gh:hover{text-decoration:underline;}
-.tool .nolink{color:#6e7681;font-size:.74rem;font-style:italic;}
+.tool .nolink{color:var(--faint);font-size:.74rem;font-style:italic;}
 .empty{display:none;color:var(--muted);text-align:center;padding:40px;}
-.foot{margin-top:54px;padding-top:18px;border-top:1px solid #21262d;color:#484f58;text-align:center;font-size:.8rem;}
+.foot{margin-top:54px;padding-top:18px;border-top:1px solid var(--border-soft);color:var(--faint);text-align:center;font-size:.8rem;}
 .legend{color:var(--muted);font-size:.78rem;text-align:center;margin-top:6px;}
 """
 
@@ -126,7 +122,7 @@ def _build_html() -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hades — RedTeam Arsenal</title><style>{_CSS}</style></head>
+<title>Hades — RedTeam Arsenal</title><style>{web_theme.ROOT_VARS}{web_theme.BASE_CSS}{_CSS}</style></head>
 <body><div class="wrap">
   <div class="head">
     <div class="skull">☠</div>

@@ -98,8 +98,8 @@ _BANNER_ART = (
     "██   ██ ██   ██ ██████  ███████ ███████"
 )
 
-_TAGLINE = "Ψ  Web Security Scanner  •  Kali-style recon & vulnerability detection  Ψ"
-_LEGAL   = "[dim]⚠  For authorised testing only. Unauthorised scanning is illegal.[/dim]"
+_TAGLINE = "Web Security Scanner  ·  Kali-style recon & exploitation"
+_LEGAL   = "[dim]For authorised testing only. Unauthorised scanning is illegal.[/dim]"
 
 
 def print_banner() -> None:
@@ -107,13 +107,13 @@ def print_banner() -> None:
     from rich import box
     from rich.align import Align
 
-    banner_text = Text(_BANNER_ART, style="bold bright_red")
+    banner_text = Text(_BANNER_ART, style="bold red")
     console.print(Panel(
         Align.center(banner_text),
         box=box.DOUBLE,
-        border_style="bold bright_red",
-        title="[bold white]†  H A D E S  †[/bold white]",
-        subtitle=f"[bold cyan]{_TAGLINE}[/bold cyan]",
+        border_style="bold red",
+        title="[bold white]H A D E S[/bold white]",
+        subtitle=f"[bold green]{_TAGLINE}[/bold green]",
         padding=(1, 6),
     ))
     console.print()

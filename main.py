@@ -30,8 +30,8 @@ from scanner.output.logger import setup_logging
 # Rich console with cybersecurity colour palette
 # ---------------------------------------------------------------------------
 THEME = Theme({
-    "banner":    "bold bright_red",
-    "accent":    "bold cyan",
+    "banner":    "bold red",       # HADES wordmark / brand
+    "accent":    "bold green",     # menu numbers, prompts (Kali terminal green)
     "warn":      "bold yellow",
     "danger":    "bold red",
     "info":      "dim white",

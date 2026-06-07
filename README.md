@@ -180,8 +180,9 @@ evidence**, and every piece of evidence comes with the next move.
 
 ## Reports Preview
 
-Every scan produces a dark, self-contained HTML report (clickable framework badges, a security-score
-gauge, the kill-chain attack path, matched playbooks, and the DB/AI panels).
+Every scan produces a dark, self-contained HTML report in Hades' unified **Kali red-team theme**
+(clickable framework badges, a security-score gauge, the kill-chain attack path, matched playbooks,
+and the DB/AI panels) — heavy per-finding detail tucks into an expandable section to stay scannable.
 
 <p align="center">
   <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">

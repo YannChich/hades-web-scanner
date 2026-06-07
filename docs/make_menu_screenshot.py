@@ -24,8 +24,8 @@ from rich.theme import Theme
 
 # Keep these in sync with main.py THEME and scanner/output/console.py banner.
 THEME = Theme({
-    "banner":    "bold bright_red",
-    "accent":    "bold cyan",
+    "banner":    "bold red",
+    "accent":    "bold green",
     "warn":      "bold yellow",
     "danger":    "bold red",
     "info":      "dim white",
@@ -40,14 +40,14 @@ _BANNER_ART = (
     "██   ██ ██   ██ ██   ██ ██           ██\n"
     "██   ██ ██   ██ ██████  ███████ ███████"
 )
-_TAGLINE = "Web Security Scanner  -  Kali-style recon & vulnerability detection"
+_TAGLINE = "Web Security Scanner  ·  Kali-style recon & exploitation"
 
-# Hades dark terminal palette (background #0d0d0f, soft foreground), exported into the SVG chrome.
+# Hades v2 dark terminal palette (background #0a0c10, soft foreground), exported into the SVG chrome.
 HADES_TERMINAL = TerminalTheme(
-    (13, 13, 15),
+    (10, 12, 16),
     (201, 209, 217),
     [
-        (13, 13, 15),     # black
+        (10, 12, 16),     # black
         (179, 18, 42),    # red
         (57, 211, 83),    # green
         (227, 179, 65),   # yellow
@@ -85,11 +85,11 @@ def build_svg(out_path: str) -> None:
     console = Console(theme=THEME, record=True, width=108)
 
     console.print(Panel(
-        Align.center(Text(_BANNER_ART, style="bold bright_red")),
+        Align.center(Text(_BANNER_ART, style="bold red")),
         box=box.DOUBLE,
-        border_style="bold bright_red",
+        border_style="bold red",
         title="[bold white]H A D E S[/bold white]",
-        subtitle=f"[bold cyan]{_TAGLINE}[/bold cyan]",
+        subtitle=f"[bold green]{_TAGLINE}[/bold green]",
         padding=(1, 6),
     ))
     console.print()
