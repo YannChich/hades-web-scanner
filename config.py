@@ -276,6 +276,36 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Blue-team REMEDIATION map — module → curated *defensive* skill(s) from the library that explain
+# how to detect/fix the finding (the complement to MODULE_SKILL_MAP's offensive playbooks). Names
+# are verified to exist in Anthropic-Cybersecurity-Skills; only mapped where a genuinely relevant
+# defensive skill exists, so a remediation badge is always accurate (never forced). Surfaced
+# separately from the offensive playbook via Finding.remediation_refs.
+# ---------------------------------------------------------------------------
+MODULE_REMEDIATION_MAP: dict[str, list[str]] = {
+    "sqli_detect":       ["implementing-web-application-logging-with-modsecurity"],
+    "xss_detect":        ["implementing-web-application-logging-with-modsecurity"],
+    "command_injection": ["implementing-web-application-logging-with-modsecurity"],
+    "ssti_detect":       ["implementing-web-application-logging-with-modsecurity"],
+    "lfi_detect":        ["implementing-web-application-logging-with-modsecurity"],
+    "sensitive_files":   ["implementing-secret-scanning-with-gitleaks",
+                          "implementing-secrets-management-with-vault"],
+    "git_dumper":        ["implementing-secret-scanning-with-gitleaks",
+                          "detecting-aws-credential-exposure-with-trufflehog"],
+    "js_recon":          ["implementing-secret-scanning-with-gitleaks"],
+    "ssl_check":         ["configuring-tls-1-3-for-secure-communications"],
+    "hephaestus_tls":    ["configuring-tls-1-3-for-secure-communications"],
+    "jwt_attacks":       ["implementing-jwt-signing-and-verification"],
+    "cloud_buckets":     ["auditing-aws-s3-bucket-permissions"],
+    "default_creds":     ["configuring-multi-factor-authentication-with-duo"],
+    "bruteforce":        ["configuring-multi-factor-authentication-with-duo"],
+    "auth_bypass":       ["implementing-passwordless-authentication-with-fido2"],
+    "cve_mapping":       ["implementing-epss-score-for-vulnerability-prioritization"],
+    "cve_vulnerability": ["implementing-epss-score-for-vulnerability-prioritization"],
+    "db_security":       ["implementing-pam-for-database-access"],
+}
+
+# ---------------------------------------------------------------------------
 # RedTeam-Tools cross-reference — name the relevant offensive tools per finding so
 # a client report is self-contained (the tools' details live in the bundled
 # Hades_RedTeam_Tools_Reference.pdf). Names match entries in the RedTeam-Tools repo.

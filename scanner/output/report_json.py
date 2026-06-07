@@ -63,6 +63,11 @@ def generate_json(
                      "mitre": s.get("mitre", [])}
                     for s in (f.skill_refs or [])
                 ],
+                "remediation_playbooks": [
+                    {"name": s.get("name"), "url": s.get("href"),
+                     "mitre": s.get("mitre", [])}
+                    for s in (getattr(f, "remediation_refs", None) or [])
+                ],
                 "raw":            f.raw,
             }
             for f in findings

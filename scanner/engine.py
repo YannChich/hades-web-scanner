@@ -96,6 +96,8 @@ class Finding:
     poc:        str = ""                              # reproducible proof (curl / HTTP request)
     # Matched expert playbooks from the skills library (filled by scanner.intel.skills_kb).
     skill_refs: list = field(default_factory=list)
+    # Matched blue-team remediation playbook(s) — the defensive complement to skill_refs.
+    remediation_refs: list = field(default_factory=list)
     # Relevant RedTeam-Tools entries by name (client-facing; details in the bundled PDF).
     redteam_tools: list[str] = field(default_factory=list)
 

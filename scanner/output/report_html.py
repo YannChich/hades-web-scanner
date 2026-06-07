@@ -225,10 +225,12 @@ a:hover { text-decoration: underline; }
 .ref-mitre { color: #79c0ff; border-color: #1f6feb; }
 .ref-tool  { color: #e3b341; border-color: #9e6a03; background: #1c1808; }
 .ref-play  { color: #d2a8ff; border-color: #8957e5; background: #1d162e; }
+.ref-fix   { color: #56d364; border-color: #238636; background: #0c1f12; }
 /* Every reference badge is a link to its canonical explanation page. */
 a.ref-pill { text-decoration: none; cursor: pointer; transition: filter .15s, box-shadow .15s; }
 a.ref-pill:hover { text-decoration: none; filter: brightness(1.4); box-shadow: 0 0 0 1px currentColor; }
 a.ref-play:hover { text-decoration: none; background: #2d2150; filter: none; box-shadow: none; }
+a.ref-fix:hover  { text-decoration: none; background: #12351c; filter: none; box-shadow: none; }
 /* Recommended-playbooks section */
 .play-list { list-style: none; }
 .play-list li {
@@ -410,7 +412,11 @@ def _refs_html(f: Finding, sev_color: str) -> str:
     for s in (f.skill_refs or []):
         href = s.get("href") or "#"
         pills.append(f'<a class="ref-pill ref-play" href="{_e(href)}" target="_blank" rel="noopener" '
-                     f'title="Open the full playbook">📘 {_e(s["name"])}</a>')
+                     f'title="Open the offensive playbook">📘 {_e(s["name"])}</a>')
+    for s in (getattr(f, "remediation_refs", None) or []):
+        href = s.get("href") or "#"
+        pills.append(f'<a class="ref-pill ref-fix" href="{_e(href)}" target="_blank" rel="noopener" '
+                     f'title="Open the remediation playbook">🛡 Fix: {_e(s["name"])}</a>')
     return f'<div class="refs">{"".join(pills)}</div>'
 
 
@@ -752,7 +758,8 @@ def _render_playbooks_to_html(findings: list[Finding], output_dir: str) -> None:
             s["href"] = rendered[name] = gh
 
     for f in findings:
-        for s in getattr(f, "skill_refs", None) or []:
+        refs = (getattr(f, "skill_refs", None) or []) + (getattr(f, "remediation_refs", None) or [])
+        for s in refs:
             href = s.get("href", "")
             if not (href.startswith("file:") and href.lower().rstrip("/").endswith(".md")):
                 continue

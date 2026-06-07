@@ -175,6 +175,10 @@ def print_findings(findings: list[Finding], url: str) -> None:
         if skills:
             names = ", ".join(s["name"] for s in skills[:2])
             description.append(f"\n📘 playbook → {names}", style="magenta")
+        remediation = getattr(f, "remediation_refs", None)
+        if remediation:
+            fixes = ", ".join(s["name"] for s in remediation[:2])
+            description.append(f"\n🛡 fix → {fixes}", style="green")
         tools = getattr(f, "redteam_tools", None)
         if tools:
             description.append(f"\n🛠 tools → {', '.join(tools)}", style="yellow")

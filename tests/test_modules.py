@@ -187,10 +187,12 @@ def fake_skills_repo(tmp_path, monkeypatch):
     (repo / "index.json").write_text(_json.dumps(index), encoding="utf-8")
 
     monkeypatch.setenv("HADES_SKILLS_PATH", str(repo))
-    for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+    for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+               skills_kb._skill_detail, skills_kb._skill_meta):
         fn.cache_clear()
     yield repo
-    for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+    for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+               skills_kb._skill_detail, skills_kb._skill_meta):
         fn.cache_clear()
 
 
@@ -231,12 +233,14 @@ class TestSkillsEnrichment:
         monkeypatch.setenv("HADES_SKILLS_PATH", str(tmp_path / "does-not-exist"))
         monkeypatch.setattr(skills_kb, "SKILLS_REPO_CANDIDATES", [])
         monkeypatch.setattr(skills_kb, "_load_bundle", lambda: {})
-        for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+                   skills_kb._skill_detail, skills_kb._skill_meta):
             fn.cache_clear()
         f = Finding(module="sqli_detect", title="t", description="", severity=Severity.HIGH)
         assert skills_kb.enrich([f]) == 0
         assert f.skill_refs == []
-        for fn in (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail):
+        for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
+                   skills_kb._skill_detail, skills_kb._skill_meta):
             fn.cache_clear()
 
     def test_bundle_fallback_when_repo_absent(self, tmp_path, monkeypatch):
@@ -245,7 +249,7 @@ class TestSkillsEnrichment:
         monkeypatch.setenv("HADES_SKILLS_PATH", str(tmp_path / "nope"))
         monkeypatch.setattr(skills_kb, "SKILLS_REPO_CANDIDATES", [])
         for fn in (skills_kb.find_skills_repo, skills_kb._load_index,
-                   skills_kb._skill_detail, skills_kb._load_bundle):
+                   skills_kb._skill_detail, skills_kb._load_bundle, skills_kb._skill_meta):
             fn.cache_clear()
         f = Finding(module="sqli_detect", title="SQLi", description="", severity=Severity.CRITICAL)
         assert skills_kb.enrich([f]) == 1                       # works via the bundle
@@ -266,14 +270,24 @@ class TestPlaybookQuality:
         return json.loads(p.read_text(encoding="utf-8"))
 
     def test_descriptions_are_complete_and_engaging(self):
-        """No truncated teasers — every playbook description is a complete sentence."""
+        """The playbook teasers actually shown next to findings (curated offensive + remediation
+        maps) must each be a complete, non-truncated sentence. The wider 754-skill bundle is a
+        reference catalogue and is not held to this editorial bar."""
+        import config
+        by_name = {s["name"]: s for s in self._bundle()}
+        surfaced: set[str] = set()
+        for mapping in (config.MODULE_SKILL_MAP, config.DB_CATEGORY_SKILL_MAP,
+                        config.MODULE_REMEDIATION_MAP):
+            for names in mapping.values():
+                surfaced.update(names)
         dangling = {"to", "using", "that", "by", "where", "including", "and", "the", "with",
                     "for", "of", "a", "in", "on", "from", "as"}
-        for s in self._bundle():
-            d = s["description"].strip()
-            assert d.endswith("."), f"{s['name']}: description not a full sentence"
-            assert len(d) >= 40, f"{s['name']}: description too short"
-            assert d.rstrip(".").split()[-1].lower() not in dangling, f"{s['name']}: truncated"
+        for name in sorted(surfaced):
+            assert name in by_name, f"{name}: surfaced playbook missing from bundle"
+            d = by_name[name]["description"].strip()
+            assert d.endswith("."), f"{name}: description not a full sentence"
+            assert len(d) >= 40, f"{name}: description too short"
+            assert d.rstrip(".").split()[-1].lower() not in dangling, f"{name}: truncated"
 
     def test_mapped_skills_all_resolve_in_bundle(self):
         import config
@@ -3732,6 +3746,101 @@ class TestPlaybookHtmlRendering:
         assert href == github_url(name)
         assert href.startswith("https://github.com/") and "/blob/" in href
         assert not href.startswith("file:")                 # never a raw local .md
+
+
+class TestExpandedSkillMatching:
+    """The 754-skill library: smarter offensive matching, curated blue-team remediation, and the
+    Skills Library page — all additive and precise."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_caches(self):
+        from scanner.intel import skills_kb
+        caches = (skills_kb.find_skills_repo, skills_kb._load_index, skills_kb._skill_detail,
+                  skills_kb._load_bundle, skills_kb._skill_meta)
+        for fn in caches:
+            fn.cache_clear()
+        yield
+        for fn in caches:
+            fn.cache_clear()
+
+    def test_finding_has_remediation_refs_default(self):
+        f = Finding(module="x", title="t", description="", severity=Severity.LOW)
+        assert f.remediation_refs == []
+
+    def test_curated_offensive_map_still_authoritative(self):
+        from scanner.intel import skills_kb
+        f = Finding(module="sqli_detect", title="SQL Injection: id", description="",
+                    severity=Severity.CRITICAL)
+        skills_kb.enrich([f])
+        assert [s["name"] for s in f.skill_refs][:1] == ["exploiting-sql-injection-vulnerabilities"]
+
+    def test_offensive_fallback_is_offensive_only(self):
+        """A module absent from the curated map still gets an offensive playbook (never blue-team)."""
+        import config
+        from scanner.intel import skills_kb
+        assert "sensitive_files" not in config.MODULE_SKILL_MAP
+        f = Finding(module="sensitive_files", title=".env file exposed", description="",
+                    severity=Severity.CRITICAL)
+        skills_kb.enrich([f])
+        names = [s["name"] for s in f.skill_refs]
+        assert names, "the scorer should attach a relevant offensive playbook"
+        assert all(n.startswith(skills_kb._OFFENSIVE_PREFIXES) for n in names)
+
+    def test_broad_technique_alone_never_matches(self):
+        """A shared but broad ATT&CK technique with zero lexical overlap must not attach noise."""
+        from scanner.intel import skills_kb
+        f = Finding(module="zz_unknown", title="Xyzzy plugh quux", description="",
+                    severity=Severity.MEDIUM)
+        f.mitre = ["T1190"]                       # shared by many skills; lexically irrelevant title
+        assert skills_kb.match_skills(f) == []
+
+    def test_curated_remediation_is_blue_team(self):
+        from scanner.intel import skills_kb
+        f = Finding(module="sqli_detect", title="SQL Injection: id", description="",
+                    severity=Severity.CRITICAL)
+        skills_kb.enrich([f])
+        names = [s["name"] for s in f.remediation_refs]
+        assert "implementing-web-application-logging-with-modsecurity" in names
+        assert all(not n.startswith(skills_kb._OFFENSIVE_PREFIXES) for n in names)
+
+    def test_remediation_never_duplicates_offensive(self):
+        from scanner.intel import skills_kb
+        f = Finding(module="cloud_buckets", title="Open S3 bucket readable", description="",
+                    severity=Severity.HIGH)
+        skills_kb.enrich([f])
+        off = {s["name"] for s in f.skill_refs}
+        rem = {s["name"] for s in f.remediation_refs}
+        assert off.isdisjoint(rem)
+
+    def test_info_finding_gets_no_remediation(self):
+        from scanner.intel import skills_kb
+        f = Finding(module="ssl_check", title="TLS configuration", description="",
+                    severity=Severity.INFO)
+        assert skills_kb.match_remediation(f) == []
+
+    def test_all_skills_accessor(self):
+        from scanner.intel.skills_kb import all_skills
+        sk = all_skills()
+        assert len(sk) >= 100
+        keys = {"name", "description", "subdomain", "tags", "mitre", "offensive", "href"}
+        assert keys <= set(sk[0])
+
+    def test_skills_library_page_builds(self):
+        from scanner.intel.skills_library import _build_html
+        html = _build_html()
+        assert html.count('class="skill"') >= 100      # one card per skill
+        assert 'id="q"' in html                          # searchable
+        assert "intent off" in html and "intent def" in html   # red/blue markers
+        assert "chip atk" in html                        # ATT&CK chips
+        assert "<section" in html                        # grouped by subdomain
+
+    def test_bundle_has_subdomain_and_scale(self):
+        import json
+        from pathlib import Path
+        p = Path(__file__).resolve().parent.parent / "scanner" / "intel" / "playbooks.json"
+        bundle = json.loads(p.read_text(encoding="utf-8"))
+        assert len(bundle) >= 700
+        assert all("subdomain" in s and "offensive" in s for s in bundle)
 
 
 # ---------------------------------------------------------------------------

@@ -154,10 +154,11 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]8[/accent]. [ok]CVE Vulnerability Intelligence[/ok]  Match detected tech to CVEs (local KEV/EPSS + NVD)")
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
     console.print("  [danger]666[/danger]. [danger]RedTeam Arsenal[/danger]   Open the offensive-tools reference page (no scan — ignores the target)")
+    console.print("  [accent]777[/accent]. [ok]Skills Library[/ok]    Browse the 754 expert playbooks Hades draws on (no scan)")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
-                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "666"],
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "666", "777"],
                         default="2").strip()
 
     match choice:
@@ -180,6 +181,8 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "tls_scan", None
         case "666":
             return "arsenal", None
+        case "777":
+            return "skills", None
         case _:
             return "full", None
 
@@ -277,6 +280,12 @@ def build_parser() -> argparse.ArgumentParser:
              "(no scan; also available as menu option 666)",
     )
     parser.add_argument(
+        "--skills",
+        action="store_true",
+        help="Open the Skills Library — a searchable page of the expert playbooks Hades draws on, "
+             "grouped by subdomain (no scan; also available as menu option 777)",
+    )
+    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -353,6 +362,12 @@ def main() -> None:
         open_arsenal(open_browser=not args.no_open)
         return
 
+    # Skills Library (reference page) — no target/scan needed.
+    if args.skills:
+        from scanner.intel.skills_library import open_skills_library
+        open_skills_library(open_browser=not args.no_open)
+        return
+
     modules: Optional[list[str]] = None
 
     # --- Target URL: from flag, otherwise prompt ---
@@ -383,6 +398,12 @@ def main() -> None:
     if profile == "arsenal":
         from scanner.arsenal.redteam_arsenal import open_arsenal
         open_arsenal(open_browser=not args.no_open)
+        return
+
+    # Menu option 777 — open the Skills Library reference page instead of scanning.
+    if profile == "skills":
+        from scanner.intel.skills_library import open_skills_library
+        open_skills_library(open_browser=not args.no_open)
         return
 
     # The HTML and JSON reports are always generated (see run_scan).

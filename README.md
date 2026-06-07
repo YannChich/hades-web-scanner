@@ -162,6 +162,11 @@ evidence**, and every piece of evidence comes with the next move.
 **Intelligence and reporting layer**
 - Framework mapping (CWE / OWASP / ATT&CK / CVSS), expert playbooks, per-finding RedTeam tools, and a
   unified kill-chain attack path — surfaced in the console, JSON and HTML.
+- Backed by the **754-skill Anthropic-Cybersecurity-Skills library**: findings are matched to playbooks
+  by ATT&CK technique + tags (not just a hardcoded list), and each finding pairs an **offensive**
+  playbook (how to exploit it) with a curated **blue-team remediation** playbook (how to detect/fix it).
+- Browse the whole library as a searchable **Skills Library** page (`--skills` / menu **777**) — all
+  754 playbooks grouped by subdomain, with offensive/defensive markers and ATT&CK chips.
 - Every reference badge in the HTML report is **clickable** — CVE → NVD, CVSS → the FIRST calculator,
   CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
 - Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
@@ -229,7 +234,8 @@ calculator, or the attacker technique. Here is how to read each one.
 | OWASP | `A03:2021` | The **OWASP Top 10 (2021)** category the issue falls under. | owasp.org Top 10 page |
 | ATT&CK | `T1190` | The **MITRE ATT&CK** technique an attacker uses to exploit it — the finding mapped to real adversary behaviour. | attack.mitre.org technique |
 | Tool | `sqlmap` | The offensive **tool** best suited to verify or exploit this finding. | The tool's GitHub repository |
-| Playbook | `<name>` | A step-by-step **expert playbook** (detection &rarr; exploitation &rarr; remediation) matched to the finding. | The full playbook, **rendered as a readable HTML page** (dark theme, code/tables) — not raw Markdown |
+| Playbook | `<name>` | A step-by-step **offensive expert playbook** (detection &rarr; exploitation) matched to the finding. | The full playbook, **rendered as a readable HTML page** (dark theme, code/tables) — not raw Markdown |
+| Fix | `Fix: <name>` | A curated **blue-team remediation** playbook — how to **detect and fix** the issue (the defensive complement to the offensive playbook). | The remediation write-up (rendered HTML page, or GitHub) |
 
 > **How to read a finding at a glance:** the **severity** badge says *how urgent*; **CWE / OWASP** say
 > *what kind of bug*; **CVSS** says *how severe in the abstract*; **ATT&CK** says *how it's abused*; and
@@ -318,6 +324,9 @@ python hades.py --url https://example.com --profile tls_scan
 # RedTeam Arsenal — a searchable reference page of 175 offensive tools by attack type
 python hades.py --arsenal          # opens an HTML catalogue (no scan; also menu option 666)
 
+# Skills Library — a searchable page of the 754 expert playbooks Hades draws on, by subdomain
+python hades.py --skills           # opens an HTML catalogue (no scan; also menu option 777)
+
 # (one-time) bulk-load the full NVD corpus for offline CVE matching — optional NVD_API_KEY speeds it up
 python tools/build_vulndb.py                       # then cve_scan matches ~270k CVEs locally, offline
 
@@ -336,6 +345,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
+| `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **777**) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
@@ -510,7 +520,7 @@ hades-web-scanner/
 │   ├── db/   ai/   offensive/   oob/   # Red-team profiles (db_scan, ai_scan, engage, oob_scan)
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
-│   ├── intel/               # Skills-library enrichment (playbooks)
+│   ├── intel/               # Skills-library enrichment (ATT&CK/tag matching, red+blue playbooks) + Skills Library page
 │   └── output/              # Console, scoring, attack path, HTML + JSON reports
 ├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)
 ├── docs/                    # Reference PDFs + their generator scripts
