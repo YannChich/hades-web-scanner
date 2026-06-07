@@ -4130,6 +4130,17 @@ class _RecordTransport(httpx.BaseTransport):
         return httpx.Response(404, text="")
 
 
+class _FreshTransport(httpx.BaseTransport):
+    """Builds a FRESH response per call (so self-baseline re-fetches work); handler(url) -> body|None."""
+
+    def __init__(self, handler):
+        self.handler = handler
+
+    def handle_request(self, request: httpx.Request):
+        body = self.handler(str(request.url))
+        return httpx.Response(404, text="") if body is None else httpx.Response(200, html=body)
+
+
 class TestAuthenticatedSession:
     def _engine(self, transport) -> ScanEngine:
         eng = ScanEngine("https://example.com", rate_delay=0)
@@ -4257,6 +4268,78 @@ class TestIdorDetect:
                         rate_delay=config.SAFE_MODE_RATE_DELAY)
         self._crawl(eng, ["https://example.com/account?id=5"])
         assert idor_detect.run(eng) == []
+        eng.close()
+
+    # ── JSON / API awareness ──────────────────────────────────────────────
+    def test_idor_json_api_enumeration(self):
+        from scanner.vulns import idor_detect
+        from scanner.crawler import CrawlResult
+        def obj(i, name):
+            return httpx.Response(200, json={"id": i, "name": name, "email": f"{name}@corp.test",
+                                             "role": "user"})
+        eng = self._eng({
+            "https://example.com/api/users/5": obj(5, "alice"),
+            "https://example.com/api/users/6": obj(6, "bob"),
+        })
+        eng._crawl_result = CrawlResult(internal_links={"https://example.com/api/users/5"})
+        findings = idor_detect.run(eng)
+        assert findings, "expected a JSON IDOR finding (same schema, different values)"
+        assert "/api/users/6" in findings[0].raw["proof_url"]
+        assert findings[0].poc.startswith("curl ")
+        eng.close()
+
+    def test_bola_json_api_detected(self):
+        from scanner.vulns import idor_detect
+        from scanner.crawler import CrawlResult
+        payload = {"id": 10, "iban": "FR7612345", "balance": 4200}
+        eng = self._eng({"https://example.com/api/orders/10": httpx.Response(200, json=payload)})
+        eng._anon_client = httpx.Client(
+            transport=MockTransport({"https://example.com/api/orders/10": httpx.Response(200, json=payload)}),
+            follow_redirects=True, verify=False)
+        eng.authenticated = True
+        eng._crawl_result = CrawlResult(internal_links={"https://example.com/api/orders/10"})
+        findings = idor_detect.run(eng)
+        bola = [f for f in findings if "without a session" in f.title]
+        assert bola and bola[0].raw["confidence"] == "high"
+        eng.close()
+
+    # ── self-baseline noise floor (dynamic pages) ─────────────────────────
+    _SHARED = "<html><body>" + ("stable dashboard navigation footer panel " * 22) + "{body}</body></html>"
+
+    def _fresh_eng(self, handler):
+        eng = ScanEngine("https://example.com", rate_delay=0)
+        eng._client = httpx.Client(transport=_FreshTransport(handler), follow_redirects=True, verify=False)
+        return eng
+
+    def test_self_baseline_ignores_dynamic_noise(self):
+        import uuid
+        from scanner.vulns import idor_detect
+        from scanner.crawler import CrawlResult
+        # Every id returns the SAME object; only a per-request token changes (dynamic page).
+        def handler(url):
+            if "/account" in url and "id=" in url:
+                return self._SHARED.format(body=f"<p>Owner: Alice</p><span>{uuid.uuid4()}</span>")
+            return None
+        eng = self._fresh_eng(handler)
+        eng._crawl_result = CrawlResult(parametrised_urls=["https://example.com/account?id=5"])
+        assert idor_detect.run(eng) == []          # token-only churn must NOT look like another object
+        eng.close()
+
+    def test_self_baseline_still_detects_real_object(self):
+        import uuid
+        from scanner.vulns import idor_detect
+        from scanner.crawler import CrawlResult
+        # Same template, but a substantially different data block per id → a real other object.
+        blocks = {"5": "Owner: Alice Anderson " * 12, "6": "Owner: Robert Brown plus extra detail " * 12}
+        def handler(url):
+            for i, blk in blocks.items():
+                if f"id={i}" in url:
+                    return self._SHARED.format(body=f"<p>{blk}</p><span>{uuid.uuid4()}</span>")
+            return None
+        eng = self._fresh_eng(handler)
+        eng._crawl_result = CrawlResult(parametrised_urls=["https://example.com/account?id=5"])
+        findings = idor_detect.run(eng)
+        assert findings and "id=6" in findings[0].raw["proof_url"]
         eng.close()
 
     def test_menu_option_11_maps_to_auth_idor(self):
