@@ -199,21 +199,29 @@ _COMMON_LOGIN_PATHS = ("/login", "/connexion", "/se-connecter", "/signin", "/sig
                        "/wp-login.php", "/admin/login", "/my-account", "/espace-client", "/compte")
 
 
+_SIGNUP_HINTS = ("signup", "sign-up", "register", "registration", "inscription", "create-account",
+                 "createaccount", "join", "subscribe")
+
+
 def _extract_login_form(soup, page_url: str) -> "Optional[tuple[str, Optional[str], str]]":
-    """From a parsed page, return (action_url, username_field, password_field) for the first form
-    with a password input, else None."""
+    """From a parsed page, return (action_url, username_field, password_field) for the first
+    *login* form (a single password input), skipping registration/signup forms, else None."""
     from urllib.parse import urljoin
     for form in soup.find_all("form"):
-        pw = form.find("input", attrs={"type": "password"})
-        if not pw or not pw.get("name"):
+        pws = form.find_all("input", attrs={"type": "password"})
+        # 0 password → not a login form; 2+ → registration (password + confirm).
+        if len(pws) != 1 or not pws[0].get("name"):
             continue
+        context = " ".join(str(form.get(a) or "") for a in ("action", "id", "name", "class")).lower()
+        if any(k in context for k in _SIGNUP_HINTS):
+            continue                                         # a signup/registration form, not login
         user_field = None
         for inp in form.find_all("input"):
             itype = (inp.get("type") or "text").lower()
             if itype in ("text", "email", "tel") and inp.get("name"):
                 user_field = inp.get("name")
                 break
-        return urljoin(page_url, form.get("action") or page_url), user_field, pw.get("name")
+        return urljoin(page_url, form.get("action") or page_url), user_field, pws[0].get("name")
     return None
 
 
@@ -244,11 +252,13 @@ def _autodetect_login_form(*urls: str) -> "Optional[tuple[str, Optional[str], st
 
 def _discover_login(url: str) -> "Optional[tuple[str, Optional[str], str]]":
     """From just the site URL, locate the login page: a form on the homepage, a homepage link that
-    looks like login, or a common login path. Returns (action, user_field, pass_field) or None."""
+    looks like login, or a common login path. Searches the site ROOT (not the given deep path, which
+    might be e.g. a /signup/ page). Returns (action, user_field, pass_field) or None."""
     from bs4 import BeautifulSoup
     from urllib.parse import urljoin, urlparse
 
-    base = url.rstrip("/")
+    parsed = urlparse(url)
+    base = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else url.rstrip("/")
     candidates: list[str] = []
     resp = _fetch(base)
     if resp is not None:
@@ -256,7 +266,7 @@ def _discover_login(url: str) -> "Optional[tuple[str, Optional[str], str]]":
         on_home = _extract_login_form(soup, base)        # login form right on the homepage?
         if on_home:
             return on_home
-        host = urlparse(base).netloc
+        host = parsed.netloc
         for a in soup.find_all("a", href=True):          # homepage links that look like "login"
             href = a["href"].strip()
             text = (a.get_text() or "").lower()

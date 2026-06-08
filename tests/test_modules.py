@@ -4358,9 +4358,11 @@ class TestIdorDetect:
                                                   "https://site.tld/login")
         assert action == "https://site.tld/do_login" and uf == "pseudo" and pf == "mdp"
 
-    def test_discover_login_follows_homepage_link(self):
+    def test_discover_login_searches_root_not_deep_path(self):
         import main
         from unittest.mock import patch
+        # Target is a deep /signup/ page, but discovery must search the site ROOT and follow the
+        # homepage 'login' link — not read the signup form on the targeted page.
         home = '<html><a href="/connexion">Se connecter</a><a href="/about">About</a></html>'
         login = ('<form action="/auth" method="post">'
                  '<input name="pseudo"><input type="password" name="mdp"></form>')
@@ -4371,8 +4373,24 @@ class TestIdorDetect:
                 return httpx.Response(200, html=home)
             return httpx.Response(404, text="")
         with patch("main._fetch", side_effect=fake_fetch):
-            action, uf, pf = main._discover_login("https://t")
+            action, uf, pf = main._discover_login("https://t/signup/create")
         assert action == "https://t/auth" and uf == "pseudo" and pf == "mdp"
+
+    def test_extract_login_form_skips_registration(self):
+        import main
+        from bs4 import BeautifulSoup
+        # A registration form (two password inputs) then a real login form on the same page.
+        html = (
+            '<form action="/register"><input name="name">'
+            '<input type="password" name="pw1"><input type="password" name="pw2"></form>'
+            '<form action="/login"><input name="login">'
+            '<input type="password" name="pass"></form>'
+        )
+        action, uf, pf = main._extract_login_form(BeautifulSoup(html, "html.parser"), "https://s.tld/x")
+        assert action == "https://s.tld/login" and uf == "login" and pf == "pass"
+        # A lone signup form (single password but a signup action) is not treated as login.
+        signup = '<form action="/signup"><input name="u"><input type="password" name="p"></form>'
+        assert main._extract_login_form(BeautifulSoup(signup, "html.parser"), "https://s.tld/x") is None
 
     def test_prompt_login_manual_when_form_not_detected(self):
         import main
