@@ -124,6 +124,17 @@ evidence**, and every piece of evidence comes with the next move.
 - 44 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
 - Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
 - Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
+- **Evidence-grade findings:** every actionable finding carries a structured proof block — the exact
+  request Hades sent, the response status/size/content-type, and the specific indicator that triggered it
+  (`raw["evidence"]`) — rendered as a `⧉ evidence` line in the console, a green evidence box in the HTML
+  report and an `evidence` array in JSON, so each finding is verifiable at a glance. Confidence is derived
+  from real signals (`scanner/evidence.py`), and a single shared soft-404 baseline (`engine.soft404_baseline()`)
+  backs the path-probers.
+- **Exploitation walkthrough:** every exploitable finding ships an ordered, copy-paste **kill chain**
+  (`raw["exploitation"]`) tailored to the real URL/parameter — sqlmap for SQLi (detect → DBs → tables →
+  columns → dump), commix for command injection, tplmap for SSTI, file-read→RCE for LFI, cloud-metadata
+  pivot for SSRF, dalfox for XSS, jwt_tool for JWT, git-dumper/aws-s3 for exposed `.git`/buckets, and more —
+  shown as a `⛓ exploit chain` block in the console and a collapsible **Exploitation walkthrough** in HTML.
 - Sensitive-file checks never confirm an exposure on HTTP 200 alone — each hit is validated by body
   length, content-type and file-specific indicators (e.g. `.htaccess` rewrite/auth directives, `.env`
   `KEY=VALUE`, `web.config` XML, `.git/HEAD` ref) and graded confirmed / likely / needs-manual; an empty

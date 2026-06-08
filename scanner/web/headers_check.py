@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "headers_check"
@@ -31,6 +32,9 @@ def _f(title: str, description: str, severity: Severity, recommendation: str,
        header: str, value: str | None, confidence: str = "high", **extra) -> Finding:
     raw = {"header": header, "value": value, "confidence": confidence}
     raw.update(extra)
+    # Evidence is the exact header state that triggered the finding (present+value, or absent).
+    raw.setdefault("evidence", [f"response header '{header}': {ev.note(value)[:160]}" if value
+                                else f"response header '{header}': absent"])
     return Finding(module=MODULE, title=title, description=description,
                    severity=severity, recommendation=recommendation, raw=raw)
 

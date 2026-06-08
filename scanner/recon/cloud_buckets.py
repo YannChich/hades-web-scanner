@@ -146,7 +146,21 @@ def _open_finding(provider: str, name: str, url: str, body: str, origin: str = "
              "confidence": "high" if referenced else "medium",
              "attack": "T1530 Data from Cloud Storage",
              "exploit_cmd": f"aws s3 ls s3://{name} --no-sign-request"
-             if provider == "Amazon S3" else f"curl '{url}'"},
+             if provider == "Amazon S3" else f"curl '{url}'",
+             "evidence": [f"GET {url} → 200 with a bucket listing body",
+                          (f"{len(keys)} object key(s) readable anonymously: {', '.join(keys[:5])}"
+                           if keys else "anonymous listing markup present (ListBucketResult)"),
+                          f"bucket name origin: {origin}"],
+             "exploitation": (
+                 [{"step": 1, "description": "List the bucket contents anonymously.",
+                   "command": f"aws s3 ls s3://{name} --no-sign-request"},
+                  {"step": 2, "description": "Download the entire bucket for offline review.",
+                   "command": f"aws s3 sync s3://{name} ./loot_{name} --no-sign-request"}]
+                 if provider == "Amazon S3" else
+                 [{"step": 1, "description": "Fetch the public object listing.",
+                   "command": f'curl -sk "{url}"'},
+                  {"step": 2, "description": "Download an exposed object by key.",
+                   "command": f'curl -sk -O "{url}<object-key>"'}])},
     )
 
 
@@ -162,7 +176,8 @@ def _private_finding(provider: str, name: str, url: str) -> Finding:
         severity=Severity.LOW,
         recommendation="Confirm the bucket policy denies public access and audit IAM grants.",
         raw={"provider": provider, "bucket": name, "url": url, "confidence": "high",
-             "attack": "T1580 Cloud Infrastructure Discovery"},
+             "attack": "T1580 Cloud Infrastructure Discovery",
+             "evidence": [f"GET {url} → 403 AccessDenied — bucket name is valid but access-controlled"]},
     )
 
 

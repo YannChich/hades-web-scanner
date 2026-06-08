@@ -264,7 +264,12 @@ def _check_missing_authz(engine: ScanEngine, ref: _Ref, base: "httpx.Response", 
              "evidence": [
                  f"authenticated and anonymous requests return the same object [{_ctype(anon)}]",
                  f"anonymous response: {anon.status_code}, {len(anon.text)} bytes",
-             ]},
+             ],
+             "exploitation": [
+                 {"step": 1, "description": "Re-fetch the object with no cookie/token to confirm unauthenticated access.",
+                  "command": f'curl -sk "{ref.base_url}"'},
+                 {"step": 2, "description": "Replay it from a clean browser/incognito to prove the access-control gap.",
+                  "command": f'curl -sk -A "Mozilla/5.0" "{ref.base_url}"'}]},
     )
 
 
@@ -297,7 +302,12 @@ def _check_enumeration(engine: ScanEngine, ref: _Ref, base: "httpx.Response", so
                          f"id {ref.value} → {nv}: 200 OK [{_ctype(resp)}] — a distinct valid object",
                          ("JSON schema matches, values differ" if is_json
                           else f"page self-variation (noise) baseline {noise:.2f}"),
-                     ]},
+                     ],
+                     "exploitation": [
+                         {"step": 1, "description": f"Confirm the cross-object read (you are {ref.value}, this is {nv}).",
+                          "command": f'curl -sk "{ref.build(nv)}"'},
+                         {"step": 2, "description": f"Harvest the full range by fuzzing the {ref.label} value.",
+                          "command": f'ffuf -w <(seq 1 1000) -u "{ref.build(nv)}"   # replace the id with FUZZ'}]},
             )
     return None
 

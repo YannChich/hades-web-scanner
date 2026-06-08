@@ -17,6 +17,7 @@ import httpx
 from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
+from scanner import evidence as _ev
 from scanner.engine import ScanEngine
 
 InjectFn = Callable[[str], "httpx.Response | None"]
@@ -71,6 +72,19 @@ def timed_get(engine: ScanEngine, url: str, **kwargs) -> float | None:
 def similar(a: str, b: str, tol: float = 0.05) -> bool:
     la, lb = len(a), len(b)
     return abs(la - lb) / max(la, lb, 1) <= tol
+
+
+def evidence(injector: "Injector", payload: str, resp: "httpx.Response | None",
+             indicator: str = "", snippet: str = "") -> list[str]:
+    """Standard ``raw["evidence"]`` for an injection finding: the injection point + the payload that
+    proved it + the response it produced. Reused by every active vuln module so they all look alike.
+    """
+    lines: list[str] = [f"injected into {injector.label}: {_ev.note(payload)[:80]}"]
+    if resp is not None:
+        lines += _ev.from_response(resp, indicator=indicator, snippet=snippet)
+    elif indicator:
+        lines.append(f"matched: {_ev.note(indicator)}")
+    return lines
 
 
 # ---------------------------------------------------------------------------

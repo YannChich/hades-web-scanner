@@ -129,7 +129,9 @@ def _finding(path: str, technique: str) -> Finding:
             "paths and ignore client-supplied X-Original-URL/X-Forwarded-* headers."
         ),
         raw={"path": path, "technique": technique, "url": path, "proof_url": path,
-             "confidence": "high", "attack": "T1190 Exploit Public-Facing Application"},
+             "confidence": "high", "attack": "T1190 Exploit Public-Facing Application",
+             "evidence": [f"baseline GET {path} → 401/403 (forbidden)",
+                          f"bypass via {technique} → 200 OK with a different, substantial body"]},
     )
 
 

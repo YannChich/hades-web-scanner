@@ -17,6 +17,7 @@ import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "dir_listing"
@@ -106,7 +107,12 @@ def run(engine: ScanEngine) -> list[Finding]:
                 severity=Severity.HIGH,
                 recommendation=("Disable automatic directory indexing (Apache 'Options -Indexes', "
                                 "nginx 'autoindex off') and add an index file."),
-                raw={"path": path, "url": full_url, "entries": entries, "confidence": "high"},
+                raw={"path": path, "url": full_url, "entries": entries, "confidence": "high",
+                     "evidence": ev.from_parts(
+                         "GET", path, 200,
+                         indicator="autoindex markers present" + (
+                             f" — {len(entries)} entr{'y' if len(entries) == 1 else 'ies'} listed: "
+                             f"{', '.join(entries[:5])}" if entries else ""))},
             ))
 
     if not findings:

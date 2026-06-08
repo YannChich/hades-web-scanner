@@ -19,6 +19,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
+from scanner import evidence as ev
 from scanner.output import web_theme
 from scanner.output.scorer import calculate_score
 from scanner.severity import HTML_BG as _SEV_BG
@@ -202,6 +203,42 @@ _CSS = web_theme.ROOT_VARS + web_theme.BASE_CSS + """
 .title-cell { color: var(--bright); font-weight: 600; }
 .desc-cell  { color: var(--muted); max-width: 440px; }
 .rec-cell   { color: var(--blue); max-width: 260px; font-size: 0.78rem; }
+
+/* ── Evidence box: the exact request/response that proves the finding ── */
+.evidence-box {
+  margin-top: 7px;
+  padding: 6px 9px;
+  border-left: 3px solid var(--green);
+  background: rgba(57, 211, 83, 0.06);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink);
+  word-break: break-word;
+}
+.ev-tag  { display: block; color: var(--green); font-weight: bold; font-size: 0.62rem;
+           letter-spacing: 0.5px; margin-bottom: 2px; }
+.ev-line { color: var(--muted); }
+
+/* ── Exploitation walkthrough: collapsible copy-paste kill chain ── */
+.exploit-box { margin-top: 7px; }
+.exploit-box > summary {
+  cursor: pointer; color: var(--red); font-weight: bold; font-size: 0.72rem;
+  font-family: var(--mono); letter-spacing: 0.3px; list-style: none;
+}
+.exploit-box > summary::-webkit-details-marker { display: none; }
+.exploit-box > summary::before { content: "▸ "; }
+.exploit-box[open] > summary::before { content: "▾ "; }
+.exp-list { margin: 6px 0 0; padding-left: 18px; }
+.exp-list li { margin-bottom: 7px; }
+.exp-desc { color: var(--ink); font-size: 0.76rem; }
+.exp-cmd {
+  margin: 3px 0 0; padding: 5px 8px; border-radius: 4px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  color: var(--green); font-family: var(--mono); font-size: 0.72rem;
+  white-space: pre-wrap; word-break: break-all;
+}
 
 /* ── Framework reference pills (ID / CVSS / CWE / OWASP / ATT&CK) ── */
 .refs { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; }
@@ -463,6 +500,32 @@ def _refs_html(f: Finding, sev_color: str) -> str:
     return html
 
 
+def _evidence_html(f: Finding) -> str:
+    """A compact monospace box showing the exact request/response that proves the finding."""
+    items = ev.as_list((f.raw or {}).get("evidence"))
+    if not items:
+        return ""
+    lines = "".join(f'<div class="ev-line">{_e(it)}</div>' for it in items[:4])
+    return f'<div class="evidence-box"><span class="ev-tag">⧉ evidence</span>{lines}</div>'
+
+
+def _exploitation_html(f: Finding) -> str:
+    """A collapsible, ordered walkthrough of the copy-paste commands that weaponise the finding
+    (e.g. the sqlmap kill chain under a confirmed SQL injection). Kept in <details> so the report
+    stays uncluttered."""
+    steps = (f.raw or {}).get("exploitation")
+    if not isinstance(steps, list) or not steps:
+        return ""
+    items = ""
+    for s in steps:
+        desc = _e(str(s.get("description", "")))
+        cmd = _e(str(s.get("command", "")))
+        items += (f'<li><span class="exp-desc">{desc}</span>'
+                  f'<pre class="exp-cmd">$ {cmd}</pre></li>')
+    return (f'<details class="exploit-box"><summary>⛓ Exploitation walkthrough '
+            f'({len(steps)} steps)</summary><ol class="exp-list">{items}</ol></details>')
+
+
 def _findings_table_html(findings: list[Finding]) -> str:
     if not findings:
         return "<p style='color:var(--muted);'>No findings recorded.</p>"
@@ -473,7 +536,8 @@ def _findings_table_html(findings: list[Finding]) -> str:
         color = _SEV_COLOR.get(sev, "#c9d1d9")
         bg    = _SEV_BG.get(sev, "transparent")
         desc = (f'<td class="desc-cell">{_e(f.description[:200])}'
-                f'{"…" if len(f.description) > 200 else ""}</td>')
+                f'{"…" if len(f.description) > 200 else ""}'
+                f'{_evidence_html(f)}{_exploitation_html(f)}</td>')
         rows += (
             f'<tr style="--row-bg:{bg};">'
             f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'

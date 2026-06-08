@@ -28,6 +28,7 @@ import httpx
 from loguru import logger
 
 from config import PROJECT_ROOT, WORDLIST_ADMIN
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "admin_panel"
@@ -239,7 +240,9 @@ def _finding(path: str, engine: ScanEngine, status: int, severity: Severity,
             "disable default credentials, and consider moving the panel to a non-standard path."
         ),
         raw={"path": path, "url": full_url, "status_code": status,
-             "cms": cms_key, "confidence": confidence},
+             "cms": cms_key, "confidence": confidence,
+             "evidence": ev.from_parts("GET", path, status, indicator=detail)
+             + ([f"redirects to: {location}"] if location else [])},
     )
 
 

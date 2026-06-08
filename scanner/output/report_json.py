@@ -13,6 +13,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from scanner.engine import Finding
 
+from scanner import evidence as ev
 from scanner.output.attack_path import build_attack_path
 from scanner.output.scorer import calculate_score
 from scanner.severity import severity_counts
@@ -53,7 +54,7 @@ def generate_json(
                 "cwe":            f.cwe,
                 "owasp":          f.owasp,
                 "mitre_attack":   f.mitre,
-                "evidence":       (f.raw or {}).get("evidence", []),
+                "evidence":       ev.as_list((f.raw or {}).get("evidence")),
                 "references":     (f.raw or {}).get("references", []),
                 "recommendation": f.recommendation,
                 "poc":            f.poc,

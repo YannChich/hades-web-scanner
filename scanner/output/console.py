@@ -16,6 +16,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from scanner import evidence as ev
 from scanner.severity import CONSOLE_STYLE as _SEVERITY_STYLE
 from scanner.severity import SEVERITY_ORDER as _SEVERITY_ORDER
 
@@ -178,6 +179,15 @@ def print_findings(findings: list[Finding], url: str) -> None:
         refs = _format_refs(f)
         if refs:
             description.append(f"\n⟦ {refs} ⟧", style="dim")
+        evidence = ev.as_list((f.raw or {}).get("evidence"))
+        if evidence:
+            description.append(f"\n⧉ evidence → {' · '.join(evidence[:2])}", style="dim green")
+        exploitation = (f.raw or {}).get("exploitation")
+        if isinstance(exploitation, list) and exploitation:
+            description.append("\n⛓ exploit chain →", style="bold red")
+            for s in exploitation:
+                description.append(f"\n   {s.get('step')}. {s.get('description')}", style="red")
+                description.append(f"\n      {s.get('command')}", style="dim red")
         skills = getattr(f, "skill_refs", None)
         if skills:
             names = ", ".join(s["name"] for s in skills[:2])

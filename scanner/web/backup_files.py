@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "backup_files"
@@ -134,6 +135,10 @@ def _probe(engine: ScanEngine, path: str, bl: _Baseline) -> Finding | None:
         return None
 
     full_url = engine.url.rstrip("/") + path
+    proof = ev.from_response(resp, indicator=f"{label} — real archive/source, not the HTML app shell")
+    note = ev.baseline_note(resp, bl)
+    if note:
+        proof.append(note)
     return Finding(
         module=MODULE,
         title=f"Backup File Exposed [200]: {path}",
@@ -144,7 +149,7 @@ def _probe(engine: ScanEngine, path: str, bl: _Baseline) -> Finding | None:
         recommendation=("Remove the backup from the web root immediately and rotate any secrets it "
                         "may contain. Store backups outside the document root."),
         raw={"path": path, "url": full_url, "type": label, "bytes": len(resp.content),
-             "confidence": "high"},
+             "confidence": "high", "evidence": proof},
     )
 
 

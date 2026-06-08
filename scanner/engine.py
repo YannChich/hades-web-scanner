@@ -4,7 +4,9 @@ WebScan scan engine — module orchestration, threading, rate limiting, and resu
 
 import hashlib
 import importlib
+import random
 import re
+import string
 import time
 import threading
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -193,6 +195,28 @@ class RateLimiter:
 
 
 # ---------------------------------------------------------------------------
+# Soft-404 baseline (shared anti-false-positive fingerprint)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Soft404:
+    """Fingerprint of how the target answers a request for a path that should not exist.
+
+    A site that 200s every path (catch-all / SPA) or blanket-403s every path produces false
+    positives in any path-probing module. This single baseline lets every such module reuse the
+    same anti-noise check instead of re-deriving it. ``status`` is the bogus probe's status code;
+    ``is_catch_all`` is True when that was a 200; ``length``/``digest``/``ctype`` fingerprint the
+    bogus body. A neutral baseline (``status == 0``) means the probe could not be made.
+    """
+    status: int
+    is_catch_all: bool
+    is_blanket_403: bool
+    length: int
+    digest: str
+    ctype: str
+
+
+# ---------------------------------------------------------------------------
 # Scan engine
 # ---------------------------------------------------------------------------
 
@@ -264,6 +288,11 @@ class ScanEngine:
         # favicon) are fetched by ~12 modules each; cache them so each costs one request per scan.
         self._get_cache: dict[str, httpx.Response] = {}
         self._get_cache_lock = threading.Lock()
+
+        # Shared soft-404 baseline — one probe of a certainly-nonexistent path, reused by every
+        # path-probing module so they all apply the same anti-false-positive check (see soft404_baseline).
+        self._soft404: Optional["Soft404"] = None
+        self._soft404_lock = threading.Lock()
 
         # Circuit breaker — trips after CIRCUIT_BREAKER_FAILS consecutive request timeouts/connection
         # failures, then fast-fails requests for a cooldown so an unresponsive target can't make every
@@ -352,6 +381,37 @@ class ScanEngine:
     def head(self, path: str = "", **kwargs) -> httpx.Response:
         target = f"{self.url}{path}" if path else self.url
         return self.request("HEAD", target, **kwargs)
+
+    def soft404_baseline(self) -> "Soft404":
+        """Probe a random, certainly-nonexistent path once per scan and cache the fingerprint.
+
+        Reused by path-probing modules (sensitive_files, backup_files, dir_scan, dir_listing,
+        admin_panel…) so they all share one anti-false-positive baseline rather than each deriving
+        their own. Returns a neutral ``Soft404`` (status 0) when the probe cannot be made (e.g. the
+        circuit breaker is open or the host is unreachable).
+        """
+        if self._soft404 is not None:
+            return self._soft404
+        with self._soft404_lock:
+            if self._soft404 is not None:
+                return self._soft404
+            rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=24))
+            baseline = Soft404(0, False, False, 0, "", "")
+            try:
+                resp = self.request("GET", f"{self.url}/{rand}.html")
+                body = resp.text
+                baseline = Soft404(
+                    status=resp.status_code,
+                    is_catch_all=(resp.status_code == 200),
+                    is_blanket_403=(resp.status_code == 403),
+                    length=len(body),
+                    digest=hashlib.md5(body.encode("utf-8", "ignore")).hexdigest(),
+                    ctype=resp.headers.get("content-type", "").split(";")[0].strip(),
+                )
+            except httpx.HTTPError:
+                pass
+            self._soft404 = baseline
+            return baseline
 
     def request_anonymous(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Rate-limited request with NO session cookie or auth header — used by access-control

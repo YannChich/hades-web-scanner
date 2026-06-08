@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "cookie_analysis"
@@ -94,7 +95,8 @@ def _check_secure(cookie: _Cookie, is_https: bool) -> Finding | None:
         ),
         severity=Severity.HIGH if session else Severity.LOW,
         recommendation=f"Add the Secure attribute to the '{cookie.name}' Set-Cookie header.",
-        raw={"cookie": cookie.name, "issue": "missing_secure", "session": session, "raw": cookie.raw},
+        raw={"cookie": cookie.name, "issue": "missing_secure", "session": session, "raw": cookie.raw,
+             "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}", "no 'Secure' attribute present"]},
     )
 
 
@@ -113,7 +115,8 @@ def _check_httponly(cookie: _Cookie) -> Finding | None:
         ),
         severity=Severity.MEDIUM,
         recommendation=f"Add the HttpOnly attribute to the '{cookie.name}' Set-Cookie header.",
-        raw={"cookie": cookie.name, "issue": "missing_httponly", "raw": cookie.raw},
+        raw={"cookie": cookie.name, "issue": "missing_httponly", "raw": cookie.raw,
+             "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}", "no 'HttpOnly' attribute present"]},
     )
 
 
@@ -137,7 +140,8 @@ def _check_samesite(cookie: _Cookie) -> Finding | None:
                 f"Add 'SameSite=Strict' or 'SameSite=Lax' to the '{cookie.name}' cookie. "
                 "Use 'SameSite=None; Secure' only if cross-site access is explicitly required."
             ),
-            raw={"cookie": cookie.name, "issue": "missing_samesite", "session": session, "raw": cookie.raw},
+            raw={"cookie": cookie.name, "issue": "missing_samesite", "session": session, "raw": cookie.raw,
+                 "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}", "no 'SameSite' attribute present"]},
         )
 
     if samesite.lower() == "none":
@@ -154,7 +158,9 @@ def _check_samesite(cookie: _Cookie) -> Finding | None:
                     f"Add the Secure flag alongside SameSite=None on '{cookie.name}', "
                     "or reconsider whether cross-site access is necessary."
                 ),
-                raw={"cookie": cookie.name, "issue": "samesite_none_without_secure", "raw": cookie.raw},
+                raw={"cookie": cookie.name, "issue": "samesite_none_without_secure", "raw": cookie.raw,
+                     "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}",
+                                  "SameSite=None without the required 'Secure' flag"]},
             )
 
     return None

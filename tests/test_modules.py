@@ -4795,3 +4795,202 @@ class TestVulnInfoSeparation:
         txt = self._render([self._info()])
         assert "No vulnerabilities found" in txt
         assert "Information & Recon" in txt
+
+
+# ---------------------------------------------------------------------------
+# Evidence layer — builder, per-module wiring, and rendering (console/HTML/JSON)
+# ---------------------------------------------------------------------------
+
+class TestEvidence:
+    """The shared scanner.evidence builder."""
+
+    def test_from_response_shape(self):
+        from scanner import evidence as ev
+        req = httpx.Request("GET", "http://t.test/admin?id=1")
+        resp = httpx.Response(200, text="hi", headers={"content-type": "text/plain"}, request=req)
+        lines = ev.from_response(resp, indicator="login form")
+        assert lines[0].startswith("GET /admin?id=1 → 200")
+        assert "text/plain" in lines[0]
+        assert any("matched: login form" in line for line in lines)
+
+    def test_from_response_tolerates_missing_request(self):
+        from scanner import evidence as ev
+        stub = type("_R", (), {"text": "body", "status_code": 200})()
+        lines = ev.from_response(stub, indicator="x")
+        assert lines and lines[0].startswith("200")     # no method/path, but never raises
+
+    def test_from_parts(self):
+        from scanner import evidence as ev
+        assert ev.from_parts("get", "/a", 403) == ["GET /a → 403"]
+        assert "matched: gone" in ev.from_parts("GET", "/a", 404, indicator="gone")[1]
+
+    def test_sanitize_caps_and_strips(self):
+        from scanner import evidence as ev
+        assert ev._sanitize("a\x00b\tc   d") == "ab c d"
+        assert ev._sanitize("x" * 500).endswith("…") and len(ev._sanitize("x" * 500)) <= 161
+
+    def test_confidence_from(self):
+        from scanner import evidence as ev
+        assert ev.confidence_from(0) == "low"
+        assert ev.confidence_from(1) == "medium"
+        assert ev.confidence_from(2) == "high"
+        assert ev.confidence_from(0, active=True) == "medium"
+        assert ev.confidence_from(1, active=True) == "high"
+
+    def test_as_list_normalises(self):
+        from scanner import evidence as ev
+        assert ev.as_list(None) == []
+        assert ev.as_list("x") == ["x"]
+        assert ev.as_list(["a", "b"]) == ["a", "b"]
+
+
+class TestEngineSoft404:
+    def test_soft404_baseline_detects_catch_all_and_caches(self, base_url):
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                return httpx.Response(200, text="spa shell",
+                                      headers={"content-type": "text/html"})
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        bl = eng.soft404_baseline()
+        assert bl.status == 200 and bl.is_catch_all and bl.length > 0
+        assert eng.soft404_baseline() is bl          # cached, one probe per scan
+
+
+class TestEvidenceWiring:
+    """Representative modules attach a non-empty raw['evidence'] to their actionable findings."""
+
+    def test_command_injection_finding_has_evidence(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.command_injection import _test
+        inj = Injector(label="URL parameter 'q'", param="q",
+                       inject=lambda p: _resp("result: uid=0(root) gid=0(root)"),
+                       proof=lambda p: "https://t/?q=" + p, url="https://t/?q=1")
+        f = _test(None, inj, False)
+        assert f is not None
+        evd = f.raw.get("evidence")
+        assert evd and any("uid=0(root)" in line for line in evd)
+        assert any("injected into URL parameter 'q'" in line for line in evd)
+
+    def test_cors_reflected_origin_has_evidence(self, base_url):
+        from scanner.web.cors_check import run
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                origin = request.headers.get("origin", "")
+                return httpx.Response(200, text="ok", headers={
+                    "access-control-allow-origin": origin,
+                    "access-control-allow-credentials": "true"})
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        vulns = [f for f in run(eng) if f.severity != Severity.INFO]
+        assert vulns and all(f.raw.get("evidence") for f in vulns)
+        assert any("ACAO" in line for f in vulns for line in f.raw["evidence"])
+
+    def test_headers_missing_csp_has_evidence(self, base_url):
+        from scanner.web.headers_check import run
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                return httpx.Response(200, text="<html></html>",
+                                      headers={"content-type": "text/html"})
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        csp = [f for f in run(eng)
+               if (f.raw.get("header") or "").lower() == "content-security-policy"
+               and "missing" in f.title.lower()]
+        assert csp and csp[0].raw.get("evidence")
+        assert any("absent" in line.lower() for line in csp[0].raw["evidence"])
+
+
+class TestEvidenceRendering:
+    @staticmethod
+    def _f_with_evidence():
+        return Finding(module="cors_check", title="CORS reflected origin", description="d",
+                       severity=Severity.HIGH,
+                       raw={"confidence": "high",
+                            "evidence": ["GET / → 200 OK, 1.2 KB (text/html)",
+                                         "matched: reflected origin evil.example.com"]})
+
+    def test_html_renders_evidence_box(self, tmp_path):
+        from pathlib import Path
+        from scanner.output.report_html import generate_html
+        out = generate_html([self._f_with_evidence()], "http://d.test", 60,
+                            output_path=str(tmp_path / "reports"))
+        h = Path(out).read_text(encoding="utf-8")
+        assert "evidence-box" in h and "reflected origin evil.example.com" in h
+
+    def test_json_emits_evidence_list(self, tmp_path):
+        import json
+        from pathlib import Path
+        from scanner.output.report_json import generate_json
+        out = generate_json([self._f_with_evidence()], "http://d.test", 60,
+                            output_path=str(tmp_path / "reports"))
+        data = json.loads(Path(out).read_text(encoding="utf-8"))
+        assert data["findings"][0]["evidence"][0].startswith("GET / → 200 OK")
+
+    def test_console_renders_evidence_line(self):
+        from rich.console import Console
+        import scanner.output.console as cons
+        rec = Console(record=True, width=160)
+        old = cons.console
+        cons.console = rec
+        try:
+            cons.print_findings([self._f_with_evidence()], "http://t")
+            txt = rec.export_text()
+        finally:
+            cons.console = old
+        assert "evidence" in txt and "reflected origin" in txt
+
+
+class TestExploitationWalkthrough:
+    def test_sqli_finding_carries_ordered_steps(self, base_url):
+        from scanner.vulns.sqli_detect import _finding
+        f = _finding(f"{base_url}/c?id=1", "id", "boolean-based blind", "1 AND 1=1", "")
+        steps = f.raw.get("exploitation")
+        assert isinstance(steps, list) and len(steps) == 4
+        assert all(s["command"].startswith("sqlmap -u") for s in steps)
+        assert "--dbs" in steps[0]["command"] and "--tables" in steps[1]["command"]
+        assert "--columns" in steps[2]["command"] and "--dump" in steps[3]["command"]
+        # back-compat: the single sqlmap command + proof URL are still present
+        assert f.raw["sqlmap"].startswith('sqlmap -u "') and "--technique=B" in f.raw["sqlmap"]
+        assert "exploitation walkthrough" in f.description.lower()
+
+    def test_html_renders_exploitation_walkthrough(self, tmp_path):
+        from pathlib import Path
+        from scanner.engine import Finding, Severity
+        from scanner.output.report_html import generate_html
+        f = Finding(module="sqli_detect", title="SQLi", description="d", severity=Severity.CRITICAL,
+                    raw={"confidence": "high", "exploitation": [
+                        {"step": 1, "description": "List the databases.", "command": "sqlmap -u X --dbs"},
+                        {"step": 2, "description": "Dump the data.", "command": "sqlmap -u X --dump"}]})
+        h = Path(generate_html([f], "http://d.test", 20,
+                               output_path=str(tmp_path / "reports"))).read_text(encoding="utf-8")
+        assert "Exploitation walkthrough" in h and "exp-cmd" in h
+        assert "sqlmap -u X --dbs" in h and "List the databases." in h
+
+    def test_console_renders_exploit_chain(self):
+        from rich.console import Console
+        from scanner.engine import Finding, Severity
+        import scanner.output.console as cons
+        f = Finding(module="command_injection", title="RCE", description="d", severity=Severity.CRITICAL,
+                    raw={"confidence": "high", "exploitation": [
+                        {"step": 1, "description": "Confirm the RCE.", "command": "commix -u X --batch"}]})
+        rec = Console(record=True, width=160)
+        old = cons.console
+        cons.console = rec
+        try:
+            cons.print_findings([f], "http://t")
+            txt = rec.export_text()
+        finally:
+            cons.console = old
+        assert "exploit chain" in txt and "commix -u X --batch" in txt
+
+    def test_exploitable_modules_emit_steps(self):
+        """Each exploitable module's _exploitation_steps builds a non-empty, tool-specific chain."""
+        from scanner.vulns._common import Injector
+        inj = Injector(label="URL parameter 'q'", param="q", inject=lambda p: None,
+                       proof=lambda p: "https://t/?q=" + p, url="https://t/?q=1")
+        from scanner.vulns import command_injection, ssti_detect, lfi_detect, ssrf_detect
+        assert any("commix" in s["command"] for s in command_injection._exploitation_steps(inj, "x"))
+        assert any("tplmap" in s["command"] for s in ssti_detect._exploitation_steps(inj, "x"))
+        assert any("base64" in s["command"] for s in lfi_detect._exploitation_steps(inj, "x"))
+        assert any("169.254.169.254" in s["command"] for s in ssrf_detect._exploitation_steps(inj, "x"))

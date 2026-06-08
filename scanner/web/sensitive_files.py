@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import httpx
 from loguru import logger
 
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "sensitive_files"
@@ -378,7 +379,11 @@ def _exposed_finding(target: _Target, content_type: str, confirmed: bool) -> Fin
             "Rotate any exposed credentials and add a deny rule in your web server."
         ),
         raw={"path": target.path, "status_code": 200, "label": target.label,
-             "content_type": content_type, "confidence": confidence, "validation": validation},
+             "content_type": content_type, "confidence": confidence, "validation": validation,
+             "evidence": ev.from_parts(
+                 "GET", target.path, 200, ctype=content_type,
+                 indicator=("content matches the expected signature for this file" if confirmed
+                            else "non-empty, non-HTML body but no strong signature — likely exposed"))},
     )
 
 
@@ -414,7 +419,11 @@ def _weak_200_finding(target: _Target, kind: _Verdict, content_type: str, body_l
         ),
         raw={"path": target.path, "status_code": 200, "label": target.label,
              "content_type": content_type, "confidence": "low", "validation": validation,
-             "body_len": body_len},
+             "body_len": body_len,
+             "evidence": ev.from_parts(
+                 "GET", target.path, 200, size=body_len, ctype=content_type,
+                 indicator=("empty/near-empty body — not proof of exposure" if kind is _Verdict.EMPTY
+                            else "200 but content did not match the expected signature"))},
     )
 
 

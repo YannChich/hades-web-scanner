@@ -25,6 +25,7 @@ import httpx
 from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "http_methods"
@@ -129,7 +130,9 @@ def run(engine: ScanEngine) -> list[Finding]:
                 Severity.CRITICAL,
                 "Disable PUT at the web server/proxy unless required; if WebDAV is needed, enforce "
                 "authentication and restrict writable paths. Remove any uploaded test file.",
-                {"method": "PUT", "verified": True, "confidence": "high"}))
+                {"method": "PUT", "verified": True, "confidence": "high",
+                 "evidence": [f"PUT a unique file then GET it back: {detail}",
+                              "round-trip succeeded → arbitrary file write confirmed"]}))
         elif verdict == "processed":
             findings.append(Finding(
                 MODULE, "PUT Accepted but Upload Not Confirmed",
@@ -163,7 +166,9 @@ def run(engine: ScanEngine) -> list[Finding]:
             "cookies (XST). Impact is reduced by HttpOnly cookies and modern browsers, but it should be off.",
             Severity.MEDIUM,
             "Disable the TRACE method at the web server (e.g. Apache 'TraceEnable off').",
-            {"method": "TRACE", "verified": True, "confidence": "high"}))
+            {"method": "TRACE", "verified": True, "confidence": "high",
+             "evidence": ["sent TRACE with a unique X-Hades-Trace header",
+                          "the server echoed it back in the response body → XST confirmed"]}))
     elif "TRACE" in advertised:
         findings.append(Finding(
             MODULE, "TRACE Advertised", "The Allow header lists TRACE but it did not echo on test.",

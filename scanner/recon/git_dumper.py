@@ -109,6 +109,16 @@ def run(engine: ScanEngine) -> list[Finding]:
     if leaked_creds:
         desc.append("Credentials embedded in a remote URL: " + "; ".join(leaked_creds[:3]) + ".")
 
+    proof: list[str] = ["GET /.git/HEAD → 200 (starts with 'ref:') — repository directory is exposed"]
+    if remotes:
+        proof.append(f"/.git/config remote(s): {', '.join(remotes[:2])}")
+    if files:
+        proof.append(f"/.git/index parsed → {len(files)} tracked file(s)")
+    if emails:
+        proof.append(f"/.git/logs/HEAD → {len(emails)} committer email(s)")
+    if leaked_creds:
+        proof.append(f"credentials embedded in remote URL: {leaked_creds[0]}")
+
     return [Finding(
         module=MODULE,
         title="Exposed .git — Repository Metadata Extracted",
@@ -122,5 +132,10 @@ def run(engine: ScanEngine) -> list[Finding]:
              "emails": sorted(emails)[:15], "commits": commits, "files": files[:100],
              "confidence": "high", "proof_url": engine.url + "/.git/config",
              "exploit_cmd": f"git-dumper {engine.url}/.git/ ./loot_src",
-             "attack": "T1552.001 Credentials in Files"},
+             "attack": "T1552.001 Credentials in Files", "evidence": proof,
+             "exploitation": [
+                 {"step": 1, "description": "Reconstruct the full source tree from the exposed .git.",
+                  "command": f"git-dumper {engine.url}/.git/ ./loot_src"},
+                 {"step": 2, "description": "Mine the commit history for committed secrets.",
+                  "command": "cd loot_src && git log -p | grep -iE 'password|secret|api[_-]?key|token'"}]},
     )]

