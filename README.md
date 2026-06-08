@@ -191,7 +191,9 @@ evidence**, and every piece of evidence comes with the next move.
 
 Every scan produces a dark, self-contained HTML report in Hades' unified **Kali red-team theme**
 (clickable framework badges, a security-score gauge, the kill-chain attack path, matched playbooks,
-and the DB/AI panels) — heavy per-finding detail tucks into an expandable section to stay scannable.
+and the DB/AI panels) — heavy per-finding detail tucks into an expandable section, and **vulnerabilities
+are kept separate from informational/recon items** (an "Information" section) so you see what's wrong
+at a glance. Same split in the terminal output.
 
 <p align="center">
   <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">

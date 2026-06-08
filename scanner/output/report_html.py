@@ -282,6 +282,17 @@ a.ref-fix:hover  { text-decoration: none; background: #12351c; filter: none; box
 .rec-list .rec-module { font-family: var(--mono); color: var(--blue); font-size: 0.72rem; letter-spacing: 1px; }
 .rec-list .rec-text   { color: var(--ink); margin-top: 4px; }
 
+/* ── Information section (recon / context — visually distinct from the vulnerability table) ── */
+.info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; margin-top: 8px; }
+.info-item { background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--sev-info);
+  border-radius: 8px; padding: 11px 14px; }
+.info-head { display: flex; align-items: center; gap: 8px; }
+.info-chip { font-family: var(--mono); font-size: 0.58rem; font-weight: 700; letter-spacing: .5px;
+  color: var(--sev-info); border: 1px solid #1f6feb; background: #0b1530; border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+.info-module { font-family: var(--mono); color: var(--muted); font-size: 0.72rem; }
+.info-title { color: var(--bright); font-weight: 600; font-size: 0.86rem; margin-top: 6px; }
+.info-desc { color: var(--muted); font-size: 0.8rem; margin-top: 3px; word-break: break-word; }
+
 /* ── Footer ── */
 .footer {
   text-align: center;
@@ -485,6 +496,24 @@ def _findings_table_html(findings: list[Finding]) -> str:
   <tbody>{rows}</tbody>
 </table>
 """
+
+
+def _information_html(infos: list[Finding]) -> str:
+    """INFO findings (recon / context) as a calm card grid — clearly distinct from the red
+    vulnerabilities table (no severity badge, blue accent)."""
+    if not infos:
+        return ""
+    cards = ""
+    for f in infos:
+        desc = f.description[:300] + ("…" if len(f.description) > 300 else "")
+        cards += (
+            '<div class="info-item">'
+            '<div class="info-head"><span class="info-chip">ℹ INFO</span>'
+            f'<span class="info-module">{_e(f.module)}</span></div>'
+            f'<div class="info-title">{_e(f.title)}</div>'
+            f'<div class="info-desc">{_e(desc)}</div></div>'
+        )
+    return f'<div class="info-grid">{cards}</div>'
 
 
 _DB_REMEDIATION: dict[str, str] = {
@@ -838,8 +867,17 @@ def generate_html(
         key=lambda f: _SEV_ORDER.index(f.severity.value),
     )
 
-    # Render local SKILL.md playbooks to readable HTML pages and repoint the badges at them.
+    # Render local SKILL.md playbooks to readable HTML pages and repoint the badges — must run
+    # BEFORE the finding tables are rendered so the rewritten hrefs land in the table markup.
     _render_playbooks_to_html(findings, output_path)
+
+    # Vulnerabilities (score-affecting) vs informational/recon context — separate sections.
+    vulns = [f for f in sorted_findings if f.severity.value != "info"]
+    infos = [f for f in sorted_findings if f.severity.value == "info"]
+    vulns_html = (_findings_table_html(vulns) if vulns
+                  else '<p style="color:var(--green);font-weight:600;">✓ No vulnerabilities found.</p>')
+    info_section = (f'<div class="section-title">Information</div>{_information_html(infos)}'
+                    if infos else "")
 
     document = f"""<!DOCTYPE html>
 <html lang="en">
@@ -870,9 +908,9 @@ def generate_html(
     {_counts_html(counts)}
   </div>
 
-  <!-- Findings table -->
-  <div class="section-title">Findings</div>
-  {_findings_table_html(sorted_findings)}
+  <!-- Vulnerabilities (CRITICAL…LOW; INFO/recon is shown separately below) -->
+  <div class="section-title">Vulnerabilities</div>
+  {vulns_html}
 
   <!-- Unified kill-chain attack path (web/recon/vuln modules) -->
   {_attack_path_html(findings, url)}
@@ -885,7 +923,10 @@ def generate_html(
 
   <!-- Recommendations -->
   <div class="section-title">Recommendations</div>
-  {_recommendations_html(sorted_findings)}
+  {_recommendations_html(vulns)}
+
+  <!-- Information (recon / context — not vulnerabilities) -->
+  {info_section}
 
 </div>
 

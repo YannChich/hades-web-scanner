@@ -140,12 +140,18 @@ def print_finding(finding: Finding) -> None:
 # ---------------------------------------------------------------------------
 
 def print_findings(findings: list[Finding], url: str) -> None:
+    """Print the vulnerabilities table (CRITICAL…LOW). Informational/recon items (INFO) are shown
+    separately by print_information() so problems are never mixed with context."""
+    vulns = [f for f in findings if f.severity.value != "info"]
+    infos = [f for f in findings if f.severity.value == "info"]
+
     console.print()
-    console.print(Rule(f"[bold white]Findings — {url}[/bold white]", style="dim"))
+    console.print(Rule(f"[bold white]Vulnerabilities — {url}[/bold white]", style="dim"))
     console.print()
 
-    if not findings:
-        console.print("[dim]  No findings to display.[/dim]")
+    if not vulns:
+        console.print("[bold green]  ✓ No vulnerabilities found.[/bold green]")
+        print_information(infos)
         return
 
     table = Table(
@@ -162,7 +168,7 @@ def print_findings(findings: list[Finding], url: str) -> None:
     table.add_column("Description", ratio=3, no_wrap=False)
 
     has_verifiable = False
-    for f in findings:
+    for f in vulns:
         sev   = f.severity.value
         style = _SEVERITY_STYLE.get(sev, "white")
         label = _SEVERITY_LABEL.get(sev, sev.upper())
@@ -203,6 +209,35 @@ def print_findings(findings: list[Finding], url: str) -> None:
             "\n[dim]See the [cyan]Verification Links[/cyan] table below to open or copy "
             "each URL and confirm the finding is real.[/dim]"
         )
+
+    print_information(infos)
+
+
+def print_information(infos: list[Finding]) -> None:
+    """Show INFO findings (recon / context — not vulnerabilities) in a separate, calm section,
+    visually distinct from the severity-ranked vulnerabilities table (no severity column, no red)."""
+    if not infos:
+        return
+
+    console.print()
+    console.print(Rule("[bold cyan]Information & Recon[/bold cyan]  "
+                       "[dim](context — not vulnerabilities)[/dim]", style="dim cyan"))
+    console.print()
+
+    table = Table(box=box.SIMPLE, show_header=True, header_style="bold bright_white",
+                  expand=True, padding=(0, 1))
+    table.add_column("", style="cyan", width=2, no_wrap=True)            # ℹ marker
+    table.add_column("Module", style="dim", width=20, no_wrap=True)
+    table.add_column("Detail", ratio=1, no_wrap=False)
+
+    for f in infos:
+        detail = Text(f.title, style="white")
+        if f.description and f.description.strip() and f.description.strip() != f.title.strip():
+            detail.append(f"  —  {f.description}", style="dim")
+        table.add_row("ℹ", f.module, detail)
+
+    console.print(table)
+    console.print(f"[dim]  {len(infos)} informational item(s) — context only, not scored.[/dim]")
 
 
 # ---------------------------------------------------------------------------

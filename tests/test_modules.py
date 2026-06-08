@@ -4629,3 +4629,76 @@ class TestFullScanPerf:
         assert eng.request("GET", "https://example.com/x").status_code == 200   # success resets
         assert eng._fail_streak == 0 and eng._breaker_open_until == 0.0
         eng.close()
+
+
+class TestVulnInfoSeparation:
+    """Informational (INFO) findings are presented separately from real vulnerabilities."""
+
+    @staticmethod
+    def _vuln():
+        return Finding(module="headers_check", title="Missing CSP", description="No CSP header",
+                       severity=Severity.HIGH, cwe="CWE-693", owasp="A05:2021 Misconfig", cvss=6.1)
+
+    @staticmethod
+    def _info(title="Server: nginx", desc="banner"):
+        return Finding(module="basic_info", title=title, description=desc, severity=Severity.INFO)
+
+    # ── HTML ──────────────────────────────────────────────────────────────
+    def test_html_splits_vulns_and_info(self, tmp_path):
+        import re
+        from pathlib import Path
+        from scanner.output.report_html import generate_html
+        out = generate_html([self._vuln(), self._info("Server: IIS", "banner")], "http://d.test", 55,
+                            output_path=str(tmp_path / "reports"))
+        h = Path(out).read_text(encoding="utf-8")
+        assert ">Vulnerabilities<" in h and ">Information<" in h
+        table = re.search(r'<table class="findings-table">.*?</table>', h, re.S).group(0)
+        assert "Missing CSP" in table                 # the vuln is in the severity table
+        assert "Server: IIS" not in table             # the INFO item is NOT in the severity table
+        assert 'class="info-item"' in h and "info-chip" in h
+        assert "Server: IIS" in h.split(">Information<")[1]   # … it's in the Information section
+        assert ">INFO<" not in table                  # no INFO sev-badge row
+
+    def test_html_no_info_section_when_no_info(self, tmp_path):
+        from pathlib import Path
+        from scanner.output.report_html import generate_html
+        h = Path(generate_html([self._vuln()], "http://d.test", 70,
+                               output_path=str(tmp_path / "reports"))).read_text(encoding="utf-8")
+        assert ">Information<" not in h and 'class="info-item"' not in h
+
+    def test_html_no_vulnerabilities_note_when_info_only(self, tmp_path):
+        from pathlib import Path
+        from scanner.output.report_html import generate_html
+        h = Path(generate_html([self._info()], "http://d.test", 100,
+                               output_path=str(tmp_path / "reports"))).read_text(encoding="utf-8")
+        assert "No vulnerabilities found" in h
+        assert 'class="info-item"' in h and ">Information<" in h
+
+    # ── Console ───────────────────────────────────────────────────────────
+    def _render(self, findings):
+        from rich.console import Console
+        import scanner.output.console as cons
+        rec = Console(record=True, width=120)
+        old = cons.console
+        cons.console = rec
+        try:
+            cons.print_findings(findings, "http://t")
+        finally:
+            cons.console = old
+        return rec.export_text()
+
+    def test_console_splits_vulns_and_info(self):
+        txt = self._render([self._vuln(), self._info("Server: nginx", "banner")])
+        assert "Vulnerabilities —" in txt
+        assert "Information & Recon" in txt and "not scored" in txt
+        assert "Server: nginx" in txt and "Missing CSP" in txt
+
+    def test_console_no_info_section_when_no_info(self):
+        txt = self._render([self._vuln()])
+        assert "Vulnerabilities —" in txt
+        assert "Information & Recon" not in txt
+
+    def test_console_no_vulns_note_when_info_only(self):
+        txt = self._render([self._info()])
+        assert "No vulnerabilities found" in txt
+        assert "Information & Recon" in txt
