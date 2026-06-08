@@ -190,75 +190,132 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "full", None
 
 
-def _autodetect_login_form(*urls: str) -> "Optional[tuple[str, Optional[str], str]]":
-    """Fetch a login page and read its form: return (action_url, username_field, password_field).
+_SETUP_UA = "Hades/1.0 (authenticated-scan setup)"
+# Link text/href hints and common paths used to locate a login page from just the site URL.
+_LOGIN_HINTS = ("login", "log-in", "signin", "sign-in", "log in", "sign in", "connexion",
+                "connecter", "se-connecter", "auth", "account", "mon-compte", "espace-client")
+_COMMON_LOGIN_PATHS = ("/login", "/connexion", "/se-connecter", "/signin", "/sign-in",
+                       "/account/login", "/user/login", "/users/sign_in", "/auth/login",
+                       "/wp-login.php", "/admin/login", "/my-account", "/espace-client", "/compte")
 
-    Returns None if no form with a password input is found (or the page can't be fetched), so the
-    caller can fall back to asking for the field names manually. Best-effort, never fatal.
-    """
-    import httpx
-    from bs4 import BeautifulSoup
+
+def _extract_login_form(soup, page_url: str) -> "Optional[tuple[str, Optional[str], str]]":
+    """From a parsed page, return (action_url, username_field, password_field) for the first form
+    with a password input, else None."""
     from urllib.parse import urljoin
+    for form in soup.find_all("form"):
+        pw = form.find("input", attrs={"type": "password"})
+        if not pw or not pw.get("name"):
+            continue
+        user_field = None
+        for inp in form.find_all("input"):
+            itype = (inp.get("type") or "text").lower()
+            if itype in ("text", "email", "tel") and inp.get("name"):
+                user_field = inp.get("name")
+                break
+        return urljoin(page_url, form.get("action") or page_url), user_field, pw.get("name")
+    return None
 
+
+def _fetch(u: str):
+    """Best-effort one-off GET for login discovery (never raises)."""
+    import httpx
+    try:
+        return httpx.get(u, follow_redirects=True, verify=False, timeout=8,
+                         headers={"User-Agent": _SETUP_UA})
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _autodetect_login_form(*urls: str) -> "Optional[tuple[str, Optional[str], str]]":
+    """Fetch each candidate page and return the first login form found (action + field names), or None."""
+    from bs4 import BeautifulSoup
     for u in urls:
         if not u:
             continue
-        try:
-            resp = httpx.get(u, follow_redirects=True, verify=False, timeout=10,
-                             headers={"User-Agent": "Hades/1.0 (authenticated-scan setup)"})
-        except Exception:  # noqa: BLE001 — best-effort one-off setup fetch
+        resp = _fetch(u)
+        if resp is None:
             continue
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for form in soup.find_all("form"):
-            pw = form.find("input", attrs={"type": "password"})
-            if not pw or not pw.get("name"):
-                continue
-            user_field = None
-            for inp in form.find_all("input"):
-                itype = (inp.get("type") or "text").lower()
-                if itype in ("text", "email", "tel") and inp.get("name"):
-                    user_field = inp.get("name")
-                    break
-            return urljoin(u, form.get("action") or u), user_field, pw.get("name")
+        found = _extract_login_form(BeautifulSoup(resp.text, "html.parser"), u)
+        if found:
+            return found
     return None
+
+
+def _discover_login(url: str) -> "Optional[tuple[str, Optional[str], str]]":
+    """From just the site URL, locate the login page: a form on the homepage, a homepage link that
+    looks like login, or a common login path. Returns (action, user_field, pass_field) or None."""
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin, urlparse
+
+    base = url.rstrip("/")
+    candidates: list[str] = []
+    resp = _fetch(base)
+    if resp is not None:
+        soup = BeautifulSoup(resp.text, "html.parser")
+        on_home = _extract_login_form(soup, base)        # login form right on the homepage?
+        if on_home:
+            return on_home
+        host = urlparse(base).netloc
+        for a in soup.find_all("a", href=True):          # homepage links that look like "login"
+            href = a["href"].strip()
+            text = (a.get_text() or "").lower()
+            if any(k in href.lower() or k in text for k in _LOGIN_HINTS):
+                absu = urljoin(base + "/", href)
+                if urlparse(absu).netloc == host and absu not in candidates:
+                    candidates.append(absu)
+            if len(candidates) >= 6:
+                break
+    candidates += [base + p for p in _COMMON_LOGIN_PATHS]
+    seen, ordered = set(), []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return _autodetect_login_form(*ordered[:14])
 
 
 def prompt_login(url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Interactively collect login details for the authenticated IDOR scan (menu option 11).
 
-    Reads the login form automatically (real field names + submit URL) so the user only types their
-    username/password values; falls back to asking for the field names if the form can't be read.
+    Given just the site URL, it searches for the login page (homepage form, login links, common
+    paths), reads the real submit URL + field names, and only asks the user for their credentials'
+    values. Falls back to asking the URL / field names manually if nothing is found.
     """
     from urllib.parse import urlencode
 
     console.print("\n[accent]Authenticated scan — log in first[/accent]")
-    console.print("[info]  Press Enter on the Login URL to skip and scan without logging in.[/info]\n")
+    console.print("[info]  Searching the site for its login page…[/info]")
+
+    found = _discover_login(url)
+    if found:
+        action, user_field, pass_field = found
+        console.print(f"  [ok]✓ Login form found[/ok] [info]at[/info] [ok]{action}[/ok] "
+                      f"[info](username field[/info] [ok]{user_field or '?'}[/ok][info], password field[/info] "
+                      f"[ok]{pass_field}[/ok][info]).[/info]")
+    else:
+        action, user_field, pass_field = None, None, None
+        console.print("  [warn]Couldn't find the login page automatically.[/warn]")
 
     login_url = Prompt.ask(
-        "  [ok]Login page URL[/ok] [info]— the page that shows the login form[/info]",
-        default=f"{url.rstrip('/')}/login").strip()
+        "  [ok]Login URL[/ok] [info](Enter to accept, type another, or leave blank to skip login)[/info]",
+        default=(action or f"{url.rstrip('/')}/login")).strip()
     if not login_url:
         return None, None, None
+    if login_url != action:                              # a different URL → read its form too
+        redetected = _autodetect_login_form(login_url, url)
+        if redetected:
+            login_url, user_field, pass_field = redetected
+            console.print(f"  [ok]✓ Read login form[/ok] [info]at[/info] [ok]{login_url}[/ok].")
 
-    detected = _autodetect_login_form(login_url, url)
-    if detected:
-        action, user_field, pass_field = detected
-        login_url = action                       # use the form's real submit URL (fixes guessed URLs)
-        console.print(f"  [ok]✓ Login form detected[/ok] [info]— submits to[/info] [ok]{action}[/ok]"
-                      f"[info]; fields:[/info] user=[ok]{user_field or '?'}[/ok], "
-                      f"password=[ok]{pass_field}[/ok]. [info]Press Enter to accept each.[/info]")
-        user_default = user_field or "username"
-    else:
-        console.print("  [warn]Couldn't read the form automatically.[/warn] [info]Type the field "
-                      "NAMES from each input's [/info][ok]name=\"...\"[/ok][info] attribute "
-                      "(right-click the box → Inspect) — not the visible label.[/info]")
-        user_default, pass_field = "username", "password"
+    user_default, pass_default = (user_field or "username"), (pass_field or "password")
+    if user_field is None and pass_field is None:        # nothing detected → guide the manual entry
+        console.print("  [info]Type the field NAMES from each input's [/info][ok]name=\"...\"[/ok]"
+                      "[info] attribute (right-click the box → Inspect) — not the visible label.[/info]")
 
-    user_field = (Prompt.ask("  [ok]Username field name[/ok]", default=user_default).strip()
-                  or user_default)
+    user_field = (Prompt.ask("  [ok]Username field name[/ok]", default=user_default).strip() or user_default)
     user_value = Prompt.ask(f"  [ok]Value for '{user_field}'[/ok] [info](your username)[/info]").strip()
-    pass_field = (Prompt.ask("  [ok]Password field name[/ok]", default=pass_field).strip()
-                  or pass_field)
+    pass_field = (Prompt.ask("  [ok]Password field name[/ok]", default=pass_default).strip() or pass_default)
     pass_value = Prompt.ask(f"  [ok]Value for '{pass_field}'[/ok] [info](your password — hidden)[/info]",
                             password=True)
     login_data = urlencode({user_field: user_value, pass_field: pass_value})

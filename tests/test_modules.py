@@ -4348,34 +4348,62 @@ class TestIdorDetect:
         with patch("main.Prompt.ask", return_value="11"):
             assert main.prompt_scan_choice() == ("auth_idor", None)
 
+    def test_extract_login_form_parses_real_form(self):
+        import main
+        from bs4 import BeautifulSoup
+        html = ('<form action="/do_login" method="post">'
+                '<input type="hidden" name="csrf" value="x">'
+                '<input type="text" name="pseudo"><input type="password" name="mdp"></form>')
+        action, uf, pf = main._extract_login_form(BeautifulSoup(html, "html.parser"),
+                                                  "https://site.tld/login")
+        assert action == "https://site.tld/do_login" and uf == "pseudo" and pf == "mdp"
+
+    def test_discover_login_follows_homepage_link(self):
+        import main
+        from unittest.mock import patch
+        home = '<html><a href="/connexion">Se connecter</a><a href="/about">About</a></html>'
+        login = ('<form action="/auth" method="post">'
+                 '<input name="pseudo"><input type="password" name="mdp"></form>')
+        def fake_fetch(u):
+            if u.endswith("/connexion"):
+                return httpx.Response(200, html=login)
+            if u == "https://t":
+                return httpx.Response(200, html=home)
+            return httpx.Response(404, text="")
+        with patch("main._fetch", side_effect=fake_fetch):
+            action, uf, pf = main._discover_login("https://t")
+        assert action == "https://t/auth" and uf == "pseudo" and pf == "mdp"
+
     def test_prompt_login_manual_when_form_not_detected(self):
         import main
         from unittest.mock import patch
         # Order: login_url, username field, username value, password field, password value, check.
         answers = ["https://t/login", "pseudo", "testhades", "password", "hades31", "Déconnexion"]
-        with patch("main._autodetect_login_form", return_value=None), \
+        with patch("main._discover_login", return_value=None), \
+             patch("main._autodetect_login_form", return_value=None), \
              patch("main.Prompt.ask", side_effect=answers):
             url, data, check = main.prompt_login("https://t")
         assert url == "https://t/login"
         assert data == "pseudo=testhades&password=hades31"   # field names typed manually
         assert check == "Déconnexion"
 
-    def test_prompt_login_autodetects_form_fields(self):
+    def test_prompt_login_autodiscovers_login_page(self):
         import main
         from unittest.mock import patch
-        # Form auto-detected → real action URL + field names pre-filled; user just presses Enter
-        # on the field-name prompts and types the values.
-        answers = ["https://t/login", "", "testhades", "", "hades31", "Logout"]
-        with patch("main._autodetect_login_form", return_value=("https://t/do_login", "pseudo", "pwd")), \
+        # The login page + fields are found from just the site URL; the user accepts (Enter) and
+        # only types the values.
+        answers = ["https://t/do_login", "", "testhades", "", "hades31", "Logout"]
+        with patch("main._discover_login", return_value=("https://t/do_login", "pseudo", "pwd")), \
              patch("main.Prompt.ask", side_effect=answers):
             url, data, check = main.prompt_login("https://t")
-        assert url == "https://t/do_login"                   # the form's real submit action is used
-        assert data == "pseudo=testhades&pwd=hades31"        # detected field names applied
+        assert url == "https://t/do_login"                   # discovered submit action is used
+        assert data == "pseudo=testhades&pwd=hades31"        # discovered field names applied
 
     def test_prompt_login_blank_url_cancels(self):
         import main
         from unittest.mock import patch
-        with patch("main.Prompt.ask", side_effect=[""]):
+        with patch("main._discover_login", return_value=None), \
+             patch("main.Prompt.ask", side_effect=[""]):
             assert main.prompt_login("https://t") == (None, None, None)
 
     def test_idor_wired(self):
