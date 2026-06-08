@@ -26,7 +26,7 @@ from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as ev
-from scanner.crawler import Form
+from scanner.crawler import Form, fresh_form_fields
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "xss_detect"
@@ -214,7 +214,9 @@ def _url_injector(engine: ScanEngine, url: str, param: str) -> InjectFn:
 
 def _form_injector(engine: ScanEngine, form: Form, field: str) -> InjectFn:
     def inject(payload: str) -> httpx.Response | None:
-        data = {**form.fields, field: payload}
+        # Refresh hidden tokens (ASP.NET __VIEWSTATE/__EVENTVALIDATION, CSRF) right before submitting,
+        # so a stateful framework doesn't reject the postback with an error page that hides the payload.
+        data = {**fresh_form_fields(engine, form), field: payload}
         try:
             if form.method == "post":
                 return engine.request("POST", form.action, data=data)

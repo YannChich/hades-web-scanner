@@ -4994,3 +4994,60 @@ class TestExploitationWalkthrough:
         assert any("tplmap" in s["command"] for s in ssti_detect._exploitation_steps(inj, "x"))
         assert any("base64" in s["command"] for s in lfi_detect._exploitation_steps(inj, "x"))
         assert any("169.254.169.254" in s["command"] for s in ssrf_detect._exploitation_steps(inj, "x"))
+
+
+class TestStatefulFormXss:
+    """A reflected XSS in a stateful (ASP.NET-style) POST form is detected because Hades re-fetches a
+    fresh hidden token (__VIEWSTATE/CSRF) right before submitting — a stale replay would be rejected."""
+
+    def test_xss_detected_through_token_gated_post_form(self, base_url):
+        import threading
+        from urllib.parse import parse_qs
+        from scanner.vulns.xss_detect import run
+
+        issued: set[str] = set()
+        lock = threading.Lock()
+        counter = {"n": 0}
+
+        def _login_html(token: str) -> str:
+            return (f'<html><body><form method="post" action="/login.aspx">'
+                    f'<input type="hidden" name="__VIEWSTATE" value="{token}">'
+                    f'<input type="text" name="tfUName" value="">'
+                    f'<input type="submit" name="btnLogin" value="Login"></form></body></html>')
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                p = request.url.path
+                if request.method == "GET" and p in ("", "/"):
+                    return httpx.Response(200, text='<a href="/login.aspx">login</a>',
+                                          headers={"content-type": "text/html"})
+                if p == "/login.aspx" and request.method == "GET":
+                    with lock:
+                        counter["n"] += 1
+                        tok = f"vs{counter['n']}"
+                        issued.add(tok)
+                    return httpx.Response(200, text=_login_html(tok),
+                                          headers={"content-type": "text/html"})
+                if p == "/login.aspx" and request.method == "POST":
+                    body = parse_qs(request.content.decode("utf-8", "ignore"))
+                    vs = (body.get("__VIEWSTATE") or [""])[0]
+                    uname = (body.get("tfUName") or [""])[0]
+                    with lock:
+                        valid = vs in issued
+                    if not valid:                       # stale/missing token → framework error page
+                        return httpx.Response(200, text="<html>The state information is invalid.</html>",
+                                              headers={"content-type": "text/html"})
+                    # vulnerable: the posted username is reflected UNENCODED into a value attribute
+                    return httpx.Response(
+                        200, headers={"content-type": "text/html"},
+                        text=f'<html><body><input type="text" name="tfUName" value="{uname}"></body></html>')
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        xss = [f for f in findings
+               if f.severity == Severity.HIGH and "tfUName" in (f.raw.get("location") or "")]
+        assert xss, "reflected XSS in the token-gated login form should be detected"
+        assert xss[0].raw.get("evidence")

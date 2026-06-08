@@ -138,6 +138,33 @@ def extract_forms(base_url: str, html: str) -> list[Form]:
     return forms
 
 
+def fresh_form_fields(engine, form: "Form") -> dict[str, str]:
+    """Re-fetch the form's page and return its *current* field values.
+
+    Stateful frameworks (ASP.NET WebForms ``__VIEWSTATE`` / ``__EVENTVALIDATION``, Rails/Django CSRF
+    tokens) reject a replayed POST that carries the stale hidden tokens captured at crawl time — the
+    server answers an error page that never reflects the injected payload, so the bug is missed.
+    Fetching fresh tokens immediately before each submission makes the postback valid. Falls back to
+    the crawl-time fields on any error, so callers can use it unconditionally.
+    """
+    page = form.source_url or form.action
+    try:
+        resp = engine.request("GET", page)
+        candidates = extract_forms(page, resp.text)
+    except Exception:  # noqa: BLE001 — network/parse error → keep the crawl-time fields
+        return dict(form.fields)
+
+    injected = set(form.fields)
+    # Prefer the form with the same action that still carries the field we inject into.
+    best = next((c for c in candidates if c.action == form.action and injected & set(c.fields)), None)
+    best = best or next((c for c in candidates if injected & set(c.fields)), None)
+    if best is None:
+        return dict(form.fields)
+    merged = dict(form.fields)
+    merged.update(best.fields)          # refresh hidden tokens (__VIEWSTATE, csrf, …) to current values
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

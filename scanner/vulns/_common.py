@@ -18,6 +18,7 @@ from loguru import logger
 
 from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as _ev
+from scanner.crawler import fresh_form_fields
 from scanner.engine import ScanEngine
 
 InjectFn = Callable[[str], "httpx.Response | None"]
@@ -93,7 +94,9 @@ def evidence(injector: "Injector", payload: str, resp: "httpx.Response | None",
 
 def _form_inject(engine: ScanEngine, form, field: str) -> InjectFn:
     def inject(payload: str) -> "httpx.Response | None":
-        data = {**form.fields, field: payload}
+        # Refresh hidden tokens (ASP.NET __VIEWSTATE/__EVENTVALIDATION, CSRF) before each submit so a
+        # stateful framework accepts the postback instead of returning a token-error page.
+        data = {**fresh_form_fields(engine, form), field: payload}
         try:
             if form.method == "post":
                 return engine.request("POST", form.action, data=data)
