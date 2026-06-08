@@ -4497,3 +4497,92 @@ class TestFullScanOrchestration:
         assert all({"name", "seconds", "count", "status"} <= set(s) for s in eng._run_stats)
         assert sum(s["count"] for s in eng._run_stats) == 2
         eng.close()
+
+
+class _CountingTransport(httpx.BaseTransport):
+    """Counts requests per URL; returns a fixed status (default 200 'ok')."""
+
+    def __init__(self, status: int = 200):
+        self.status = status
+        self.count: dict[str, int] = {}
+
+    def handle_request(self, request: httpx.Request):
+        u = str(request.url)
+        self.count[u] = self.count.get(u, 0) + 1
+        return httpx.Response(self.status, text="ok")
+
+
+class _BoomTransport(httpx.BaseTransport):
+    """Simulates an unreachable host (connection refused)."""
+
+    def handle_request(self, request: httpx.Request):
+        raise httpx.ConnectError("connection refused")
+
+
+class TestFullScanPerf:
+    """Speed/reliability: shared idempotent-GET cache + target pre-flight."""
+
+    def _engine(self, transport, **kw):
+        eng = ScanEngine("https://example.com", rate_delay=0, **kw)
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    def test_homepage_and_allowlisted_paths_cached(self):
+        t = _CountingTransport()
+        eng = self._engine(t)
+        for _ in range(5):
+            eng.get()                                # homepage ×5 → one fetch
+        for _ in range(3):
+            eng.get("/robots.txt")                   # robots ×3 → one fetch
+        assert t.count["https://example.com"] == 1
+        assert t.count["https://example.com/robots.txt"] == 1
+        eng.close()
+
+    def test_non_allowlisted_and_kwargs_gets_not_cached(self):
+        t = _CountingTransport()
+        eng = self._engine(t)
+        for _ in range(2):
+            eng.get("/dir/probe")                    # not allowlisted → not cached
+        for _ in range(2):
+            eng.get(headers={"X-Probe": "1"})        # kwargs → not cached (even for the homepage)
+        assert t.count["https://example.com/dir/probe"] == 2
+        assert t.count["https://example.com"] == 2
+        eng.close()
+
+    def test_preflight_aborts_on_unreachable_host(self):
+        eng = self._engine(_BoomTransport(), profile="full")
+        assert eng.run_scan() == []                  # connection error → abort, no modules run
+        eng.close()
+
+    def test_preflight_continues_on_http_error(self, monkeypatch):
+        # A 500 on the HTTP root means the host is UP → the scan proceeds (only a connection-level
+        # failure aborts).
+        eng = self._engine(_CountingTransport(status=500), profile="full")
+        ran = {"n": 0}
+        def fake(self, path):
+            ran["n"] += 1
+            return [Finding(module=path, title="t", description="", severity=Severity.INFO)]
+        monkeypatch.setattr(ScanEngine, "_run_module", fake)
+        monkeypatch.setattr("scanner.engine.PROFILE_MODULES", {"full": ["m_a", "m_b"]})
+        findings = eng.run_scan()
+        assert ran["n"] == 2 and len(findings) == 2   # the 500 root did NOT abort the scan
+        eng.close()
+
+    def test_preflight_skipped_for_non_web_profile(self, monkeypatch):
+        eng = self._engine(_BoomTransport(), profile="db_scan")
+        ran = {"n": 0}
+        monkeypatch.setattr(ScanEngine, "_run_module",
+                            lambda self, path: ran.__setitem__("n", ran["n"] + 1) or [])
+        monkeypatch.setattr("scanner.engine.PROFILE_MODULES", {"db_scan": ["db"], "full": ["x"]})
+        eng.run_scan()                               # must NOT abort despite the unreachable HTTP root
+        assert ran["n"] == 1
+        eng.close()
+
+    def test_preflight_skipped_for_single_module_run(self, monkeypatch):
+        eng = self._engine(_BoomTransport(), modules=["only_one"])
+        ran = {"n": 0}
+        monkeypatch.setattr(ScanEngine, "_run_module",
+                            lambda self, path: ran.__setitem__("n", ran["n"] + 1) or [])
+        eng.run_scan()                               # explicit --module run → no pre-flight
+        assert ran["n"] == 1
+        eng.close()

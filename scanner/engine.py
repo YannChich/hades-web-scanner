@@ -66,6 +66,13 @@ class Severity(str, Enum):
 # Matches MITRE ATT&CK technique IDs, with optional sub-technique (e.g. T1078.001).
 _MITRE_RE = re.compile(r"T\d{4}(?:\.\d{3})?")
 
+# Idempotent, genuinely-shared resources many modules fetch — cached once per scan (relative to url).
+_CACHEABLE_PATHS = {"", "/robots.txt", "/sitemap.xml", "/sitemap_index.xml", "/favicon.ico"}
+
+# Profiles for which an unreachable HTTP root means the scan can't proceed (so pre-flight may abort).
+# Excludes db_scan/tls_scan/oob_scan/engage/cve_scan/ai_scan, whose target may have no HTTP root.
+_WEB_CENTRIC_PROFILES = {"full", "quick", "passive", "cms"}
+
 
 def _make_finding_id(module: str, title: str) -> str:
     """Stable, human-readable finding ID, e.g. 'SQLI-3F9A'.
@@ -231,6 +238,11 @@ class ScanEngine:
         self._crawl_result = None
         self._crawl_lock   = threading.Lock()
 
+        # Shared idempotent-GET cache — the homepage and a few well-known paths (robots/sitemap/
+        # favicon) are fetched by ~12 modules each; cache them so each costs one request per scan.
+        self._get_cache: dict[str, httpx.Response] = {}
+        self._get_cache_lock = threading.Lock()
+
         # Establish an authenticated session before any module runs (best-effort).
         if self.login_url and self.login_data:
             self._establish_session()
@@ -269,6 +281,17 @@ class ScanEngine:
 
     def get(self, path: str = "", **kwargs) -> httpx.Response:
         target = f"{self.url}{path}" if path else self.url
+        # Plain GETs of genuinely-shared, idempotent resources are fetched once and reused for the
+        # whole scan (the homepage alone is requested by ~12 modules). Anything with kwargs (custom
+        # headers, no-redirect, timeouts) or a non-allowlisted path is never cached.
+        if path in _CACHEABLE_PATHS and not kwargs:
+            cached = self._get_cache.get(target)
+            if cached is not None:
+                return cached
+            resp = self.request("GET", target)
+            with self._get_cache_lock:
+                self._get_cache.setdefault(target, resp)
+            return self._get_cache[target]
         return self.request("GET", target, **kwargs)
 
     def head(self, path: str = "", **kwargs) -> httpx.Response:
@@ -377,6 +400,23 @@ class ScanEngine:
             if self.modules
             else PROFILE_MODULES.get(self.profile, PROFILE_MODULES["full"])
         )
+
+        # Pre-flight: for a web-centric profile run, confirm the HTTP root is reachable before
+        # launching dozens of modules (and seed the shared GET cache with the homepage). A returned
+        # response — even 4xx/5xx — means the host is up; only a connection-level failure aborts.
+        if self.profile in _WEB_CENTRIC_PROFILES and not self.modules:
+            try:
+                self.get()
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                from rich.panel import Panel  # noqa: PLC0415
+                console.print(Panel(
+                    f"[bold]Target unreachable[/bold]  [cyan]{self.url}[/cyan]\n"
+                    f"[dim]{exc}[/dim]\nThe HTTP root could not be reached — aborting the scan.",
+                    title="[bold red]Pre-flight failed[/bold red]", border_style="red", padding=(1, 2)))
+                logger.error(f"pre-flight: {self.url} unreachable: {exc}")
+                self.findings = []
+                return []
+
         findings: list[Finding] = []
         stats: list[dict] = []                          # {name, seconds, count, status}
         starts: dict[str, float] = {}                   # module path → when its thread began

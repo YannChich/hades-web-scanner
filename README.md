@@ -124,6 +124,9 @@ evidence**, and every piece of evidence comes with the next move.
 - 43 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
 - Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
 - Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
+- Resilient orchestration: a **pre-flight** reachability check fails fast on a dead target, a per-module
+  **timeout watchdog** means one hung module never stalls the scan, and a **shared-response cache**
+  fetches the homepage/robots/sitemap once (not ~12×) — with a per-module timing/run summary.
 
 **Offensive injection arsenal (active verification)**
 - SQLi, XSS, command injection, SSTI, LFI/path traversal, open redirect and SSRF — each *proven*, with a
