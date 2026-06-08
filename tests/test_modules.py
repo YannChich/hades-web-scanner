@@ -4438,3 +4438,62 @@ def main_login_flags_registered() -> bool:
     ns = main.build_parser().parse_args(
         ["--url", "https://x", "--login-url", "/login", "--login-data", "u=a&p=b", "--login-check", "Logout"])
     return ns.login_url == "/login" and ns.login_data == "u=a&p=b" and ns.login_check == "Logout"
+
+
+class TestFullScanOrchestration:
+    """The profile runner must never hang on a slow module and must isolate per-module errors."""
+
+    def _engine(self, modules):
+        eng = ScanEngine("https://example.com", rate_delay=0, threads=4, modules=modules)
+        eng._client = httpx.Client(transport=MockTransport({}), follow_redirects=True, verify=False)
+        return eng
+
+    def test_hung_module_is_abandoned_and_scan_completes(self, monkeypatch):
+        import time
+        from scanner import engine as eng_mod
+        monkeypatch.setattr(eng_mod, "MODULE_TIMEOUT", 0.3)
+        eng = self._engine(["fast_a", "hang_b", "fast_c"])
+
+        def fake_run(self, path):
+            if path == "hang_b":
+                time.sleep(2.0)                          # far past the 0.3s budget
+                return []
+            return [Finding(module=path, title=f"f-{path}", description="", severity=Severity.LOW)]
+
+        monkeypatch.setattr(ScanEngine, "_run_module", fake_run)
+        start = time.monotonic()
+        findings = eng.run_scan()
+        elapsed = time.monotonic() - start
+
+        names = sorted(f.module for f in findings)
+        assert names == ["fast_a", "fast_c"]             # the OK modules' findings are returned
+        assert elapsed < 1.5                             # did NOT wait for the 2s hang
+        statuses = {s["name"]: s["status"] for s in eng._run_stats}
+        assert statuses["hang_b"] == "timeout"
+        eng.close()
+
+    def test_module_error_is_isolated(self, monkeypatch):
+        eng = self._engine(["good", "boom"])
+
+        def fake_run(self, path):
+            if path == "boom":
+                raise RuntimeError("module blew up")
+            return [Finding(module=path, title="ok", description="", severity=Severity.INFO)]
+
+        monkeypatch.setattr(ScanEngine, "_run_module", fake_run)
+        findings = eng.run_scan()                        # must not raise
+        assert [f.module for f in findings] == ["good"]
+        statuses = {s["name"]: s["status"] for s in eng._run_stats}
+        assert statuses == {"good": "ok", "boom": "error"}
+        eng.close()
+
+    def test_run_summary_stats_recorded(self, monkeypatch):
+        eng = self._engine(["m1", "m2"])
+        monkeypatch.setattr(ScanEngine, "_run_module",
+                            lambda self, path: [Finding(module=path, title="t", description="",
+                                                        severity=Severity.LOW)])
+        eng.run_scan()
+        assert len(eng._run_stats) == 2
+        assert all({"name", "seconds", "count", "status"} <= set(s) for s in eng._run_stats)
+        assert sum(s["count"] for s in eng._run_stats) == 2
+        eng.close()

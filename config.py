@@ -23,6 +23,9 @@ DEFAULT_TIMEOUT: float = 15.0       # seconds per HTTP request
 DEFAULT_THREADS: int = 10
 DEFAULT_RATE_DELAY: float = 0.5     # seconds between requests (normal)
 SAFE_MODE_RATE_DELAY: float = 1.0   # seconds between requests (safe / polite)
+# Wall-clock budget per module: a module running longer than this is abandoned so one slow/hung
+# module can never stall the whole scan. Generous — it only catches genuine hangs, not real work.
+MODULE_TIMEOUT: float = 300.0       # seconds
 
 # ---------------------------------------------------------------------------
 # Shared crawler bounds (used by scanner/crawler.py via ScanEngine.get_crawl)

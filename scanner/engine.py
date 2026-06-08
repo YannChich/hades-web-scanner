@@ -7,7 +7,7 @@ import importlib
 import re
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, TYPE_CHECKING
@@ -34,6 +34,7 @@ from config import (
     DEFAULT_THREADS,
     DEFAULT_TIMEOUT,
     FINDING_TAXONOMY,
+    MODULE_TIMEOUT,
     MODULE_REDTEAM_MAP,
     PROFILE_MODULES,
     SEVERITY_CVSS,
@@ -257,6 +258,8 @@ class ScanEngine:
             follow_redirects=True,
             timeout=DEFAULT_TIMEOUT,
             verify=False,  # targets may have self-signed certs; caller controls this
+            limits=httpx.Limits(max_connections=max(self.threads * 2, 20),
+                                max_keepalive_connections=max(self.threads, 10)),
         )
 
     def request(self, method: str, url: str, **kwargs) -> httpx.Response:
@@ -362,13 +365,26 @@ class ScanEngine:
         return mod.run(self)  # type: ignore[attr-defined]
 
     def run_scan(self) -> list[Finding]:
-        """Execute all modules for the chosen profile in parallel, collect findings."""
+        """Execute the profile's modules in parallel and collect findings.
+
+        Each module gets a wall-clock budget (``MODULE_TIMEOUT``): a module that runs longer is
+        *abandoned* — the scan stops waiting for it and shuts the pool down without blocking — so one
+        slow or hung module can never stall the whole scan. Per-module timing/status is captured for
+        the run summary.
+        """
         module_paths: list[str] = (
             self.modules
             if self.modules
             else PROFILE_MODULES.get(self.profile, PROFILE_MODULES["full"])
         )
         findings: list[Finding] = []
+        stats: list[dict] = []                          # {name, seconds, count, status}
+        starts: dict[str, float] = {}                   # module path → when its thread began
+        poll = min(2.0, max(0.1, MODULE_TIMEOUT / 5))
+
+        def _runner(path: str) -> list[Finding]:
+            starts[path] = time.monotonic()
+            return self._run_module(path)
 
         with Progress(
             SpinnerColumn(spinner_name="dots2"),
@@ -379,37 +395,52 @@ class ScanEngine:
             console=console,
             transient=False,
         ) as progress:
-            task_id = progress.add_task(
-                f"Scanning {self.url}",
-                total=len(module_paths),
-            )
-
-            with ThreadPoolExecutor(max_workers=self.threads) as pool:
-                future_to_mod: dict[Future[list[Finding]], str] = {
-                    pool.submit(self._run_module, path): path
-                    for path in module_paths
-                }
-
-                for future in as_completed(future_to_mod):
-                    mod_path = future_to_mod[future]
-                    mod_name = mod_path.split(".")[-1]
-
-                    try:
-                        result = future.result()
-                        findings.extend(result)
-                        progress.console.print(
-                            f"  [green]+[/green] [dim]{mod_name:<30}[/dim] "
-                            f"[cyan]{len(result)} finding(s)[/cyan]"
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.error(f"{mod_path} failed: {exc}")
-                        progress.console.print(
-                            f"  [red]x[/red] [dim]{mod_name:<30}[/dim] "
-                            f"[red]{exc}[/red]"
-                        )
-                    finally:
+            task_id = progress.add_task(f"Scanning {self.url}", total=len(module_paths))
+            pool = ThreadPoolExecutor(max_workers=self.threads)
+            try:
+                fut_to_mod: dict[Future, str] = {pool.submit(_runner, p): p for p in module_paths}
+                pending = set(fut_to_mod)
+                while pending:
+                    done, pending = wait(pending, timeout=poll, return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        path = fut_to_mod[fut]
+                        name = path.split(".")[-1]
+                        elapsed = time.monotonic() - starts.get(path, time.monotonic())
+                        try:
+                            result = fut.result()
+                            findings.extend(result)
+                            stats.append({"name": name, "seconds": elapsed,
+                                          "count": len(result), "status": "ok"})
+                            progress.console.print(
+                                f"  [green]+[/green] [dim]{name:<28}[/dim] "
+                                f"[cyan]{len(result)} finding(s)[/cyan] [dim]{elapsed:.1f}s[/dim]")
+                        except Exception as exc:  # noqa: BLE001 — one module must never abort the scan
+                            logger.error(f"{path} failed: {exc}")
+                            stats.append({"name": name, "seconds": elapsed, "count": 0,
+                                          "status": "error"})
+                            progress.console.print(
+                                f"  [red]x[/red] [dim]{name:<28}[/dim] [red]{exc}[/red]")
                         progress.advance(task_id)
+                    # Watchdog: abandon any module that has been RUNNING past its budget.
+                    now = time.monotonic()
+                    overdue = {f for f in pending
+                               if (st := starts.get(fut_to_mod[f])) is not None and now - st > MODULE_TIMEOUT}
+                    for fut in overdue:
+                        name = fut_to_mod[fut].split(".")[-1]
+                        fut.cancel()
+                        stats.append({"name": name, "seconds": MODULE_TIMEOUT, "count": 0,
+                                      "status": "timeout"})
+                        logger.warning(f"{fut_to_mod[fut]} exceeded {MODULE_TIMEOUT:.0f}s — abandoned")
+                        progress.console.print(
+                            f"  [yellow]![/yellow] [dim]{name:<28}[/dim] "
+                            f"[yellow]timed out (> {MODULE_TIMEOUT:.0f}s) — abandoned[/yellow]")
+                        progress.advance(task_id)
+                    pending -= overdue
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
 
+        self._run_stats = stats
+        _print_run_summary(stats)
         self.findings = sort_by_severity(findings)
         return self.findings
 
@@ -432,6 +463,36 @@ class ScanEngine:
 # ---------------------------------------------------------------------------
 # Top-level entry called by main.py
 # ---------------------------------------------------------------------------
+
+def _print_run_summary(stats: list[dict]) -> None:
+    """A glance-able summary of the module run: status counts, total time/findings, the slowest
+    modules, and anything that errored or timed out — so a full scan is observable at a glance."""
+    if not stats:
+        return
+    ok = sum(1 for s in stats if s["status"] == "ok")
+    errored = [s["name"] for s in stats if s["status"] == "error"]
+    timed_out = [s["name"] for s in stats if s["status"] == "timeout"]
+    total_time = sum(s["seconds"] for s in stats)
+    total_findings = sum(s["count"] for s in stats)
+    slowest = sorted((s for s in stats if s["status"] == "ok"),
+                     key=lambda s: s["seconds"], reverse=True)[:3]
+
+    line = f"[dim]Modules:[/dim] {len(stats)} run · [green]{ok} ok[/green]"
+    if errored:
+        line += f" · [red]{len(errored)} error[/red]"
+    if timed_out:
+        line += f" · [yellow]{len(timed_out)} timeout[/yellow]"
+    line += f" · [cyan]{total_findings} finding(s)[/cyan] · [dim]{total_time:.1f}s total[/dim]"
+    console.print()
+    console.print(line)
+    if slowest:
+        console.print("  [dim]slowest:[/dim] "
+                      + "  ·  ".join(f"{s['name']} [dim]{s['seconds']:.1f}s[/dim]" for s in slowest))
+    if errored:
+        console.print(f"  [red]errored:[/red] {', '.join(errored)}")
+    if timed_out:
+        console.print(f"  [yellow]timed out:[/yellow] {', '.join(timed_out)}")
+
 
 def _open_in_browser(path: str) -> None:
     """Best-effort: open a report file in the default browser (never fails the scan)."""
