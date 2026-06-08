@@ -4630,6 +4630,32 @@ class TestFullScanPerf:
         assert eng._fail_streak == 0 and eng._breaker_open_until == 0.0
         eng.close()
 
+    def test_rate_limiter_concurrency_parallelises(self):
+        import time
+        from scanner.engine import RateLimiter
+        def measure(concurrency, n=10):
+            rl = RateLimiter(0.05, concurrency)
+            t0 = time.monotonic()
+            for _ in range(n):
+                rl.acquire()
+            return time.monotonic() - t0
+        serial = measure(1)             # one lane → ~ (n-1)*0.05 ≈ 0.45s
+        concurrent = measure(5)         # five lanes → bursts, far faster
+        assert concurrent < serial / 3
+
+    def test_safe_mode_is_a_single_polite_lane(self):
+        import config
+        eng = ScanEngine("https://x", rate_delay=config.SAFE_MODE_RATE_DELAY)
+        assert eng._rate_limiter._burst == 1                       # strictly serial when polite
+        assert eng._rate_limiter._delay == config.SAFE_MODE_RATE_DELAY   # is_safe_mode() still works
+        eng.close()
+
+    def test_normal_mode_caps_concurrency(self):
+        import config
+        eng = ScanEngine("https://x", rate_delay=0.5, threads=20)
+        assert eng._rate_limiter._burst == config.MAX_CONCURRENCY   # capped, not 20
+        eng.close()
+
 
 class TestVulnInfoSeparation:
     """Informational (INFO) findings are presented separately from real vulnerabilities."""

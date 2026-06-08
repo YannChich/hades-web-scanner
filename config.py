@@ -23,6 +23,11 @@ DEFAULT_TIMEOUT: float = 15.0       # seconds per HTTP request
 DEFAULT_THREADS: int = 10
 DEFAULT_RATE_DELAY: float = 0.5     # seconds between requests (normal)
 SAFE_MODE_RATE_DELAY: float = 1.0   # seconds between requests (safe / polite)
+# Rate limiting is a concurrent token bucket: up to MAX_CONCURRENCY requests run in parallel (each
+# respecting the per-lane delay), so the thread pool actually delivers throughput instead of being
+# serialised to one request per delay. Effective ceiling ≈ MAX_CONCURRENCY / rate_delay req/s.
+# Lower --threads to throttle; safe/passive mode falls back to a single polite lane.
+MAX_CONCURRENCY: int = 5
 # Wall-clock budget per module: a module running longer than this is abandoned so one slow/hung
 # module can never stall the whole scan. Generous — it only catches genuine hangs, not real work.
 MODULE_TIMEOUT: float = 300.0       # seconds

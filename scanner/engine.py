@@ -36,9 +36,11 @@ from config import (
     DEFAULT_THREADS,
     DEFAULT_TIMEOUT,
     FINDING_TAXONOMY,
+    MAX_CONCURRENCY,
     MODULE_TIMEOUT,
     MODULE_REDTEAM_MAP,
     PROFILE_MODULES,
+    SAFE_MODE_RATE_DELAY,
     SEVERITY_CVSS,
     USER_AGENT,
 )
@@ -160,19 +162,34 @@ class Finding:
 # ---------------------------------------------------------------------------
 
 class RateLimiter:
-    """Thread-safe minimum-delay enforcer between outgoing requests."""
+    """Thread-safe concurrent token-bucket rate limiter.
 
-    def __init__(self, delay: float) -> None:
+    A plain global min-delay caps the whole scan at one request per ``delay`` and makes the thread
+    pool useless (every thread queues on the same lock). This bucket instead sustains
+    ``concurrency / delay`` requests per second and lets up to ``concurrency`` fire near-simultaneously,
+    so threads actually parallelise. ``concurrency=1`` reproduces the old strictly-serial behaviour
+    (used for safe/passive mode). ``_delay`` is kept for ``is_safe_mode()``.
+    """
+
+    def __init__(self, delay: float, concurrency: int = 1) -> None:
         self._delay = delay
+        self._burst = max(1, concurrency)
+        self._rate = (self._burst / delay) if delay > 0 else float("inf")   # tokens per second
+        self._tokens = float(self._burst)
+        self._updated = time.monotonic()
         self._lock = threading.Lock()
-        self._last: float = 0.0
 
     def acquire(self) -> None:
-        with self._lock:
-            wait = self._delay - (time.monotonic() - self._last)
-            if wait > 0:
-                time.sleep(wait)
-            self._last = time.monotonic()
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._tokens = min(self._burst, self._tokens + (now - self._updated) * self._rate)
+                self._updated = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait = (1.0 - self._tokens) / self._rate
+            time.sleep(max(wait, 0.0))                # sleep OUTSIDE the lock so others can refill
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +247,10 @@ class ScanEngine:
         self.oob_host     = oob_host
         self.oob_port     = oob_port
 
-        self._rate_limiter = RateLimiter(rate_delay)
+        # Safe/passive mode stays strictly serial (one polite lane); otherwise allow the thread pool
+        # to parallelise up to MAX_CONCURRENCY lanes so the scan isn't capped at one request/delay.
+        concurrency = 1 if rate_delay >= SAFE_MODE_RATE_DELAY else max(1, min(threads, MAX_CONCURRENCY))
+        self._rate_limiter = RateLimiter(rate_delay, concurrency)
         self._client       = self._build_client()
         self._anon_client: Optional[httpx.Client] = None   # lazy, for access-control checks
         self.findings: list[Finding] = []
