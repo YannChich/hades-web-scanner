@@ -4586,3 +4586,46 @@ class TestFullScanPerf:
         eng.run_scan()                               # explicit --module run → no pre-flight
         assert ran["n"] == 1
         eng.close()
+
+    def test_circuit_breaker_fast_fails_when_open(self, monkeypatch):
+        from scanner import engine as eng_mod
+        monkeypatch.setattr(eng_mod, "CIRCUIT_BREAKER_FAILS", 3)
+
+        class _Timeout(httpx.BaseTransport):
+            def __init__(self):
+                self.n = 0
+            def handle_request(self, request):
+                self.n += 1
+                raise httpx.ReadTimeout("slow")
+
+        t = _Timeout()
+        eng = self._engine(t)
+        for _ in range(3):                           # 3 consecutive timeouts trip the breaker
+            with pytest.raises(httpx.HTTPError):
+                eng.request("GET", "https://example.com/x")
+        assert t.n == 3
+        with pytest.raises(httpx.ConnectError):      # breaker open → fast-fail, transport NOT hit
+            eng.request("GET", "https://example.com/y")
+        assert t.n == 3
+        eng.close()
+
+    def test_circuit_breaker_resets_on_success(self, monkeypatch):
+        from scanner import engine as eng_mod
+        monkeypatch.setattr(eng_mod, "CIRCUIT_BREAKER_FAILS", 3)
+
+        class _Flaky(httpx.BaseTransport):
+            fail = True
+            def handle_request(self, request):
+                if self.fail:
+                    raise httpx.ConnectError("down")
+                return httpx.Response(200, text="ok")
+
+        f = _Flaky()
+        eng = self._engine(f)
+        for _ in range(2):                           # 2 fails — below the threshold of 3
+            with pytest.raises(httpx.HTTPError):
+                eng.request("GET", "https://example.com/x")
+        f.fail = False
+        assert eng.request("GET", "https://example.com/x").status_code == 200   # success resets
+        assert eng._fail_streak == 0 and eng._breaker_open_until == 0.0
+        eng.close()

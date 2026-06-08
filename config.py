@@ -26,6 +26,11 @@ SAFE_MODE_RATE_DELAY: float = 1.0   # seconds between requests (safe / polite)
 # Wall-clock budget per module: a module running longer than this is abandoned so one slow/hung
 # module can never stall the whole scan. Generous — it only catches genuine hangs, not real work.
 MODULE_TIMEOUT: float = 300.0       # seconds
+# Circuit breaker: after this many consecutive request timeouts/connection failures, the engine
+# fast-fails subsequent requests for a cooldown instead of hammering an unresponsive target — so a
+# slow/blocking host makes the scan finish quickly rather than grinding to the per-module budget.
+CIRCUIT_BREAKER_FAILS: int = 8
+CIRCUIT_BREAKER_COOLDOWN: float = 30.0   # seconds the breaker stays open before a half-open retry
 
 # ---------------------------------------------------------------------------
 # Shared crawler bounds (used by scanner/crawler.py via ScanEngine.get_crawl)

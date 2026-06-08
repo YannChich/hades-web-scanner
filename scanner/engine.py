@@ -27,6 +27,8 @@ from rich.progress import (
 )
 
 from config import (
+    CIRCUIT_BREAKER_COOLDOWN,
+    CIRCUIT_BREAKER_FAILS,
     CRAWL_MAX_DEPTH,
     CRAWL_MAX_PAGES,
     DB_CATEGORY_REDTEAM_MAP,
@@ -243,6 +245,14 @@ class ScanEngine:
         self._get_cache: dict[str, httpx.Response] = {}
         self._get_cache_lock = threading.Lock()
 
+        # Circuit breaker — trips after CIRCUIT_BREAKER_FAILS consecutive request timeouts/connection
+        # failures, then fast-fails requests for a cooldown so an unresponsive target can't make every
+        # module grind to its time budget.
+        self._breaker_lock = threading.Lock()
+        self._fail_streak = 0
+        self._breaker_open_until = 0.0
+        self._breaker_announced = False
+
         # Establish an authenticated session before any module runs (best-effort).
         if self.login_url and self.login_data:
             self._establish_session()
@@ -275,9 +285,34 @@ class ScanEngine:
         )
 
     def request(self, method: str, url: str, **kwargs) -> httpx.Response:
-        """Rate-limited HTTP request — every module must use this, never httpx directly."""
+        """Rate-limited HTTP request — every module must use this, never httpx directly.
+
+        Guarded by a circuit breaker: while it is open (the target looks unresponsive) requests
+        fail fast instead of waiting on a timeout, so the scan finishes quickly rather than every
+        module grinding to its budget. A successful request closes it again.
+        """
+        if self._breaker_open_until > time.monotonic():       # open → fail fast, no rate-limit wait
+            raise httpx.ConnectError(f"circuit breaker open: {self.url} unresponsive")
         self._rate_limiter.acquire()
-        return self._client.request(method, url, **kwargs)
+        try:
+            resp = self._client.request(method, url, **kwargs)
+        except (httpx.TimeoutException, httpx.ConnectError):
+            with self._breaker_lock:
+                self._fail_streak += 1
+                if self._fail_streak >= CIRCUIT_BREAKER_FAILS and self._breaker_open_until <= time.monotonic():
+                    self._breaker_open_until = time.monotonic() + CIRCUIT_BREAKER_COOLDOWN
+                    if not self._breaker_announced:
+                        self._breaker_announced = True
+                        console.print(
+                            f"[yellow]  ⚠ {self.url} is unresponsive "
+                            f"({self._fail_streak} consecutive timeouts) — backing off; active probing "
+                            f"will fail fast for ~{CIRCUIT_BREAKER_COOLDOWN:.0f}s.[/yellow]")
+            raise
+        if self._fail_streak:                                  # recovered → close the breaker
+            with self._breaker_lock:
+                self._fail_streak = 0
+                self._breaker_open_until = 0.0
+        return resp
 
     def get(self, path: str = "", **kwargs) -> httpx.Response:
         target = f"{self.url}{path}" if path else self.url
