@@ -1790,6 +1790,73 @@ class TestSensitiveFiles:
         assert any("exposed .git" in f.title.lower() and f.severity == Severity.CRITICAL
                    for f in findings)
 
+    def test_empty_htaccess_downgraded_to_low(self, base_url):
+        """A /.htaccess that 200s with an empty body must be LOW, never a CRITICAL exposure."""
+        from scanner.web.sensitive_files import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/.htaccess":
+                    return httpx.Response(200, text="", headers={"content-type": "text/plain"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        ht = [f for f in findings if f.raw.get("path") == "/.htaccess"]
+        assert ht, "the empty /.htaccess should still surface as a (low) breadcrumb"
+        assert all(f.severity == Severity.LOW for f in ht)
+        assert not [f for f in ht if f.severity in (Severity.CRITICAL, Severity.HIGH)]
+        assert "empty body" in ht[0].title.lower()
+        assert ht[0].raw.get("confidence") == "low"
+        assert ht[0].raw.get("validation") == "LOW"
+
+    def test_htaccess_with_rules_confirmed(self, base_url):
+        """A /.htaccess whose body matches Apache directives is a confirmed HIGH exposure."""
+        from scanner.web.sensitive_files import run
+
+        body = "RewriteEngine On\nRewriteRule ^old$ /new [R=301,L]\n"
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/.htaccess":
+                    return httpx.Response(200, text=body, headers={"content-type": "text/plain"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        ht = [f for f in findings if f.raw.get("path") == "/.htaccess"]
+        assert ht and ht[0].severity == Severity.HIGH
+        assert ht[0].raw.get("confidence") == "high"
+        assert ht[0].raw.get("validation") == "CONFIRMED"
+        assert "exposed" in ht[0].title.lower()
+
+    def test_signature_mismatch_needs_manual(self, base_url):
+        """A wp-config.php 200 whose body lacks the expected signature is LOW needs-manual, not CRITICAL."""
+        from scanner.web.sensitive_files import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/wp-config.php":
+                    return httpx.Response(200, text="placeholder, not php config",
+                                          headers={"content-type": "text/plain"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        wp = [f for f in findings if f.raw.get("path") == "/wp-config.php"]
+        assert wp, "an ambiguous 200 should surface as a low breadcrumb"
+        assert all(f.severity == Severity.LOW for f in wp)
+        assert not [f for f in findings if f.severity == Severity.CRITICAL]
+        assert wp[0].raw.get("confidence") == "low"
+        assert wp[0].raw.get("validation") == "NEEDS_MANUAL_VALIDATION"
+        assert "manual validation" in wp[0].title.lower()
+
 
 # ---------------------------------------------------------------------------
 # admin_panel tests (catch-all / SPA false-positive suppression)

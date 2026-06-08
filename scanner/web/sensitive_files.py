@@ -1,14 +1,19 @@
 """
 sensitive_files — probes well-known paths that expose credentials, config, or debug info.
 
-A genuine 200 means the file is publicly readable (Critical). A 403 means the path is
-access-controlled. To avoid noise on hardened servers that blanket-deny sensitive paths,
-a "blanket 403" probe collapses uniform 403s into a single informational finding instead
-of one Medium per path. Catch-all (SPA / soft-404) servers that 200 everything are
-detected and suppressed via a baseline fingerprint and content-type heuristics.
+A 200 status alone is never enough: each 200 is validated by **body length + content-type +
+file-specific indicators** and compared against a soft-200/catch-all baseline before it is graded.
+Genuine, content-confirmed exposures are reported (CRITICAL/HIGH by file type); a body that merely
+looks plausible drops to medium confidence; an empty/near-empty body or a 200 whose content does not
+match the file's expected signature degrades to a calm LOW "needs manual validation" finding rather
+than a false-positive CRITICAL (e.g. an empty /.htaccess). A 403 means the path is access-controlled;
+to avoid noise on hardened servers, a "blanket 403" probe collapses uniform 403s into a single
+informational finding instead of one Medium per path. Catch-all (SPA / soft-404) servers that 200
+everything are detected and suppressed via a baseline fingerprint and content-type heuristics.
 """
 from __future__ import annotations
 
+import enum
 import hashlib
 import random
 import string
@@ -128,35 +133,58 @@ _TARGETS: list[_Target] = [
     _Target("/.DS_Store",            "macOS directory metadata (reveals file listing)"),
 ]
 
-# For a genuine 200, paths listed here MUST contain the given substring (case-insensitive).
-# This guards against weak matches; everything else is judged by content-type.
-_CONTENT_VERIFY: dict[str, str] = {
-    "/.env":                  "=",
-    "/.git/HEAD":             "ref:",
-    "/.git/config":           "[core]",
-    "/.aws/credentials":      "aws_access_key_id",
-    "/.npmrc":                "_authtoken",
-    "/.netrc":                "machine",
-    "/.pypirc":               "[pypi]",
-    "/wp-config.php":         "db_",
-    "/settings.py":           "secret_key",
-    "/web.config":            "<configuration",
-    "/appsettings.json":      "connectionstrings",
-    "/phpinfo.php":           "phpinfo",
-    "/info.php":              "phpinfo",
-    "/server-status":         "apache",
-    "/server-info":           "apache",
-    "/.ssh/id_rsa":           "begin",
-    "/.ssh/id_ed25519":       "begin",
-    "/id_rsa":                "begin",
-    "/private.key":           "begin",
-    "/server.key":            "begin",
-    "/backup.sql":            "insert",
-    "/dump.sql":              "insert",
-    "/database.sql":          "insert",
-    "/Dockerfile":            "from ",
-    "/docker-compose.yml":    "services:",
-    "/docker-compose.yaml":   "services:",
+# For a genuine 200, paths listed here MUST contain at least one of the given substrings
+# (case-insensitive, any-match). These are the file-specific indicators that distinguish a real
+# exposure from a soft-200 / placeholder / wrong-content response. A path with a signature whose
+# content matches none of them is treated as ambiguous (NEEDS_MANUAL_VALIDATION), not confirmed.
+_CONTENT_PATTERNS: dict[str, tuple[str, ...]] = {
+    # --- Apache access control / rewrite config --------------------------------
+    "/.htaccess":             ("rewriteengine", "rewriterule", "rewritecond", "options ",
+                               "authtype", "authuserfile", "require ", "deny from",
+                               "header set", "redirect", "order ", "<files", "addtype",
+                               "errordocument"),
+    # --- Environment & credentials ---------------------------------------------
+    "/.env":                  ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.local":            ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.dev":              ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.development":      ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.staging":          ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.production":       ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.backup":           ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.save":             ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    # --- VCS metadata ----------------------------------------------------------
+    "/.git/HEAD":             ("ref: refs/heads/", "ref:"),
+    "/.git/config":           ("[core]", "[remote", "repositoryformatversion"),
+    # --- Cloud / package auth ---------------------------------------------------
+    "/.aws/credentials":      ("aws_access_key_id",),
+    "/.npmrc":                ("_authtoken",),
+    "/.netrc":                ("machine",),
+    "/.pypirc":               ("[pypi]",),
+    # --- Framework config -------------------------------------------------------
+    "/wp-config.php":         ("db_",),
+    "/settings.py":           ("secret_key",),
+    "/web.config":            ("<configuration", "<system.webserver", "<rewrite",
+                               "<connectionstrings", "<appsettings"),
+    "/appsettings.json":      ("connectionstrings",),
+    # --- Diagnostics ------------------------------------------------------------
+    "/phpinfo.php":           ("phpinfo",),
+    "/info.php":              ("phpinfo",),
+    "/server-status":         ("apache",),
+    "/server-info":           ("apache",),
+    # --- Private keys -----------------------------------------------------------
+    "/.ssh/id_rsa":           ("begin",),
+    "/.ssh/id_ed25519":       ("begin",),
+    "/id_rsa":                ("begin",),
+    "/private.key":           ("begin",),
+    "/server.key":            ("begin",),
+    # --- Database dumps ---------------------------------------------------------
+    "/backup.sql":            ("insert", "create table", "-- mysql"),
+    "/dump.sql":              ("insert", "create table", "-- mysql"),
+    "/database.sql":          ("insert", "create table", "-- mysql"),
+    # --- Containers -------------------------------------------------------------
+    "/Dockerfile":            ("from ",),
+    "/docker-compose.yml":    ("services:",),
+    "/docker-compose.yaml":   ("services:",),
 }
 
 # Paths that legitimately return an HTML body — judged purely by signature above.
@@ -177,11 +205,19 @@ _EXPOSURE_SEVERITY: dict[str, Severity] = {
     "/Dockerfile": Severity.MEDIUM, "/.travis.yml": Severity.MEDIUM,
     "/Jenkinsfile": Severity.MEDIUM, "/.gitlab-ci.yml": Severity.MEDIUM,
     "/next.config.js": Severity.MEDIUM,
+    # Access-control / rewrite config disclosure — reveals internal paths and auth-file
+    # locations, but is not a raw credential store like .htpasswd (which stays CRITICAL).
+    "/.htaccess": Severity.HIGH,
 }
 
 # Threshold of uniform 403s above which we assume a blanket deny rule even if the
-# random probe didn't conclusively 403 (defensive fallback).
+# random probe didn't conclusively 403 (defensive fallback). Also reused as the
+# collapse threshold for many weak (empty/ambiguous) 200s.
 _BLANKET_403_COUNT = 6
+
+# Below this many non-whitespace characters a 200 body is treated as empty/near-empty:
+# served-but-blank proves nothing, so it degrades to a calm LOW finding.
+_MIN_BODY_BYTES = 8
 
 
 # ---------------------------------------------------------------------------
@@ -254,48 +290,85 @@ def _looks_like_html(content_type: str, snippet: str) -> bool:
             or "<head" in head or "<body" in head)
 
 
-def _signature_ok(target: _Target, snippet: str) -> bool | None:
-    """None if no signature defined; else whether the required substring is present."""
-    required = _CONTENT_VERIFY.get(target.path)
-    if required is None:
+class _Verdict(enum.Enum):
+    """Outcome of validating a 200 response for a sensitive path."""
+    SUPPRESS = "suppress"            # soft-200/catch-all or SPA fallback — no finding
+    CONFIRMED = "confirmed"          # content-confirmed exposure (high confidence)
+    PLAUSIBLE = "plausible"          # non-empty, non-HTML, but no strong signal (medium)
+    NEEDS_MANUAL = "needs_manual"    # signature defined but content didn't match (low)
+    EMPTY = "empty"                  # empty/near-empty body (low)
+
+
+def _signature_match(target: _Target, snippet: str) -> bool | None:
+    """None if no signature defined; else whether any expected substring is present."""
+    patterns = _CONTENT_PATTERNS.get(target.path)
+    if patterns is None:
         return None
-    return required.lower() in snippet.lower()
+    low = snippet.lower()
+    return any(p in low for p in patterns)
 
 
-def _is_genuine_200(target, snippet, content_type, body_len, body_digest, baseline) -> bool:
-    # 1. Catch-all server: body matches the random-path baseline
+def _looks_binary(snippet: str) -> bool:
+    """A real archive / sqlite / key blob: contains a NUL byte or is mostly non-printable."""
+    sample = snippet[:512]
+    if not sample:
+        return False
+    if "\x00" in sample:
+        return True
+    printable = sum(1 for ch in sample if ch.isprintable() or ch in "\r\n\t")
+    return printable / len(sample) < 0.7
+
+
+def _classify(target: _Target, snippet: str, content_type: str,
+              body_len: int, body_digest: str, baseline: _Baseline) -> _Verdict:
+    """Grade a 200 response into one of the _Verdict tiers (see module docstring)."""
+    # 1. Catch-all / soft-200: body matches the random-path baseline (covers empty-200 servers,
+    #    whose blank bodies share the baseline digest, so they collapse here rather than spamming).
     if baseline.catch_all:
         if body_digest == baseline.digest:
-            return False
+            return _Verdict.SUPPRESS
         if baseline.length and abs(body_len - baseline.length) <= max(64, baseline.length // 20):
-            return False
-    # 2. HTML body for a file that is never legitimately HTML → SPA/error fallback
+            return _Verdict.SUPPRESS
+    # 2. Empty / near-empty body — served-but-blank proves nothing.
+    if body_len < _MIN_BODY_BYTES or not snippet.strip():
+        return _Verdict.EMPTY
+    # 3. HTML body for a file that is never legitimately HTML → SPA/error fallback.
     if _looks_like_html(content_type, snippet) and target.path not in _MAY_BE_HTML:
-        return False
-    # 3. Signature check (if any)
-    sig = _signature_ok(target, snippet)
-    if sig is not None:
-        return sig
-    return True
-
-
-def _confidence_200(target: _Target) -> str:
-    """High confidence when the path has a content signature that just matched."""
-    return "high" if target.path in _CONTENT_VERIFY else "medium"
+        return _Verdict.SUPPRESS
+    # 4. File-specific signature: confirmed when it matches, ambiguous when it doesn't.
+    sig = _signature_match(target, snippet)
+    if sig is True:
+        return _Verdict.CONFIRMED
+    if sig is False:
+        return _Verdict.NEEDS_MANUAL
+    # 5. No signature defined — a real binary blob is a confirmed leak; else merely plausible.
+    if _looks_binary(snippet):
+        return _Verdict.CONFIRMED
+    return _Verdict.PLAUSIBLE
 
 
 # ---------------------------------------------------------------------------
 # Findings
 # ---------------------------------------------------------------------------
 
-def _exposed_finding(target: _Target, content_type: str) -> Finding:
+def _exposed_finding(target: _Target, content_type: str, confirmed: bool) -> Finding:
+    """A content-validated exposure. confirmed=True → high confidence; else a plausible match."""
     ctype_note = f" Served as Content-Type: {content_type}." if content_type else ""
     severity = _EXPOSURE_SEVERITY.get(target.path, Severity.CRITICAL)
+    if confirmed:
+        title = f"Sensitive File Exposed [200]: {target.path}"
+        match_note = "Its content matches the expected signature for this file."
+        confidence, validation = "high", "CONFIRMED"
+    else:
+        title = f"Sensitive File Likely Exposed [200]: {target.path}"
+        match_note = ("Its content looks plausible but did not match a strong file-specific "
+                      "signature — confirm manually.")
+        confidence, validation = "medium", "MEDIUM"
     return Finding(
         module=MODULE,
-        title=f"Sensitive File Exposed [200]: {target.path}",
+        title=title,
         description=(
-            f"{target.label} is publicly readable at {target.path}. "
+            f"{target.label} is publicly readable at {target.path}. {match_note} "
             "This file may contain credentials, secrets, or internal configuration."
             f"{ctype_note} Verify manually before acting."
         ),
@@ -305,7 +378,72 @@ def _exposed_finding(target: _Target, content_type: str) -> Finding:
             "Rotate any exposed credentials and add a deny rule in your web server."
         ),
         raw={"path": target.path, "status_code": 200, "label": target.label,
-             "content_type": content_type, "confidence": _confidence_200(target)},
+             "content_type": content_type, "confidence": confidence, "validation": validation},
+    )
+
+
+def _weak_200_finding(target: _Target, kind: _Verdict, content_type: str, body_len: int) -> Finding:
+    """A calm LOW finding for a 200 with an empty/near-empty or signature-mismatched body."""
+    is_dotfile = target.path.rsplit("/", 1)[-1].startswith(".")
+    if kind is _Verdict.EMPTY:
+        noun = "Dotfile" if is_dotfile else "Sensitive Path"
+        title = f"{noun} Returned 200 With Empty Body: {target.path}"
+        description = (
+            f"{target.path} ({target.label}) returns HTTP 200 but the body is empty or near-empty "
+            f"({body_len} bytes). This is not proof of exposure — many servers answer 200 with a blank "
+            "body for blocked or non-existent files. Reported as low so it can be checked, not as a leak."
+        )
+        validation = "LOW"
+    else:  # NEEDS_MANUAL
+        title = f"Sensitive Path Needs Manual Validation [200]: {target.path}"
+        description = (
+            f"{target.path} ({target.label}) returns HTTP 200 with a non-empty body, but the content "
+            "does not match the expected signature for this file. It may be a placeholder, an error page, "
+            "or a genuine exposure in an unexpected format — verify manually before acting."
+        )
+        validation = "NEEDS_MANUAL_VALIDATION"
+    ctype_note = f" Served as Content-Type: {content_type}." if content_type else ""
+    return Finding(
+        module=MODULE,
+        title=title,
+        description=description + ctype_note,
+        severity=Severity.LOW,
+        recommendation=(
+            f"Manually open {target.path} to confirm. If it should not be served, remove it from the "
+            "web root and add a deny rule regardless of the current response."
+        ),
+        raw={"path": target.path, "status_code": 200, "label": target.label,
+             "content_type": content_type, "confidence": "low", "validation": validation,
+             "body_len": body_len},
+    )
+
+
+def _collapsed_weak_finding(paths: list[str], kind: _Verdict) -> Finding:
+    """Collapse many weak (empty/ambiguous) 200s into one LOW finding to avoid noise."""
+    sample = ", ".join(paths[:8]) + (" …" if len(paths) > 8 else "")
+    if kind is _Verdict.EMPTY:
+        title = f"Multiple Sensitive Paths Returned 200 With Empty Bodies ({len(paths)})"
+        why = ("answer HTTP 200 with an empty/near-empty body — typical of a server that 200s "
+               "blocked or non-existent files rather than genuine exposures")
+        validation = "LOW"
+    else:
+        title = f"Multiple Sensitive Paths Need Manual Validation ({len(paths)})"
+        why = ("answer HTTP 200 with content that does not match the expected signature for each "
+               "file — likely placeholders/error pages, but worth a manual look")
+        validation = "NEEDS_MANUAL_VALIDATION"
+    return Finding(
+        module=MODULE,
+        title=title,
+        description=(
+            f"{len(paths)} sensitive path(s) {why}. Grouped into one low finding to keep the report "
+            "calm. Paths: " + sample
+        ),
+        severity=Severity.LOW,
+        recommendation=(
+            "Spot-check a few of these manually. Any that should not be served must be removed from "
+            "the web root and explicitly denied."
+        ),
+        raw={"paths": paths, "status_code": 200, "confidence": "low", "validation": validation},
     )
 
 
@@ -379,6 +517,9 @@ def run(engine: ScanEngine) -> list[Finding]:
 
     findings: list[Finding] = []
     protected_paths: list[str] = []
+    empty_targets: list[_Target] = []      # 200 with empty/near-empty body
+    ambiguous_targets: list[_Target] = []  # 200 but content didn't match the signature
+    weak_meta: dict[str, tuple[str, int]] = {}  # path -> (content_type, body_len)
     git_exposed = False
     suppressed = 0
 
@@ -388,11 +529,19 @@ def run(engine: ScanEngine) -> list[Finding]:
             target, status, snippet, ctype, body_len, digest = future.result()
 
             if status == 200:
-                if _is_genuine_200(target, snippet, ctype, body_len, digest, baseline):
-                    findings.append(_exposed_finding(target, ctype))
-                    if target.path.startswith("/.git/"):
+                verdict = _classify(target, snippet, ctype, body_len, digest, baseline)
+                if verdict in (_Verdict.CONFIRMED, _Verdict.PLAUSIBLE):
+                    findings.append(_exposed_finding(
+                        target, ctype, confirmed=verdict is _Verdict.CONFIRMED))
+                    if verdict is _Verdict.CONFIRMED and target.path.startswith("/.git/"):
                         git_exposed = True
-                else:
+                elif verdict is _Verdict.EMPTY:
+                    empty_targets.append(target)
+                    weak_meta[target.path] = (ctype, body_len)
+                elif verdict is _Verdict.NEEDS_MANUAL:
+                    ambiguous_targets.append(target)
+                    weak_meta[target.path] = (ctype, body_len)
+                else:  # SUPPRESS
                     suppressed += 1
             elif status == 403:
                 protected_paths.append(target.path)
@@ -405,6 +554,17 @@ def run(engine: ScanEngine) -> list[Finding]:
             for path in sorted(protected_paths):
                 target = next(t for t in _TARGETS if t.path == path)
                 findings.append(_protected_finding(target))
+
+    # Weak (empty / ambiguous) 200s: report per-path, or collapse one finding when numerous.
+    for weak, kind in ((empty_targets, _Verdict.EMPTY), (ambiguous_targets, _Verdict.NEEDS_MANUAL)):
+        if not weak:
+            continue
+        if len(weak) >= _BLANKET_403_COUNT:
+            findings.append(_collapsed_weak_finding(sorted(t.path for t in weak), kind))
+        else:
+            for target in sorted(weak, key=lambda t: t.path):
+                ctype, body_len = weak_meta.get(target.path, ("", 0))
+                findings.append(_weak_200_finding(target, kind, ctype, body_len))
 
     # Escalate an exposed .git directory to a single high-impact finding.
     if git_exposed:

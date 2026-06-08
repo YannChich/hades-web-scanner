@@ -124,6 +124,10 @@ evidence**, and every piece of evidence comes with the next move.
 - 43 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
 - Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
 - Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
+- Sensitive-file checks never confirm an exposure on HTTP 200 alone — each hit is validated by body
+  length, content-type and file-specific indicators (e.g. `.htaccess` rewrite/auth directives, `.env`
+  `KEY=VALUE`, `web.config` XML, `.git/HEAD` ref) and graded confirmed / likely / needs-manual; an empty
+  or signature-mismatched body degrades to a calm low finding instead of a false-positive critical.
 - Resilient, fast orchestration: a **concurrent token-bucket rate limiter** lets the thread pool
   actually parallelise (heavy modules finish instead of being cut off), a **pre-flight** reachability
   check fails fast on a dead target, a per-module **timeout watchdog** means one hung module never
