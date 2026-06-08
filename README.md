@@ -22,7 +22,7 @@
 
 **Hades is a terminal-based, red-team web security scanner that does not just *find* weaknesses — it *proves* them.**
 
-It runs 43 checks across reconnaissance, misconfiguration and vulnerability detection, confirms each
+It runs 44 checks across reconnaissance, misconfiguration and vulnerability detection, confirms each
 finding with an evaluated payload / timing / content signature (no blind guessing), maps it to
 **CWE / OWASP / MITRE ATT&CK** with a CVSS score, links a step-by-step **expert playbook**, and weaves
 everything into a single copy-paste **kill-chain attack path** — then exports a polished, self-contained
@@ -121,7 +121,7 @@ evidence**, and every piece of evidence comes with the next move.
 ## Features
 
 **Detection engine**
-- 43 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
+- 44 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
 - Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
 - Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
 - Sensitive-file checks never confirm an exposure on HTTP 200 alone — each hit is validated by body
@@ -543,7 +543,7 @@ hades-web-scanner/
 │   ├── engine.py            # Orchestration, threading, rate limiting, HTML auto-open
 │   ├── crawler.py           # Shared site crawler
 │   ├── severity.py          # Single source of truth for severity ordering/styles
-│   ├── recon/  web/  vulns/ # The 43 scan modules
+│   ├── recon/  web/  vulns/ # The 44 scan modules
 │   ├── db/   ai/   offensive/   oob/   # Red-team profiles (db_scan, ai_scan, engage, oob_scan)
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
