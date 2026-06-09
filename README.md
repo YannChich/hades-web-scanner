@@ -157,9 +157,13 @@ evidence**, and every piece of evidence comes with the next move.
   the shared crawler *and every active module* test the logged-in surface, not just the anonymous one.
 
 **Dedicated red-team profiles**
-- `db_scan` — database exposure audit: port/banner fingerprint, unauthenticated access with live data
-  extraction, SQL/NoSQL injection, secret-file and connection-string hunting, exposed admin GUIs, a DB
-  Exposure Score and an exploitation Attack Path.
+- `db_scan` — database exposure audit across **18+ engines** (Redis, MongoDB *(modern OP_MSG)*,
+  Elasticsearch, CouchDB, ClickHouse, etcd, InfluxDB, Neo4j, Zookeeper, Cassandra, MySQL/PostgreSQL/MSSQL…):
+  port/banner fingerprint, unauthenticated access with live data extraction, default-credential checks,
+  SQL/NoSQL injection, secret-file & connection-string hunting, cloud DB exposure (Firebase/Firestore/
+  Supabase RLS), **version→CVE correlation**, a DB Exposure Score, and an ordered exploitation kill-chain.
+  With `--exploit` it proves impact — dumps Mongo/Redis/ClickHouse data, reuses harvested credentials,
+  tests Supabase RLS live — writing evidence to `loot/`.
 - `ai_scan` — offensive AI/LLM attack surface mapped to the OWASP LLM Top 10 (2025) and MITRE ATLAS:
   SDK/framework fingerprinting, exposed AI keys (20+ providers), unauthenticated local LLM servers
   (Ollama, vLLM, LM Studio, Open WebUI, Triton…), exposed AI UIs and agent/plugin manifests, and the

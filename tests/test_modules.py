@@ -2848,6 +2848,76 @@ class TestDbSecurity:
         assert not [f for f in findings if f.raw.get("db_category") == "open_port"]
         assert any("answers all ports" in f.title.lower() for f in findings)
 
+    # --- Axis 1: broadened engine coverage ---
+    def test_modern_mongodb_op_msg_detected(self, monkeypatch):
+        from scanner.db import db_security
+        reply = (b"\x01" * 16 + b" databases sizeOnDisk "
+                 + b"\x02name\x00\x05\x00\x00\x00prod\x00"
+                 + b"\x02name\x00\x06\x00\x00\x00users\x00")
+        monkeypatch.setattr(db_security, "_tcp_send_recv",
+                            lambda host, port, payload, timeout=3.0, read=4096: reply)
+        m = db_security._check_mongodb("10.0.0.2", 27017)
+        assert m and m[0].raw["db_category"] == "unauth" and m[0].raw["databases"] == ["prod", "users"]
+        assert m[0].raw.get("evidence") and m[0].raw.get("exploitation")
+
+    def test_clickhouse_unauth_detected(self):
+        from scanner.db import db_security
+
+        class _CH(httpx.BaseTransport):
+            def handle_request(self, request):
+                return httpx.Response(200, text="default\nsystem\nshop\n",
+                                      headers={"x-clickhouse-server-display-name": "ch01",
+                                               "content-type": "text/plain"})
+        ch = db_security._check_clickhouse(self._engine(transport=_CH()), "10.0.0.1", 8123)
+        assert ch and ch[0].raw["db_category"] == "unauth" and "ClickHouse" in ch[0].title
+        assert ch[0].raw.get("evidence") and ch[0].raw.get("exploitation")
+
+    def test_zookeeper_four_letter_word_unauth(self, monkeypatch):
+        from scanner.db import db_security
+        monkeypatch.setattr(db_security, "_tcp_send_recv",
+                            lambda host, port, payload, timeout=3.0, read=4096:
+                            b"Zookeeper version: 3.4.10-39d3a4f\nClients:\n /10.0.0.5:52810")
+        z = db_security._check_zookeeper("10.0.0.3", 2181)
+        assert z and z[0].raw["engine"] == "Zookeeper" and z[0].raw.get("evidence")
+
+    # --- Axis 3: version → CVE correlation ---
+    def test_cve_correlation_fires_on_vulnerable_version_only(self):
+        from scanner.db.db_security import _check_versions, _OpenPort
+        vuln = _check_versions("1.2.3.4", [_OpenPort(6379, "Redis", "redis_version:6.0.5", "6.0.5")])
+        assert vuln and vuln[0].raw["cve_id"] == "CVE-2022-0543" and vuln[0].raw["db_category"] == "cve"
+        patched = _check_versions("1.2.3.4", [_OpenPort(6379, "Redis", "redis_version:7.2.0", "7.2.0")])
+        assert not patched
+
+    # --- Axis 3: every actionable finding is evidence-grade + carries a kill-chain ---
+    def test_redis_finding_has_evidence_and_exploitation(self, monkeypatch):
+        from scanner.db import db_security
+
+        def fake_tcp(host, port, payload, timeout=3.0, read=4096):
+            if b"PING" in payload:
+                return b"+PONG\r\n"
+            if b"INFO" in payload:
+                return b"redis_version:7.0.5\r\n"
+            if b"DBSIZE" in payload:
+                return b":42\r\n"
+            if b"KEYS" in payload:
+                return b"*1\r\nsession:abc\r\n"
+            return b""
+        monkeypatch.setattr(db_security, "_tcp_send_recv", fake_tcp)
+        r = db_security._check_redis("10.0.0.9", 6379)
+        assert r and r[0].raw.get("evidence")
+        steps = r[0].raw.get("exploitation")
+        assert isinstance(steps, list) and any("redis-cli" in s["command"] for s in steps)
+
+    def test_build_playbook_expands_multistep_chain(self):
+        from scanner.db.db_security import build_playbook
+        from scanner.engine import Finding, Severity
+        f = Finding(module="db_security", title="Redis unauth", description="", severity=Severity.CRITICAL,
+                    raw={"db_category": "unauth", "exploitation": [
+                        {"step": 1, "description": "connect", "command": "redis-cli -h h -p 6379"},
+                        {"step": 2, "description": "dump", "command": "KEYS *"}]})
+        plan = build_playbook([f])
+        assert plan and len(plan[0]["steps"]) == 2 and plan[0]["command"].startswith("redis-cli")
+
     def test_connection_string_leak_is_critical_and_redacted(self):
         from scanner.db import db_security
         from scanner.crawler import CrawlResult

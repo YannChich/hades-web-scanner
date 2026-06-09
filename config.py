@@ -390,13 +390,17 @@ AI_EXTERNAL_TOOLS: set[str] = {"garak", "PyRIT", "promptfoo"}
 
 # db_security categories → RedTeam tools (one module, many attack categories).
 DB_CATEGORY_REDTEAM_MAP: dict[str, list[str]] = {
-    "sqli":       ["nuclei"],
-    "nosql":      ["nuclei"],
-    "authbypass": ["nuclei"],
-    "unauth":     ["crackmapexec", "nuclei"],
-    "admin_200":  ["gobuster", "feroxbuster"],
-    "creds_leak": ["truffleHog"],
-    "cloud_db":   ["AWSBucketDump"],
+    "sqli":          ["nuclei", "sqlmap"],
+    "nosql":         ["nuclei", "NoSQLMap"],
+    "authbypass":    ["nuclei", "NoSQLMap"],
+    "unauth":        ["crackmapexec", "nuclei"],
+    "admin_200":     ["gobuster", "feroxbuster"],
+    "creds_leak":    ["truffleHog"],
+    "cloud_db":      ["AWSBucketDump"],
+    "cve":           ["searchsploit", "metasploit"],
+    "default_creds": ["crackmapexec", "hydra"],
+    "dump":          ["sqlmap"],
+    "extraction":    ["sqlmap"],
 }
 
 # db_security is one module spanning many categories — map by raw["db_category"].
