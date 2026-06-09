@@ -1,0 +1,327 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — Performing Dns Enumeration And Zone Transfer</title><style>:root{
+  /* surfaces */
+  --bg:#0a0c10; --bg-2:#0d1117; --surface:#12161d; --surface-2:#161b22; --card:#161b22;
+  --code:#0b0f14;
+  /* text */
+  --ink:#c9d1d9; --bright:#e6edf3; --muted:#7d8590; --faint:#54606e;
+  /* lines */
+  --border:#272d38; --border-soft:#1b212b;
+  /* brand: red primary + terminal-green secondary */
+  --red:#ff3b3b; --red-deep:#b3122a; --red-glow:rgba(255,59,59,.33);
+  --green:#39d353; --green-deep:#2ea043; --green-glow:rgba(57,211,83,.30);
+  /* quiet taxonomy accents */
+  --purple:#d2a8ff; --purple-line:#8957e5; --orange:#ffa657; --blue:#79c0ff;
+  --yellow:#e3b341; --link:#58a6ff;
+  /* severity (mirrors scanner/severity.py HTML_COLOR) */
+  --sev-critical:#ff2d55; --sev-high:#ff6b35; --sev-medium:#ffd700;
+  --sev-low:#34d399; --sev-info:#60a5fa;
+  /* convenience aliases used by the reference pages (Arsenal / Skills Library) */
+  --panel:#12161d; --accent:#d2a8ff; --star:#e3b341; --off:#ff7b72; --def:#56d364; --atk:#79c0ff;
+  /* type */
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Consolas,'Liberation Mono','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1000px 460px at 50% -10%, rgba(179,18,42,.16) 0%, transparent 70%),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+  background-size:auto, 44px 44px, 44px 44px;
+}
+/* unifying signature: a thin red→green bar across the very top of every page */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:60;
+  background:linear-gradient(90deg,var(--red) 0%,var(--red-deep) 50%,var(--green) 100%);
+  box-shadow:0 0 12px var(--red-glow);}
+a{color:var(--link);text-decoration:none;} a:hover{text-decoration:underline;}
+code,kbd,samp{font-family:var(--mono);}
+::selection{background:var(--red-deep);color:#fff;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#222a34;border-radius:6px;border:2px solid var(--bg);}
+::-webkit-scrollbar-thumb:hover{background:#303a47;}
+/* shared footer (class: hades-foot) */
+.hades-foot{text-align:center;padding:26px;color:var(--faint);font-size:.75rem;
+  border-top:1px solid var(--border-soft);margin-top:48px;}
+.hades-foot .prompt{color:var(--green);font-family:var(--mono);}
+
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:var(--green);padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
+</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">Performing Dns Enumeration And Zone Transfer</h1>
+    <p class="pb-desc">Enumerates DNS records, attempts zone transfers, brute-forces subdomains, and maps DNS infrastructure during authorized reconnaissance to identify attack surface, misconfigurations, and information disclosure in target domains.</p>
+    <div class="pb-tags"><span class="pb-tag atk">T1046</span><span class="pb-tag atk">T1040</span><span class="pb-tag atk">T1557</span><span class="pb-tag atk">T1071</span><span class="pb-tag atk">T1595</span><span class="pb-tag">network-security</span><span class="pb-tag">dns</span><span class="pb-tag">enumeration</span><span class="pb-tag">zone-transfer</span><span class="pb-tag">reconnaissance</span></div>
+  </div>
+  <div class="content"><h1 id="performing-dns-enumeration-and-zone-transfer">Performing DNS Enumeration and Zone Transfer</h1>
+<h2 id="when-to-use">When to Use</h2>
+<ul>
+<li>Mapping the external attack surface of a target organization during authorized penetration tests</li>
+<li>Discovering hidden subdomains, internal hostnames, and IP addresses exposed via DNS records</li>
+<li>Testing whether DNS servers allow unauthorized zone transfers that leak the entire zone file</li>
+<li>Identifying mail servers, name servers, and service records for further targeted testing</li>
+<li>Validating DNS security configurations including DNSSEC, SPF, DKIM, and DMARC</li>
+</ul>
+<p><strong>Do not use</strong> against domains you do not have authorization to test, for DNS amplification or reflection attacks, or to overwhelm DNS servers with excessive query volumes.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Written authorization to perform DNS enumeration against the target domain</li>
+<li>DNS enumeration tools installed: dig, nslookup, host, dnsrecon, dnsenum, subfinder, amass</li>
+<li>Network access to the target's DNS servers (UDP/TCP port 53)</li>
+<li>Wordlist for subdomain brute-forcing (SecLists dns-wordlist or similar)</li>
+<li>Understanding of DNS record types (A, AAAA, CNAME, MX, NS, TXT, SOA, SRV, PTR)</li>
+</ul>
+<h2 id="workflow">Workflow</h2>
+<h3 id="step-1-identify-dns-servers-and-basic-records">Step 1: Identify DNS Servers and Basic Records</h3>
+<pre><code class="language-bash"># Find authoritative name servers
+dig NS example.com +short
+# ns1.example.com.
+# ns2.example.com.
+
+# Get SOA record for zone metadata
+dig SOA example.com +short
+# ns1.example.com. admin.example.com. 2024031501 3600 900 604800 86400
+
+# Enumerate all common record types
+dig example.com ANY +noall +answer
+
+# Get MX records (mail servers)
+dig MX example.com +short
+# 10 mail.example.com.
+# 20 mail-backup.example.com.
+
+# Get TXT records (SPF, DKIM, DMARC, verification)
+dig TXT example.com +short
+
+# Check for DMARC policy
+dig TXT _dmarc.example.com +short
+
+# Check for DKIM selectors
+dig TXT default._domainkey.example.com +short
+dig TXT selector1._domainkey.example.com +short
+dig TXT google._domainkey.example.com +short
+
+# Get SRV records for common services
+dig SRV _sip._tcp.example.com +short
+dig SRV _ldap._tcp.example.com +short
+dig SRV _kerberos._tcp.example.com +short
+</code></pre>
+<h3 id="step-2-attempt-zone-transfers">Step 2: Attempt Zone Transfers</h3>
+<pre><code class="language-bash"># Attempt AXFR zone transfer against each name server
+dig AXFR example.com @ns1.example.com
+dig AXFR example.com @ns2.example.com
+
+# Use host command for zone transfer
+host -t axfr example.com ns1.example.com
+
+# Use dnsrecon for automated zone transfer attempts
+dnsrecon -d example.com -t axfr
+
+# If zone transfer succeeds, save the output
+dig AXFR example.com @ns1.example.com &gt; zone_transfer_results.txt
+
+# Test for IXFR (incremental zone transfer)
+dig IXFR=2024031500 example.com @ns1.example.com
+</code></pre>
+<h3 id="step-3-subdomain-enumeration-via-brute-force">Step 3: Subdomain Enumeration via Brute Force</h3>
+<pre><code class="language-bash"># Use dnsenum for comprehensive enumeration
+dnsenum --dnsserver ns1.example.com --enum -f /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -r example.com -o dnsenum_output.xml
+
+# Use dnsrecon with brute force
+dnsrecon -d example.com -t brt -D /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+
+# Use gobuster for fast DNS brute forcing
+gobuster dns -d example.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -t 50 -o gobuster_dns.txt
+
+# Use subfinder for passive subdomain discovery
+subfinder -d example.com -all -o subfinder_results.txt
+
+# Use amass for comprehensive enumeration (passive + active)
+amass enum -d example.com -passive -o amass_passive.txt
+amass enum -d example.com -active -brute -o amass_active.txt
+
+# Combine and deduplicate results
+cat subfinder_results.txt amass_passive.txt amass_active.txt gobuster_dns.txt | sort -u &gt; all_subdomains.txt
+</code></pre>
+<h3 id="step-4-reverse-dns-and-ptr-enumeration">Step 4: Reverse DNS and PTR Enumeration</h3>
+<pre><code class="language-bash"># Reverse DNS lookup on discovered IP ranges
+dnsrecon -d example.com -t rvl -r 10.10.0.0/24
+
+# PTR record enumeration for IP range
+for ip in $(seq 1 254); do
+  result=$(dig -x 10.10.1.$ip +short 2&gt;/dev/null)
+  if [ -n &quot;$result&quot; ]; then
+    echo &quot;10.10.1.$ip -&gt; $result&quot;
+  fi
+done
+
+# Use Nmap for reverse DNS on a subnet
+nmap -sL 10.10.0.0/24 | grep &quot;(&quot; | awk '{print $5, $6}'
+
+# Check for DNS cache snooping (information about queried domains)
+dig @ns1.example.com www.competitor.com +norecurse
+</code></pre>
+<h3 id="step-5-analyze-dns-security-configuration">Step 5: Analyze DNS Security Configuration</h3>
+<pre><code class="language-bash"># Check DNSSEC validation
+dig example.com +dnssec +short
+dig DNSKEY example.com +short
+dig DS example.com +short
+
+# Test for DNS rebinding vulnerability
+# Check if the DNS server has a short TTL that could enable rebinding
+dig example.com +noall +answer | grep -i ttl
+
+# Check for open recursive resolver (misconfiguration)
+dig @ns1.example.com google.com +recurse
+# If it resolves, the server is an open resolver
+
+# Check for wildcard DNS records
+dig nonexistent-subdomain-xyz123.example.com +short
+# If it resolves, a wildcard record exists
+
+# Test DNS over HTTPS/TLS support
+# DoH test
+curl -s -H 'accept: application/dns-json' 'https://dns.google/resolve?name=example.com&amp;type=A'
+
+# Verify SPF record for email security
+dig TXT example.com +short | grep &quot;v=spf1&quot;
+# Check for overly permissive SPF (+all, ?all)
+</code></pre>
+<h3 id="step-6-resolve-and-map-all-discovered-subdomains">Step 6: Resolve and Map All Discovered Subdomains</h3>
+<pre><code class="language-bash"># Resolve all discovered subdomains to IP addresses
+while read subdomain; do
+  ip=$(dig +short A &quot;$subdomain&quot; | head -1)
+  if [ -n &quot;$ip&quot; ]; then
+    echo &quot;$subdomain,$ip&quot;
+  fi
+done &lt; all_subdomains.txt &gt; resolved_subdomains.csv
+
+# Identify unique IP addresses and their locations
+cut -d',' -f2 resolved_subdomains.csv | sort -u &gt; unique_ips.txt
+
+# Check for internal IP addresses leaked via DNS
+grep -E &quot;^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.&quot; resolved_subdomains.csv &gt; internal_ip_leaks.txt
+
+# Use httpx to probe web services on discovered subdomains
+cat all_subdomains.txt | httpx -title -status-code -tech-detect -o httpx_results.txt
+
+# Screenshot web services for documentation
+cat all_subdomains.txt | httpx -screenshot -o screenshots/
+</code></pre>
+<h2 id="key-concepts">Key Concepts</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Zone Transfer (AXFR)</strong></td>
+<td>DNS mechanism that replicates the complete zone file from a primary to secondary server; unauthorized transfers expose all records in the zone</td>
+</tr>
+<tr>
+<td><strong>Subdomain Enumeration</strong></td>
+<td>Process of discovering valid subdomains through brute force, certificate transparency logs, search engines, and passive DNS databases</td>
+</tr>
+<tr>
+<td><strong>DNSSEC</strong></td>
+<td>DNS Security Extensions that add cryptographic signatures to DNS responses, preventing cache poisoning and spoofing attacks</td>
+</tr>
+<tr>
+<td><strong>SPF/DKIM/DMARC</strong></td>
+<td>Email authentication protocols defined in DNS TXT records that prevent email spoofing and domain impersonation</td>
+</tr>
+<tr>
+<td><strong>Wildcard DNS</strong></td>
+<td>A DNS record using an asterisk (*) that matches any query for non-existent subdomains, potentially masking enumeration results</td>
+</tr>
+<tr>
+<td><strong>PTR Record</strong></td>
+<td>Reverse DNS record that maps an IP address to a hostname, often revealing internal naming conventions and server roles</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-systems">Tools &amp; Systems</h2>
+<ul>
+<li><strong>dig</strong>: Standard DNS lookup utility with full support for all record types, DNSSEC validation, and zone transfer queries</li>
+<li><strong>dnsrecon</strong>: Comprehensive DNS enumeration tool supporting zone transfers, brute force, reverse lookup, cache snooping, and Google dork queries</li>
+<li><strong>subfinder</strong>: Fast passive subdomain discovery tool that queries certificate transparency logs, search engines, and DNS databases</li>
+<li><strong>Amass (OWASP)</strong>: Advanced attack surface mapping tool with both passive and active DNS enumeration, graph analysis, and data source integration</li>
+<li><strong>gobuster</strong>: Fast brute-force tool for DNS subdomain enumeration using configurable wordlists and concurrent threads</li>
+</ul>
+<h2 id="common-scenarios">Common Scenarios</h2>
+<h3 id="scenario-external-reconnaissance-for-a-web-application-penetration-test">Scenario: External Reconnaissance for a Web Application Penetration Test</h3>
+<p><strong>Context</strong>: A security consultant is performing external reconnaissance for a web application penetration test. The client's primary domain is example.com, and the scope includes all subdomains and related infrastructure. The consultant has authorization to enumerate DNS records and probe discovered web services.</p>
+<p><strong>Approach</strong>:<br />
+1. Query NS, MX, TXT, and SOA records for example.com to map the DNS infrastructure<br />
+2. Attempt zone transfers against both nameservers -- ns2 succeeds, revealing 347 DNS records including internal staging environments<br />
+3. Run subfinder and amass in passive mode to discover 89 additional subdomains from certificate transparency logs<br />
+4. Brute-force subdomains with a 20,000-word list using gobuster, discovering 12 more subdomains not found in passive sources<br />
+5. Resolve all subdomains and identify 15 that resolve to internal RFC1918 addresses (information disclosure)<br />
+6. Probe all web-accessible subdomains with httpx, discovering a staging environment (staging.example.com) with default credentials<br />
+7. Report zone transfer vulnerability, internal IP disclosure, and exposed staging environment to the client</p>
+<p><strong>Pitfalls</strong>:<br />
+- Sending thousands of DNS queries per second and triggering rate limiting or DNS-based DDoS protection<br />
+- Not checking for wildcard DNS records, resulting in false positive subdomain discoveries<br />
+- Missing subdomains that use separate DNS providers or CDN-specific CNAME records<br />
+- Overlooking TXT records that contain API keys, verification tokens, or internal comments</p>
+<h2 id="output-format">Output Format</h2>
+<pre><code>## DNS Enumeration Report
+
+**Target Domain**: example.com
+**Authorized Nameservers**: ns1.example.com (203.0.113.10), ns2.example.com (203.0.113.11)
+
+### Zone Transfer Status
+| Nameserver | AXFR Result | Records Obtained |
+|------------|-------------|------------------|
+| ns1.example.com | REFUSED | 0 |
+| ns2.example.com | SUCCESS | 347 records |
+
+### Subdomain Discovery Summary
+| Method | Subdomains Found |
+|--------|-----------------|
+| Zone Transfer | 347 |
+| Passive (subfinder + amass) | 89 |
+| Active Brute Force | 12 |
+| **Total Unique** | **412** |
+
+### Critical Findings
+1. **Zone Transfer Allowed** (High): ns2.example.com allows AXFR from any source
+2. **Internal IP Disclosure** (Medium): 15 subdomains resolve to RFC1918 addresses
+3. **Exposed Staging Environment** (High): staging.example.com accessible with default credentials
+4. **Missing DMARC Policy** (Medium): No DMARC record found, enabling email spoofing
+5. **Weak SPF Record** (Low): SPF uses ~all (soft fail) instead of -all (hard fail)
+</code></pre></div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>

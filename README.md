@@ -216,6 +216,11 @@ at a glance. Same split in the terminal output.
   <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">
 </p>
 
+> 📄 **Full example report:** [`docs/example-report/hades-report.html`](docs/example-report/hades-report.html)
+> — a real, self-contained scan of `http://testaspnet.vulnweb.com/` (evidence boxes, exploitation
+> walkthroughs, attack path, playbooks). Download it and open in a browser, or preview it via
+> [htmlpreview](https://htmlpreview.github.io/?https://github.com/YannChich/hades-web-scanner/blob/main/docs/example-report/hades-report.html).
+
 <!--
   SCREENSHOTS — drop your images here and they will render above/below automatically:
     assets/screenshots/hades-report.png    HTML report (e.g. a scan of http://rest.vulnweb.com)

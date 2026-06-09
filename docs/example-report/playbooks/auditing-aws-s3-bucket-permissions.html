@@ -1,0 +1,313 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playbook — Auditing Aws S3 Bucket Permissions</title><style>:root{
+  /* surfaces */
+  --bg:#0a0c10; --bg-2:#0d1117; --surface:#12161d; --surface-2:#161b22; --card:#161b22;
+  --code:#0b0f14;
+  /* text */
+  --ink:#c9d1d9; --bright:#e6edf3; --muted:#7d8590; --faint:#54606e;
+  /* lines */
+  --border:#272d38; --border-soft:#1b212b;
+  /* brand: red primary + terminal-green secondary */
+  --red:#ff3b3b; --red-deep:#b3122a; --red-glow:rgba(255,59,59,.33);
+  --green:#39d353; --green-deep:#2ea043; --green-glow:rgba(57,211,83,.30);
+  /* quiet taxonomy accents */
+  --purple:#d2a8ff; --purple-line:#8957e5; --orange:#ffa657; --blue:#79c0ff;
+  --yellow:#e3b341; --link:#58a6ff;
+  /* severity (mirrors scanner/severity.py HTML_COLOR) */
+  --sev-critical:#ff2d55; --sev-high:#ff6b35; --sev-medium:#ffd700;
+  --sev-low:#34d399; --sev-info:#60a5fa;
+  /* convenience aliases used by the reference pages (Arsenal / Skills Library) */
+  --panel:#12161d; --accent:#d2a8ff; --star:#e3b341; --off:#ff7b72; --def:#56d364; --atk:#79c0ff;
+  /* type */
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Consolas,'Liberation Mono','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1000px 460px at 50% -10%, rgba(179,18,42,.16) 0%, transparent 70%),
+    linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+  background-size:auto, 44px 44px, 44px 44px;
+}
+/* unifying signature: a thin red→green bar across the very top of every page */
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:60;
+  background:linear-gradient(90deg,var(--red) 0%,var(--red-deep) 50%,var(--green) 100%);
+  box-shadow:0 0 12px var(--red-glow);}
+a{color:var(--link);text-decoration:none;} a:hover{text-decoration:underline;}
+code,kbd,samp{font-family:var(--mono);}
+::selection{background:var(--red-deep);color:#fff;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#222a34;border-radius:6px;border:2px solid var(--bg);}
+::-webkit-scrollbar-thumb:hover{background:#303a47;}
+/* shared footer (class: hades-foot) */
+.hades-foot{text-align:center;padding:26px;color:var(--faint);font-size:.75rem;
+  border-top:1px solid var(--border-soft);margin-top:48px;}
+.hades-foot .prompt{color:var(--green);font-family:var(--mono);}
+
+.wrap{max-width:900px;margin:0 auto;padding:36px 22px 80px;}
+.pb-head{border-bottom:2px solid var(--red);padding-bottom:14px;margin-bottom:22px;}
+.pb-kicker{font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:2px;font-size:.72rem;text-transform:uppercase;}
+h1.pb-title{margin:6px 0 8px;font-size:1.7rem;color:var(--bright);}
+.pb-desc{color:var(--muted);font-size:1rem;margin:0 0 12px;}
+.pb-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pb-tag{font-family:var(--mono);font-size:.64rem;font-weight:700;letter-spacing:.5px;border:1px solid var(--purple-line);
+  color:var(--purple);background:#1a1430;border-radius:8px;padding:2px 8px;white-space:nowrap;}
+.pb-tag.atk{border-color:#1f6feb;color:var(--blue);background:var(--bg-2);}
+.content h1,.content h2,.content h3{color:var(--bright);margin-top:1.6em;border-bottom:1px solid var(--border);padding-bottom:.3em;}
+.content h2{font-size:1.3rem;} .content h3{font-size:1.08rem;border-bottom:none;}
+.content a{color:var(--link);} .content strong{color:var(--bright);}
+.content code{background:var(--code);color:var(--blue);padding:2px 6px;border-radius:5px;font-size:.86em;font-family:var(--mono);}
+.content pre{background:var(--code);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;}
+.content pre code{background:none;color:var(--green);padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1em 0;}
+.content th,.content td{border:1px solid var(--border);padding:7px 11px;text-align:left;}
+.content th{background:var(--surface-2);color:var(--bright);}
+.content blockquote{border-left:3px solid var(--purple-line);margin:1em 0;padding:.4em 1em;color:var(--muted);background:var(--surface-2);}
+.content ul,.content ol{padding-left:1.4em;}
+.pb-foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--border-soft);color:var(--faint);font-size:.8rem;}
+.pb-foot a{color:var(--purple);}
+</style></head>
+<body><div class="wrap">
+  <div class="pb-head">
+    <div class="pb-kicker">📘 Expert Playbook · Hades</div>
+    <h1 class="pb-title">Auditing Aws S3 Bucket Permissions</h1>
+    <p class="pb-desc">Systematically audit AWS S3 bucket permissions to identify publicly accessible buckets, overly permissive ACLs, misconfigured bucket policies, and missing encryption settings using AWS CLI, S3audit, and Prowler to enforce least-privilege data access controls.</p>
+    <div class="pb-tags"><span class="pb-tag atk">T1530</span><span class="pb-tag atk">T1619</span><span class="pb-tag atk">T1078.004</span><span class="pb-tag atk">T1537</span><span class="pb-tag atk">T1567.002</span><span class="pb-tag">cloud-security</span><span class="pb-tag">aws</span><span class="pb-tag">s3</span><span class="pb-tag">bucket-permissions</span><span class="pb-tag">data-protection</span><span class="pb-tag">access-control</span></div>
+  </div>
+  <div class="content"><h1 id="auditing-aws-s3-bucket-permissions">Auditing AWS S3 Bucket Permissions</h1>
+<h2 id="when-to-use">When to Use</h2>
+<ul>
+<li>When conducting a security assessment of AWS environments to identify publicly exposed data</li>
+<li>When onboarding a new AWS account and establishing a security baseline for storage resources</li>
+<li>When responding to an alert about potential S3 data exposure from AWS Trusted Advisor or Security Hub</li>
+<li>When compliance frameworks (SOC 2, PCI DSS, HIPAA) require periodic review of data access controls</li>
+<li>When a breach or credential compromise necessitates immediate review of all accessible S3 resources</li>
+</ul>
+<p><strong>Do not use</strong> for auditing non-AWS object storage (use provider-specific tools), for real-time monitoring (use S3 Event Notifications with Lambda), or for auditing S3 access patterns (use S3 Access Analyzer or CloudTrail S3 data events).</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>AWS CLI v2 configured with credentials that have <code>s3:GetBucketPolicy</code>, <code>s3:GetBucketAcl</code>, <code>s3:GetBucketPublicAccessBlock</code>, <code>s3:GetEncryptionConfiguration</code>, and <code>s3:ListAllMyBuckets</code> permissions</li>
+<li>Prowler installed (<code>pip install prowler</code>) for automated CIS benchmark checks</li>
+<li>S3audit or similar enumeration tool for quick public bucket detection</li>
+<li>Access to AWS Organizations if auditing across multiple accounts</li>
+<li>Python 3.8+ with boto3 for custom audit scripts</li>
+</ul>
+<h2 id="workflow">Workflow</h2>
+<h3 id="step-1-enumerate-all-s3-buckets-and-account-level-block-public-access">Step 1: Enumerate All S3 Buckets and Account-Level Block Public Access</h3>
+<p>Check the account-level S3 Block Public Access settings first, then list all buckets with their regions.</p>
+<pre><code class="language-bash"># Check account-level S3 Block Public Access settings
+aws s3control get-public-access-block \
+  --account-id $(aws sts get-caller-identity --query Account --output text) \
+  --output json
+
+# List all buckets with creation dates
+aws s3api list-buckets \
+  --query 'Buckets[*].[Name,CreationDate]' \
+  --output table
+
+# Get bucket regions for each bucket
+for bucket in $(aws s3api list-buckets --query 'Buckets[*].Name' --output text); do
+  region=$(aws s3api get-bucket-location --bucket &quot;$bucket&quot; --query 'LocationConstraint' --output text)
+  echo &quot;$bucket -&gt; ${region:-us-east-1}&quot;
+done
+</code></pre>
+<h3 id="step-2-check-each-buckets-public-access-block-and-acl-configuration">Step 2: Check Each Bucket's Public Access Block and ACL Configuration</h3>
+<p>Iterate through all buckets to evaluate their individual public access blocks and ACL grants.</p>
+<pre><code class="language-bash"># Check per-bucket Block Public Access settings
+for bucket in $(aws s3api list-buckets --query 'Buckets[*].Name' --output text); do
+  echo &quot;=== $bucket ===&quot;
+  aws s3api get-public-access-block --bucket &quot;$bucket&quot; 2&gt;/dev/null || echo &quot;  No Block Public Access configured&quot;
+
+  # Check ACL for public grants
+  aws s3api get-bucket-acl --bucket &quot;$bucket&quot; \
+    --query 'Grants[?Grantee.URI==`http://acs.amazonaws.com/groups/global/AllUsers` || Grantee.URI==`http://acs.amazonaws.com/groups/global/AuthenticatedUsers`]' \
+    --output json
+done
+</code></pre>
+<h3 id="step-3-analyze-bucket-policies-for-overly-permissive-access">Step 3: Analyze Bucket Policies for Overly Permissive Access</h3>
+<p>Review bucket policies for wildcard principals, missing conditions, and statements that allow broad access.</p>
+<pre><code class="language-bash"># Extract and analyze bucket policies
+for bucket in $(aws s3api list-buckets --query 'Buckets[*].Name' --output text); do
+  policy=$(aws s3api get-bucket-policy --bucket &quot;$bucket&quot; --output text 2&gt;/dev/null)
+  if [ -n &quot;$policy&quot; ]; then
+    echo &quot;=== $bucket policy ===&quot;
+    echo &quot;$policy&quot; | python3 -c &quot;
+import json, sys
+policy = json.load(sys.stdin)
+for stmt in policy.get('Statement', []):
+    principal = stmt.get('Principal', {})
+    effect = stmt.get('Effect', '')
+    if principal == '*' or principal == {'AWS': '*'}:
+        print(f'  WARNING: {effect} with wildcard principal')
+        print(f'  Actions: {stmt.get(\&quot;Action\&quot;, \&quot;\&quot;)}')
+        print(f'  Condition: {stmt.get(\&quot;Condition\&quot;, \&quot;NONE\&quot;)}')
+&quot;
+  fi
+done
+</code></pre>
+<h3 id="step-4-verify-encryption-and-versioning-settings">Step 4: Verify Encryption and Versioning Settings</h3>
+<p>Check that all buckets have server-side encryption enabled and versioning configured for data protection.</p>
+<pre><code class="language-bash"># Check encryption and versioning status for all buckets
+for bucket in $(aws s3api list-buckets --query 'Buckets[*].Name' --output text); do
+  echo &quot;=== $bucket ===&quot;
+
+  # Encryption configuration
+  aws s3api get-bucket-encryption --bucket &quot;$bucket&quot; 2&gt;/dev/null \
+    &amp;&amp; echo &quot;  Encryption: ENABLED&quot; \
+    || echo &quot;  Encryption: DISABLED&quot;
+
+  # Versioning status
+  aws s3api get-bucket-versioning --bucket &quot;$bucket&quot; \
+    --query 'Status' --output text
+
+  # Logging status
+  aws s3api get-bucket-logging --bucket &quot;$bucket&quot; \
+    --query 'LoggingEnabled' --output text 2&gt;/dev/null
+done
+</code></pre>
+<h3 id="step-5-run-prowler-s3-specific-checks">Step 5: Run Prowler S3-Specific Checks</h3>
+<p>Execute Prowler's S3-focused checks aligned with CIS AWS Foundations Benchmark.</p>
+<pre><code class="language-bash"># Run Prowler S3-specific checks
+prowler aws \
+  --checks s3_bucket_public_access \
+           s3_bucket_default_encryption \
+           s3_bucket_policy_public_write_access \
+           s3_bucket_server_access_logging_enabled \
+           s3_bucket_versioning_enabled \
+           s3_bucket_acl_prohibited \
+  -M json-ocsf \
+  -o ./prowler-s3-audit/
+
+# View summary
+prowler aws --checks s3 -M csv -o ./prowler-s3-audit/
+</code></pre>
+<h3 id="step-6-use-iam-access-analyzer-for-s3-public-and-cross-account-findings">Step 6: Use IAM Access Analyzer for S3 Public and Cross-Account Findings</h3>
+<p>Leverage IAM Access Analyzer to identify buckets shared externally or publicly.</p>
+<pre><code class="language-bash"># List Access Analyzer findings for S3
+aws accessanalyzer list-findings \
+  --analyzer-arn $(aws accessanalyzer list-analyzers --query 'analyzers[0].arn' --output text) \
+  --filter '{&quot;resourceType&quot;: {&quot;eq&quot;: [&quot;AWS::S3::Bucket&quot;]}}' \
+  --query 'findings[*].[resource,status,condition,principal]' \
+  --output table
+
+# Create an analyzer if one does not exist
+aws accessanalyzer create-analyzer \
+  --analyzer-name s3-access-audit \
+  --type ACCOUNT
+</code></pre>
+<h3 id="step-7-generate-audit-report-and-remediate">Step 7: Generate Audit Report and Remediate</h3>
+<p>Compile findings into an actionable report and apply remediation for critical issues.</p>
+<pre><code class="language-bash"># Quick remediation: Enable Block Public Access on a bucket
+aws s3api put-public-access-block \
+  --bucket TARGET_BUCKET \
+  --public-access-block-configuration \
+  'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
+
+# Enable default encryption with SSE-S3
+aws s3api put-bucket-encryption \
+  --bucket TARGET_BUCKET \
+  --server-side-encryption-configuration \
+  '{&quot;Rules&quot;:[{&quot;ApplyServerSideEncryptionByDefault&quot;:{&quot;SSEAlgorithm&quot;:&quot;aws:kms&quot;,&quot;KMSMasterKeyID&quot;:&quot;alias/aws/s3&quot;},&quot;BucketKeyEnabled&quot;:true}]}'
+
+# Enable versioning
+aws s3api put-bucket-versioning \
+  --bucket TARGET_BUCKET \
+  --versioning-configuration Status=Enabled
+</code></pre>
+<h2 id="key-concepts">Key Concepts</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S3 Block Public Access</td>
+<td>Account-level and bucket-level settings that override ACLs and policies to prevent public access regardless of individual resource configurations</td>
+</tr>
+<tr>
+<td>Bucket Policy</td>
+<td>JSON-based resource policy attached to a bucket that defines who can access the bucket and what actions they can perform</td>
+</tr>
+<tr>
+<td>ACL (Access Control List)</td>
+<td>Legacy S3 access control mechanism granting permissions to AWS accounts or predefined groups like AllUsers or AuthenticatedUsers</td>
+</tr>
+<tr>
+<td>IAM Access Analyzer</td>
+<td>AWS service that analyzes resource policies to identify resources shared with external entities or the public</td>
+</tr>
+<tr>
+<td>Server-Side Encryption</td>
+<td>Encryption applied by S3 at the object level using SSE-S3, SSE-KMS, or SSE-C before writing data to disk</td>
+</tr>
+<tr>
+<td>CIS AWS Foundations Benchmark</td>
+<td>Security best practice standard from Center for Internet Security with specific controls for S3 bucket configuration</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools-systems">Tools &amp; Systems</h2>
+<ul>
+<li><strong>AWS CLI</strong>: Primary interface for querying S3 bucket configurations, policies, ACLs, and encryption settings</li>
+<li><strong>Prowler</strong>: Open-source security tool with 50+ S3-specific checks aligned to CIS, PCI DSS, and HIPAA controls</li>
+<li><strong>IAM Access Analyzer</strong>: AWS-native service for continuous monitoring of resource policies that grant external access</li>
+<li><strong>S3audit</strong>: Lightweight tool for quick enumeration of public S3 buckets across an account</li>
+<li><strong>ScoutSuite</strong>: Multi-cloud auditing tool that collects S3 configuration data and generates risk-scored HTML reports</li>
+</ul>
+<h2 id="common-scenarios">Common Scenarios</h2>
+<h3 id="scenario-identifying-a-publicly-readable-bucket-containing-customer-data">Scenario: Identifying a Publicly Readable Bucket Containing Customer Data</h3>
+<p><strong>Context</strong>: A security engineer receives a Trusted Advisor alert about a publicly accessible S3 bucket. The bucket was created by a development team for a demo and was never locked down.</p>
+<p><strong>Approach</strong>:<br />
+1. Run <code>aws s3api get-bucket-acl</code> and find a grant to <code>AllUsers</code> with <code>READ</code> permission<br />
+2. Check <code>get-bucket-policy</code> and discover a policy with <code>Principal: "*"</code> and <code>s3:GetObject</code><br />
+3. Confirm Block Public Access is not enabled at the bucket or account level<br />
+4. Enumerate bucket contents to assess data sensitivity<br />
+5. Immediately enable Block Public Access on the bucket<br />
+6. Review CloudTrail S3 data events to determine if unauthorized access occurred<br />
+7. Report the finding with timeline, data inventory, and remediation confirmation</p>
+<p><strong>Pitfalls</strong>: Enabling Block Public Access can break applications that intentionally serve content publicly (static websites). Always verify the bucket's intended use before applying restrictions. Check for CloudFront distributions or other services relying on the bucket's public access.</p>
+<h2 id="output-format">Output Format</h2>
+<pre><code>S3 Bucket Permissions Audit Report
+=====================================
+Account: 123456789012 (Production)
+Date: 2026-02-23
+Auditor: Security Engineering Team
+Total Buckets: 47
+
+ACCOUNT-LEVEL SETTINGS:
+  Block Public Access: ENABLED (all four settings)
+
+CRITICAL FINDINGS:
+[S3-001] Public Read Access via ACL
+  Bucket: marketing-assets-prod
+  Issue: AllUsers group granted READ permission via ACL
+  Risk: Any internet user can list and download bucket contents
+  Data Sensitivity: Contains customer-facing but non-sensitive marketing assets
+  Remediation: Remove AllUsers ACL grant, enable Block Public Access
+
+[S3-002] Wildcard Principal in Bucket Policy
+  Bucket: data-exchange-partner
+  Issue: Policy allows s3:GetObject with Principal &quot;*&quot; and no VPC/IP condition
+  Risk: Intended for partner access but accessible to anyone with the bucket name
+  Remediation: Add aws:SourceVpce or aws:SourceIp condition to restrict access
+
+SUMMARY:
+  Buckets with public access:           3 / 47
+  Buckets without encryption:           5 / 47
+  Buckets without versioning:          12 / 47
+  Buckets without access logging:      18 / 47
+  Buckets with overly broad policies:   7 / 47
+</code></pre></div>
+  <div class="pb-foot">Rendered by Hades from the Anthropic-Cybersecurity-Skills library ·
+    for authorised security testing only.</div>
+</div></body></html>
