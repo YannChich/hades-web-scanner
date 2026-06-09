@@ -2073,6 +2073,27 @@ class TestDirScan:
         for excluded in ("/.env", "/robots.txt", "/.git", "/sitemap.xml"):
             assert excluded not in paths
 
+    def test_specialist_owned_paths_excluded(self, base_url, tmp_path):
+        """The expanded wordlist's sensitive-file / backup / VCS-internal / key / dump paths are deferred
+        to the dedicated content-validating modules, not probed as generic MEDIUM dir_scan paths."""
+        from scanner.web.dir_scan import _load_wordlist
+
+        specialist = [".git/config", ".git/HEAD", ".aws/credentials", ".ssh/id_rsa",
+                      "config.php", "settings.php", "secrets.json", "credentials.json",
+                      "backup.sql", "dump.sql", "server.key", "private.key",
+                      "site.zip", "backup.tar.gz", "debug.log", "db.sqlite3", "adminer.php"]
+        benign = ["admin", "api", "css", "js", "login", "cart", "dashboard"]
+        wl = tmp_path / "wl.txt"
+        wl.write_text("\n".join(specialist + benign) + "\n", encoding="utf-8")
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.wordlist = str(wl)
+
+        paths = _load_wordlist(eng)
+        for s in specialist:
+            assert ("/" + s) not in paths, f"{s} should be excluded (owned by a dedicated module)"
+        for b in benign:
+            assert ("/" + b) in paths, f"{b} should be kept (benign directory)"
+
     def test_open_directory_listing_is_high(self, base_url, monkeypatch):
         from scanner.web.dir_scan import run
 

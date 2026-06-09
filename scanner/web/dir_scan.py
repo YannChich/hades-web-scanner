@@ -39,14 +39,51 @@ _SAFE_MODE_LIMIT = 50
 _BLANKET_403_COUNT = 8
 _console = Console()
 
-# Paths handled by dedicated modules — excluded here to avoid duplicate findings.
+# Paths handled by dedicated, content-validating modules (sensitive_files / backup_files /
+# git_dumper) — excluded here so dir_scan never reports them as a generic, unvalidated MEDIUM
+# "Accessible Path" (a duplicate of, and weaker than, what those modules already do).
 _EXCLUDED: frozenset[str] = frozenset({
-    ".env", ".env.local", ".env.production", ".env.backup",
+    # env / dotfiles
+    ".env", ".env.local", ".env.production", ".env.backup", ".env.example",
+    ".env.dev", ".env.development", ".env.staging", ".env.save",
     ".git", ".svn", ".hg", ".bzr", ".htaccess", ".htpasswd", ".ds_store",
-    "web.config", "wp-config.php", "configuration.php", "phpinfo.php", "info.php",
-    "composer.json", "package.json", "error_log", "access_log", "error.log", "access.log",
+    ".npmrc", ".netrc", ".pypirc", ".dockercfg", ".bash_history", "id_rsa",
+    # framework / app config + secrets
+    "web.config", "wp-config.php", "configuration.php", "config.php",
+    "config.json", "config.yml", "config.yaml", "settings.php", "settings.json",
+    "settings.py", "local_settings.py", "appsettings.json",
+    "secrets.json", "credentials.json", "database.yml", "database.yaml",
+    # diagnostics / manifests / CI
+    "phpinfo.php", "info.php", "adminer.php", "composer.json", "package.json",
+    ".gitignore", ".gitlab-ci.yml", ".travis.yml", "jenkinsfile", "dockerfile",
+    "docker-compose.yml", "docker-compose.yaml",
+    # logs
+    "error_log", "access_log", "error.log", "access.log",
+    # owned by other modules
     "robots.txt", "sitemap.xml", "crossdomain.xml",
 })
+
+# A path under any of these directories is VCS/credential internals owned by sensitive_files /
+# git_dumper (e.g. ".git/config", ".aws/credentials") — defer to them.
+_EXCLUDED_PREFIXES: tuple[str, ...] = (
+    ".git/", ".svn/", ".hg/", ".bzr/", ".aws/", ".ssh/", ".docker/", ".azure/",
+)
+
+# A path ending in any of these is a backup / database / key / log / archive artifact owned by
+# backup_files / sensitive_files — defer to them rather than emit a generic MEDIUM.
+_EXCLUDED_SUFFIXES: tuple[str, ...] = (
+    ".sql", ".sql.gz", ".key", ".pem", ".log", ".bak", ".old", ".save", ".swp",
+    ".dump", ".zip", ".tar", ".tar.gz", ".tgz", ".gz", ".rar", ".7z",
+    ".sqlite", ".sqlite3", ".db",
+)
+
+
+def _is_excluded(norm: str) -> bool:
+    """True if *norm* (a wordlist path, normalised to strip('/').lower()) is owned by a dedicated,
+    content-validating module and should not be probed as a generic dir_scan path."""
+    return (norm in _EXCLUDED
+            or norm.startswith(_EXCLUDED_PREFIXES)
+            or norm.endswith(_EXCLUDED_SUFFIXES))
 
 # Markers that identify an auto-generated open directory listing.
 _LISTING_MARKERS: tuple[str, ...] = (
@@ -85,7 +122,7 @@ def _load_wordlist(engine: ScanEngine) -> list[str]:
             if not line or line.startswith("#"):
                 continue
             norm = line.strip("/").lower()
-            if norm in _EXCLUDED or norm in seen:
+            if _is_excluded(norm) or norm in seen:
                 continue
             seen.add(norm)
             paths.append("/" + line.lstrip("/"))
