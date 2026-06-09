@@ -447,6 +447,73 @@ class TestLLMRecon:
         assert 0 < score_f.raw["score"] <= 100
         llm_recon.render_panel(fs)                  # must not raise
 
+    # --- Axis 1: more providers + GCP service account ---
+    def test_more_key_providers_v2_and_gcp_sa(self):
+        from scanner.ai import llm_recon
+        hex64 = "0123456789abcdef" * 4
+        page = ('OR="sk-or-v1-' + hex64 + '"; FW="fw_Ab3Cd4Ef5Gh6Ij7Kl8Mn9Op0"; '
+                '{"type": "service_account", "project_id": "p", '
+                '"private_key": "-----BEGIN PRIVATE KEY-----MIIE..."}')
+        eng = _FakeCrawlEngine({"https://t/app.js": page})
+        provs = {f.raw["provider"] for f in llm_recon._check_exposed_keys(eng)}
+        assert "OpenRouter" in provs and "Fireworks AI" in provs
+        assert any("service account" in p.lower() for p in provs)
+
+    # --- Axis 1: unauthenticated vector database ---
+    def test_vector_db_unauth_detected(self, monkeypatch):
+        from scanner.ai import llm_recon
+        monkeypatch.setattr(llm_recon.socket, "gethostbyname", lambda h: "127.0.0.1")
+        monkeypatch.setattr(llm_recon, "_probe_port", lambda ip, port, timeout=1.2: port == 6333)
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.port == 6333 and req.url.path == "/collections":
+                    return httpx.Response(200, json={"result": {"collections": [{"name": "docs"}]}})
+                return httpx.Response(404, text="nf")
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        fs = llm_recon._check_vector_dbs(eng, active=False, loot=None)
+        assert fs and fs[0].raw["ai_category"] == "exposed_vector_db" and "Qdrant" in fs[0].title
+        assert fs[0].raw.get("evidence") and fs[0].raw.get("exploitation")
+
+    # --- Axis 2: MCP tools/list enumeration (excessive agency) ---
+    def test_mcp_tools_enumerated(self):
+        from scanner.ai import llm_recon
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.path == "/mcp" and req.method == "POST":
+                    return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1,
+                                                     "result": {"tools": [{"name": "read_file"},
+                                                                          {"name": "run_sql"}]}})
+                return httpx.Response(404, text="nf")
+        eng = ScanEngine("http://t.test", rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=False, verify=False)
+        fs = llm_recon._check_mcp_tools(eng, active=False, loot=None)
+        assert fs and fs[0].raw["ai_category"] == "excessive_agency"
+        assert "read_file" in fs[0].raw["tools"] and fs[0].raw.get("exploitation")
+
+    # --- Axis 3: exposed AI engine → known CVE ---
+    def test_ai_cve_correlation(self):
+        from scanner.ai.llm_recon import _check_ai_cves
+        from scanner.engine import Finding, Severity
+        exposed = Finding(module="llm_recon", title="Unauthenticated Ollama Server Exposed",
+                          description="", severity=Severity.CRITICAL,
+                          raw={"ai_category": "exposed_server", "engine_name": "Ollama",
+                               "url": "http://t:11434"})
+        cves = _check_ai_cves([exposed])
+        assert cves and cves[0].raw["cve_id"] == "CVE-2024-37032" and cves[0].raw["ai_category"] == "ai_cve"
+        assert not _check_ai_cves([Finding(module="llm_recon", title="x", description="",
+                                           severity=Severity.LOW, raw={"ai_category": "discovery"})])
+
+    def test_exposed_key_carries_evidence_and_exploitation(self):
+        from scanner.ai import llm_recon
+        eng = _FakeCrawlEngine({"https://t/app.js": "const K='sk-ant-ABCDEFGHIJKLMNOPQRSTUVWX';"})
+        f = llm_recon._check_exposed_keys(eng)[0]
+        assert f.raw.get("evidence")
+        steps = f.raw.get("exploitation")
+        assert isinstance(steps, list) and any("rotate" in s["description"].lower() for s in steps)
+
 
 # ---------------------------------------------------------------------------
 # SSRF accuracy — a reflected payload must NOT be a false positive

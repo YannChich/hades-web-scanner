@@ -373,7 +373,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "auth_bypass":     ["nuclei"],
     "idor_detect":     ["nuclei"],
     # ── AI / LLM (external red-team tools — not in the RedTeam-Tools catalogue) ──
-    "llm_recon":       ["garak", "PyRIT", "promptfoo"],
+    "llm_recon":       ["garak", "PyRIT", "promptfoo", "promptmap", "nuclei"],
     # ── Active exploitation engagement ──
     "engage":          ["nuclei", "Metasploit Framework", "msfvenom"],
     # ── Out-of-band / blind detection ──
