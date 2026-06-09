@@ -216,10 +216,11 @@ at a glance. Same split in the terminal output.
   <img src="assets/screenshots/hades-report.png" alt="Hades HTML report" width="850">
 </p>
 
-> 📄 **Full example report:** [`docs/example-report/hades-report.html`](docs/example-report/hades-report.html)
-> — a real, self-contained scan of `http://testaspnet.vulnweb.com/` (evidence boxes, exploitation
-> walkthroughs, attack path, playbooks). Download it and open in a browser, or preview it via
-> [htmlpreview](https://htmlpreview.github.io/?https://github.com/YannChich/hades-web-scanner/blob/main/docs/example-report/hades-report.html).
+> 📄 **Full example report:** a real, self-contained scan of `http://testaspnet.vulnweb.com/`
+> (evidence boxes, exploitation walkthroughs, attack path, playbooks). GitHub shows `.html` as source,
+> so view it rendered via **[➜ open the live report](https://raw.githack.com/YannChich/hades-web-scanner/main/docs/example-report/hades-report.html)**
+> (raw.githack.com CDN), or download [`docs/example-report/hades-report.html`](docs/example-report/hades-report.html)
+> and open it in your browser.
 
 <!--
   SCREENSHOTS — drop your images here and they will render above/below automatically:
