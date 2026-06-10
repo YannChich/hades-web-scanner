@@ -1627,6 +1627,25 @@ class TestDomXss:
         assert f.raw.get("evidence") and f.raw.get("exploitation")
         assert f.raw["trigger"] == "dom-hook"
 
+    def test_fragment_payload_quoting_avoids_attribute_clash(self):
+        """In a single-quoted attribute the token must be double-quoted (and vice-versa)."""
+        from scanner.vulns import dom_xss
+        sq_tmpl = "x' onerror='{cb}"                        # single-quoted onerror
+        p = dom_xss._det_payload(sq_tmpl, '"', "TOKZ")
+        assert 'window.__hadesxss("TOKZ")' in p             # token double-quoted → no early close
+        assert dom_xss._poc_payload(sq_tmpl) == "x' onerror='alert(document.domain)"
+
+    def test_to_finding_fragment_vector(self):
+        from scanner.vulns import dom_xss
+        poc = "https://t/level3/frame#x' onerror='alert(document.domain)"
+        hit = dom_xss.DomXssHit(url="https://t/level3/frame", field="URL fragment (#)",
+                                payload="x' onerror='...", trigger="dom-hook", token="tk",
+                                vector="fragment", poc=poc)
+        f = dom_xss.to_finding(hit)
+        assert f.severity == Severity.HIGH and "URL fragment" in f.title
+        assert f.raw["vector"] == "fragment"
+        assert f.raw["exploitation"][0]["command"] == poc        # repro is the full hash URL
+
     def test_run_emits_info_hint_when_browser_unavailable(self, base_url, monkeypatch):
         """With forms present but no browser, xss_detect surfaces a single INFO install hint."""
         from scanner.vulns.xss_detect import run

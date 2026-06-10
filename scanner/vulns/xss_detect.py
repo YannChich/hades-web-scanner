@@ -317,49 +317,45 @@ def run(engine: ScanEngine) -> list[Finding]:
                 seen.add(field)
                 form_work.append((form, field))
 
-    if not url_work and not form_work:
-        return [Finding(MODULE, "XSS: No Injectable Parameters Found",
-                        "No URL parameters or form inputs were discovered to test.",
-                        Severity.INFO, "", {"scanned_url": engine.url, "confidence": "high"})]
-
     findings: list[Finding] = []
-    with ThreadPoolExecutor(max_workers=engine.threads) as pool:
-        futures = []
-        for url, param in url_work:
-            proof = (lambda payload, u=url, p=param: _inject_url_param(u, p, payload))
-            futures.append(pool.submit(_probe, _url_injector(engine, url, param),
-                                       f"URL parameter '{param}'", proof))
-        for form, field in form_work:
-            # POST forms have no shareable GET proof URL.
-            futures.append(pool.submit(_probe, _form_injector(engine, form, field),
-                                       f"form field '{field}' ({form.method.upper()} {form.action})"))
-            # Stored pass: submit, then look for the value on a display page (server-rendered).
-            futures.append(pool.submit(_probe_stored, engine, form, field))
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                findings.append(result)
+    if url_work or form_work:
+        with ThreadPoolExecutor(max_workers=engine.threads) as pool:
+            futures = []
+            for url, param in url_work:
+                proof = (lambda payload, u=url, p=param: _inject_url_param(u, p, payload))
+                futures.append(pool.submit(_probe, _url_injector(engine, url, param),
+                                           f"URL parameter '{param}'", proof))
+            for form, field in form_work:
+                # POST forms have no shareable GET proof URL.
+                futures.append(pool.submit(_probe, _form_injector(engine, form, field),
+                                           f"form field '{field}' ({form.method.upper()} {form.action})"))
+                # Stored pass: submit, then look for the value on a display page (server-rendered).
+                futures.append(pool.submit(_probe_stored, engine, form, field))
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    findings.append(result)
 
-    # Browser-verified DOM / stored XSS — catches client-rendered sinks (innerHTML, etc.) that never
-    # appear in the server HTML (e.g. XSS-game level 2). Optional: needs Playwright + Chromium and
-    # degrades to a single INFO hint when the browser is unavailable.
-    if crawl.forms:
-        dom_pages = dom_xss.candidates(engine)
-        if dom_pages:
-            if br.ensure_chromium():
-                for hit in dom_xss.verify(engine, dom_pages):
-                    findings.append(dom_xss.to_finding(hit))
-            else:
-                findings.append(Finding(
-                    MODULE, "DOM/Stored XSS Verification Skipped (no browser)",
-                    "A client-rendered (DOM/stored) XSS pass needs a headless browser. Install it with "
-                    "'pip install playwright && playwright install chromium' to verify DOM-based and "
-                    "stored XSS that never appears in the HTTP response.",
-                    Severity.INFO, "", {"reason": "browser_unavailable", "confidence": "high"}))
+    # Browser-verified DOM XSS — catches client-rendered sinks (innerHTML, location.hash…) that never
+    # appear in the server HTML: the URL-fragment vector (e.g. XSS-game level 3, no form needed) and the
+    # stored form vector (e.g. level 2). Optional: needs Playwright + Chromium and degrades to a single
+    # INFO hint when the browser is unavailable.
+    dom_pages = dom_xss.candidates(engine)
+    if dom_pages:
+        if br.ensure_chromium():
+            for hit in dom_xss.verify(engine, dom_pages):
+                findings.append(dom_xss.to_finding(hit))
+        else:
+            findings.append(Finding(
+                MODULE, "DOM/Stored XSS Verification Skipped (no browser)",
+                "A client-rendered (DOM/stored) XSS pass needs a headless browser. Install it with "
+                "'pip install playwright && playwright install chromium' to verify DOM-based and "
+                "stored XSS (URL-fragment and form sinks) that never appears in the HTTP response.",
+                Severity.INFO, "", {"reason": "browser_unavailable", "confidence": "high"}))
 
     if not findings:
         total = len(url_work) + len(form_work)
         return [Finding(MODULE, "XSS: No Reflection Detected",
-                        f"Tested {total} input(s) with context-aware probes; no reflection was found.",
+                        f"Tested {total} input(s) with context-aware + browser probes; nothing fired.",
                         Severity.INFO, "", {"inputs_tested": total, "confidence": "high"})]
     return findings
