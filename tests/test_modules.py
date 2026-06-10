@@ -68,6 +68,17 @@ def base_url() -> str:
     return "https://example.com"
 
 
+@pytest.fixture(autouse=True)
+def _no_real_browser(monkeypatch):
+    """Safety net: unit tests must never launch a real headless browser (or trigger a Chromium
+    install). Stub xss_detect's optional DOM/stored-XSS browser pass off by default — every test that
+    drives xss_detect.run over a form would otherwise reach it. Tests that exercise the pure browser
+    helpers call monkeypatch.undo() or re-patch as needed."""
+    from scanner.vulns import dom_xss
+    monkeypatch.setattr(dom_xss, "candidates", lambda engine: [])
+    monkeypatch.setattr(dom_xss, "verify", lambda engine, pages: [])
+
+
 @pytest.fixture
 def engine_factory(base_url: str):
     """
@@ -1502,10 +1513,12 @@ class TestXssDetect:
         assert not any(f.severity == Severity.HIGH and f.raw.get("context") == "js_string"
                        for f in findings)
 
-    def test_stored_xss_via_form_is_high(self, base_url):
+    def test_stored_xss_via_form_is_high(self, base_url, monkeypatch):
         """Value not echoed in the POST response but rendered unescaped on a display page → Stored XSS."""
         from scanner.vulns.xss_detect import run
+        from scanner.vulns import dom_xss
         from scanner.crawler import CrawlResult, Form
+        monkeypatch.setattr(dom_xss, "candidates", lambda e: [])   # this test covers the httpx pass only
 
         class _T(httpx.BaseTransport):
             def __init__(self):
@@ -1532,11 +1545,13 @@ class TestXssDetect:
         assert stored, [f.title for f in findings]
         assert stored[0].raw.get("evidence")
 
-    def test_stored_encoded_value_is_low(self, base_url):
+    def test_stored_encoded_value_is_low(self, base_url, monkeypatch):
         """A stored value echoed *escaped* on the display page is LOW, never a HIGH stored XSS."""
         from scanner.vulns.xss_detect import run
+        from scanner.vulns import dom_xss
         from scanner.crawler import CrawlResult, Form
         import html as htmllib
+        monkeypatch.setattr(dom_xss, "candidates", lambda e: [])   # this test covers the httpx pass only
 
         class _T(httpx.BaseTransport):
             def __init__(self):
@@ -1560,6 +1575,80 @@ class TestXssDetect:
         findings = run(eng)
         assert not any(f.title.startswith("Stored XSS:") and f.severity == Severity.HIGH for f in findings)
         assert any(f.severity == Severity.LOW for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# dom_xss tests (browser-verified DOM/stored XSS — pure logic, no real browser)
+# ---------------------------------------------------------------------------
+
+class _FakePage:
+    def __init__(self, hits):
+        self._hits = hits
+
+    def evaluate(self, expr):
+        return self._hits
+
+
+class TestDomXss:
+    def test_payload_carries_token(self):
+        from scanner.vulns import dom_xss
+        p = dom_xss._payload("deadbeefcafe")
+        assert "deadbeefcafe" in p and "onerror" in p and "__hadesxss" in p
+
+    def test_fired_token_distinguishes_hook_and_alert(self):
+        from scanner.vulns import dom_xss
+        assert dom_xss._fired_token(_FakePage(["tok1"]), "tok1") == "dom-hook"
+        assert dom_xss._fired_token(_FakePage(["ALERT:tok2"]), "tok2") == "alert"
+        assert dom_xss._fired_token(_FakePage(["other"]), "tok3") == ""
+        assert dom_xss._fired_token(_FakePage([]), "tok4") == ""
+
+    def test_candidates_prioritise_textish_form_pages(self, monkeypatch):
+        from scanner.vulns import dom_xss
+        from scanner.crawler import CrawlResult, Form
+        monkeypatch.undo()                                  # exercise the real candidates()
+        f_text = Form(action="http://app.test/post", method="post",
+                      fields={"message": "x"}, source_url="http://app.test/board")
+        f_plain = Form(action="http://app.test/sub", method="post",
+                       fields={"id": "1"}, source_url="http://app.test/other")
+        eng = ScanEngine("http://app.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[f_plain, f_text]))
+        cands = dom_xss.candidates(eng)
+        assert cands[0] == "http://app.test/board"          # textish form page first
+        assert "http://app.test" in cands                   # the target itself
+        assert cands[-1] == "http://app.test/other"         # non-textish form page last
+
+    def test_to_finding_is_high_with_evidence_and_chain(self):
+        from scanner.vulns import dom_xss
+        hit = dom_xss.DomXssHit(url="http://app.test/level2/frame", field="message",
+                                payload='"><img src=x onerror=...>', trigger="dom-hook", token="abc123")
+        f = dom_xss.to_finding(hit)
+        assert f.module == "xss_detect" and f.severity == Severity.HIGH
+        assert "browser-verified" in f.title.lower()
+        assert f.raw.get("evidence") and f.raw.get("exploitation")
+        assert f.raw["trigger"] == "dom-hook"
+
+    def test_run_emits_info_hint_when_browser_unavailable(self, base_url, monkeypatch):
+        """With forms present but no browser, xss_detect surfaces a single INFO install hint."""
+        from scanner.vulns.xss_detect import run
+        from scanner.vulns import dom_xss
+        from scanner import browser
+        from scanner.crawler import CrawlResult, Form
+        monkeypatch.setattr(browser, "ensure_chromium", lambda: False)
+        monkeypatch.setattr(dom_xss, "candidates", lambda e: ["http://hint.test/board"])
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<html>nothing reflected</html>",
+                                     headers={"content-type": "text/html"})
+
+        form = Form(action=f"{base_url}/post", method="post",
+                    fields={"message": "test"}, source_url=base_url)
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        assert any(f.severity == Severity.INFO and "no browser" in f.title.lower() for f in findings)
 
 
 # ---------------------------------------------------------------------------

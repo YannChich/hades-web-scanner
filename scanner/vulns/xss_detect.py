@@ -24,9 +24,11 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx
 from loguru import logger
 
+from scanner import browser as br
 from scanner import evidence as ev
 from scanner.crawler import Form, fresh_form_fields
 from scanner.engine import Finding, Severity, ScanEngine
+from scanner.vulns import dom_xss
 
 MODULE = "xss_detect"
 
@@ -334,6 +336,23 @@ def run(engine: ScanEngine) -> list[Finding]:
             result = future.result()
             if result:
                 findings.append(result)
+
+    # Browser-verified DOM / stored XSS — catches client-rendered sinks (innerHTML, etc.) that never
+    # appear in the server HTML (e.g. XSS-game level 2). Optional: needs Playwright + Chromium and
+    # degrades to a single INFO hint when the browser is unavailable.
+    if crawl.forms:
+        dom_pages = dom_xss.candidates(engine)
+        if dom_pages:
+            if br.ensure_chromium():
+                for hit in dom_xss.verify(engine, dom_pages):
+                    findings.append(dom_xss.to_finding(hit))
+            else:
+                findings.append(Finding(
+                    MODULE, "DOM/Stored XSS Verification Skipped (no browser)",
+                    "A client-rendered (DOM/stored) XSS pass needs a headless browser. Install it with "
+                    "'pip install playwright && playwright install chromium' to verify DOM-based and "
+                    "stored XSS that never appears in the HTTP response.",
+                    Severity.INFO, "", {"reason": "browser_unavailable", "confidence": "high"}))
 
     if not findings:
         total = len(url_work) + len(form_work)
