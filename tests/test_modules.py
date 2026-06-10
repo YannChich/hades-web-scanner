@@ -4875,6 +4875,21 @@ class TestFullScanPerf:
         assert eng._rate_limiter._delay == config.SAFE_MODE_RATE_DELAY   # is_safe_mode() still works
         eng.close()
 
+    def test_engine_is_safe_mode_single_source_of_truth(self):
+        """ScanEngine.is_safe_mode() is the one safe-mode check; _common.is_safe_mode delegates to it
+        and stays tolerant of mock engines (the four module-local copies were removed)."""
+        import config
+        from scanner.vulns._common import is_safe_mode
+        safe = ScanEngine("https://x", rate_delay=config.SAFE_MODE_RATE_DELAY)
+        fast = ScanEngine("https://x", rate_delay=0)
+        try:
+            assert safe.is_safe_mode() is True and fast.is_safe_mode() is False
+            assert is_safe_mode(safe) is True and is_safe_mode(fast) is False
+            assert is_safe_mode(object()) is False                 # no engine API → graceful False
+        finally:
+            safe.close()
+            fast.close()
+
     def test_normal_mode_caps_concurrency(self):
         import config
         eng = ScanEngine("https://x", rate_delay=0.5, threads=20)
