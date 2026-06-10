@@ -2620,6 +2620,14 @@ class TestClickjacking:
         })
         assert run(eng)[0].raw["protected"] is True
 
+    def test_framable_finding_carries_evidence(self, engine_factory, base_url):
+        """A framable verdict must ship a non-empty evidence proof block."""
+        from scanner.web.clickjacking import run
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html><form><input type=password></form></html>"),
+        })
+        assert run(eng)[0].raw.get("evidence")
+
 
 # ---------------------------------------------------------------------------
 # backup_files tests
@@ -3573,6 +3581,20 @@ class TestJwtAttacks:
         eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'"{tok}"'}))
         eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
         assert not [f for f in jwt_attacks.run(eng) if f.raw.get("secret")]
+
+    def test_critical_findings_carry_evidence(self):
+        """Both CRITICAL JWT findings must ship a non-empty evidence proof block."""
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        none_tok = _make_jwt({"role": "admin"}, alg="none")
+        weak_tok = _make_jwt({"role": "admin"}, secret="secret")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            pages={"http://jwt.test/a.js": f'a="{none_tok}"; b="{weak_tok}"'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        crit = [f for f in jwt_attacks.run(eng) if f.severity == Severity.CRITICAL]
+        assert len(crit) == 2
+        assert all(f.raw.get("evidence") for f in crit)
 
 
 # ---------------------------------------------------------------------------
@@ -4681,7 +4703,7 @@ class TestFullScanOrchestration:
 
         def fake_run(self, path):
             if path == "hang_b":
-                time.sleep(2.0)                          # far past the 0.3s budget
+                time.sleep(1.0)                          # far past the 0.3s budget
                 return []
             return [Finding(module=path, title=f"f-{path}", description="", severity=Severity.LOW)]
 
@@ -4692,7 +4714,7 @@ class TestFullScanOrchestration:
 
         names = sorted(f.module for f in findings)
         assert names == ["fast_a", "fast_c"]             # the OK modules' findings are returned
-        assert elapsed < 1.5                             # did NOT wait for the 2s hang
+        assert elapsed < 0.9                             # did NOT wait for the 1s hang
         statuses = {s["name"]: s["status"] for s in eng._run_stats}
         assert statuses["hang_b"] == "timeout"
         eng.close()
