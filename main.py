@@ -403,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="hades",
         description="Hades — terminal-based web security scanner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Example:  hades --url https://example.com --profile full --output html",
+        epilog="Example:  hades --url https://example.com --profile full --no-open",
     )
 
     parser.add_argument(

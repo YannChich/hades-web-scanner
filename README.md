@@ -128,8 +128,8 @@ evidence**, and every piece of evidence comes with the next move.
   request Hades sent, the response status/size/content-type, and the specific indicator that triggered it
   (`raw["evidence"]`) — rendered as a `⧉ evidence` line in the console, a green evidence box in the HTML
   report and an `evidence` array in JSON, so each finding is verifiable at a glance. Confidence is derived
-  from real signals (`scanner/evidence.py`), and a single shared soft-404 baseline (`engine.soft404_baseline()`)
-  backs the path-probers.
+  from real signals (`scanner/evidence.py`), and each path-prober calibrates its own soft-404 baseline to
+  suppress catch-all `200` responses.
 - **Exploitation walkthrough:** every exploitable finding ships an ordered, copy-paste **kill chain**
   (`raw["exploitation"]`) tailored to the real URL/parameter — sqlmap for SQLi (detect → DBs → tables →
   columns → dump), commix for command injection, tplmap for SSTI, file-read→RCE for LFI, cloud-metadata
@@ -390,6 +390,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
 | `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
+| `--module` | `-m` | — | Run a single module only (e.g. `headers_check`); overrides `--profile` |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
