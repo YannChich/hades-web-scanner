@@ -1,17 +1,20 @@
 """
-xss_detect — context-aware reflected XSS detection on URL parameters and form fields.
+xss_detect — context-aware XSS detection on URL parameters and form fields (reflected, stored
+and DOM-based).
 
-Rather than only checking "does the payload appear unencoded", this works the way modern
-scanners do:
-  1. Inject a harmless alphanumeric canary and find WHERE it is reflected — HTML text, an
-     HTML attribute (single/double/unquoted), inside a <script> string, or an HTML comment.
-  2. For each context, inject the minimal breakout sequence needed to escape it and check
-     whether the breakout characters survive unencoded. A successful breakout is a real
-     reflected-XSS (High); a reflection whose special characters are encoded is reported as
-     Low (likely sanitised — verify the context).
+Three passes, escalating in fidelity:
+  1. Reflected — inject a harmless alphanumeric canary and find WHERE it is reflected (HTML text,
+     an HTML attribute, inside a <script> string, or an HTML comment), then inject the minimal
+     breakout sequence for that context and check whether it survives unencoded. A successful
+     breakout is a real reflected XSS (High); an encoded reflection is reported Low.
+  2. Stored (server-rendered) — submit a form field, then look for the value on a *display* page
+     (not just the submission's own response) and confirm a breakout there → High Stored XSS.
+  3. DOM-based / stored (browser-verified) — an optional Playwright pass (see scanner/vulns/dom_xss.py)
+     that drives headless Chromium to catch payloads written into the DOM by client-side JS
+     (e.g. innerHTML), which never appear in the server HTML and only execute in a real browser.
 
-Detects reflection/breakout only; it does not execute JS, test DOM/stored XSS, or bypass CSP.
-Active probing is skipped in safe mode.
+The reflected/stored passes detect reflection/breakout (no JS execution, no CSP bypass); the optional
+browser pass confirms actual execution. Active probing is skipped in safe mode.
 """
 from __future__ import annotations
 

@@ -16,7 +16,8 @@ mmh3>=4.1.0            # favicon (Shodan-style) hashing
 markdown>=3.6          # renders playbooks (SKILL.md) to HTML in the report
 
 # ── Optional (extra features; safely skipped if not installed) ─────────────
-# Homepage screenshots in the report — also run:  playwright install chromium
+# Headless-browser features — homepage screenshots AND browser-verified DOM/stored XSS
+# (scanner/vulns/dom_xss.py). Also run:  playwright install chromium
 playwright>=1.44.0
 # Offensive TLS/SSL audit (tls_scan / menu option 9). Heavy; brings its own crypto stack.
 sslyze>=6.0

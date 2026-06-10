@@ -149,6 +149,10 @@ evidence**, and every piece of evidence comes with the next move.
 **Offensive injection arsenal (active verification)**
 - SQLi, XSS, command injection, SSTI, LFI/path traversal, open redirect and SSRF — each *proven*, with a
   clickable proof link and a ready exploitation command.
+- **XSS in three passes**: context-aware **reflected**, **stored** (re-checks display pages after a
+  submit, not just the submission's own response), and **DOM-based / stored** verified in a real headless
+  browser (optional Playwright) — catching client-rendered sinks (`innerHTML`, …) that never appear in
+  the HTTP response and only execute in a browser.
 - JWT attacks (`alg:none`, weak-secret cracking, claim disclosure), 401/403 access-control bypass, CVE
   mapping via the NVD, and a default-credentials advisory.
 - **IDOR / BOLA** (broken access control): tampers object-reference ids in URL params and path segments
