@@ -41,19 +41,27 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# flag, short, argument, description
+# flag, short, argument, description  (mirrors the argparse definition in main.py)
 FLAGS = [
     ("--url", "-u", "URL", "Target URL to scan. Must start with http:// or https://. If omitted, Hades asks for it interactively."),
-    ("--profile", "-p", "PROFILE", "Which set of modules to run: quick, passive, cms, full, db_scan, ai_scan, engage, oob_scan. If omitted, an interactive menu is shown (menu option 8 = CVE Vulnerability Intelligence)."),
+    ("--profile", "-p", "PROFILE", "Which set of modules to run: quick, passive, cms, full, db_scan, ai_scan, engage, oob_scan, tls_scan. If omitted, an interactive menu is shown (menu option 8 = CVE Vulnerability Intelligence)."),
     ("--module", "-m", "NAME", "Run ONE module only (e.g. headers_check). Overrides --profile. Great for quick targeted checks."),
-    ("--output", "-o", "FORMAT", "Export the report to a file: json, html, or pdf. If omitted, results are only shown in the terminal."),
+    ("--no-open", "", "(flag)", "Do not auto-open the HTML report in a browser when the scan finishes (the HTML + JSON reports are still written)."),
+    ("--arsenal", "", "(flag)", "Open the RedTeam Arsenal — a searchable page of offensive tools by attack type. No scan (also menu option 666)."),
+    ("--skills", "", "(flag)", "Open the Skills Library — a searchable page of the expert playbooks Hades draws on, by subdomain. No scan (also menu option 10)."),
+    ("--exploit", "", "(flag)", "After the scan, launch sqlmap against any CONFIRMED SQL injection. Requires sqlmap. Authorised targets only."),
+    ("--bruteforce", "", "(flag)", "Opt-in: spray common credentials against discovered login forms and HTTP Basic-Auth. Authorised targets only."),
+    ("--oob-host", "", "HOST", "Reachable callback address for oob_scan (public IP / tunnel). Auto-detected if omitted."),
+    ("--oob-port", "", "PORT", "Port for the out-of-band callback listener (oob_scan). 0 = auto-pick a free port."),
     ("--proxy", "", "URL", "Route all traffic through an HTTP/HTTPS proxy, e.g. Burp Suite at http://127.0.0.1:8080."),
     ("--threads", "-t", "N", "Number of concurrent worker threads (default: 10). Higher = faster but noisier/heavier."),
     ("--ignore-robots", "", "(flag)", "Ignore robots.txt Disallow rules during active scanning. Use only on targets you fully control."),
-    ("--exploit", "", "(flag)", "After the scan, launch sqlmap against any CONFIRMED SQL injection. Requires sqlmap. Authorised targets only."),
     ("--wordlist", "-w", "FILE", "Use a custom wordlist file instead of the built-in lists (affects dir_scan / admin_panel)."),
     ("--cookies", "", "STRING", "Send a Cookie header, e.g. \"session=abc123; token=xyz\". Use to scan as a logged-in user."),
     ("--auth-token", "", "TOKEN", "Send an Authorization: Bearer <TOKEN> header. Use for API / token-protected targets."),
+    ("--login-url", "", "URL", "Log in before scanning so the crawler + active modules run authenticated (form action / login page). Use with --login-data."),
+    ("--login-data", "", "STRING", "Login credentials as form data, e.g. \"username=admin&password=secret\". CSRF hidden fields are auto-replayed."),
+    ("--login-check", "", "STRING", "Text that proves the session is authenticated (e.g. \"Logout\") — confirms the login worked."),
     ("--help", "-h", "(flag)", "Show the built-in help message listing all flags, then exit."),
 ]
 
@@ -71,32 +79,36 @@ PROFILES = [
 ]
 
 MODULES = [
-    "Recon:  basic_info · whois_lookup · dns_check · ssl_check · port_scan · waf_detect · tech_stack",
+    "Recon:  basic_info · whois_lookup · dns_check · ssl_check · port_scan · waf_detect · tech_stack ·",
+    "        js_recon · cloud_buckets · git_dumper · wayback",
     "Web:    headers_check · robots_txt · sitemap · cms_detect · admin_panel · dir_scan · subdomain_scan ·",
     "        broken_links · http_methods · backup_files · sensitive_files · cookie_analysis · redirect_chain ·",
     "        email_exposure · favicon_hash · cors_check · clickjacking · dir_listing · blacklist_check · screenshot",
-    "Vulns:  sqli_detect · xss_detect · command_injection · ssti_detect · lfi_detect ·",
-    "        open_redirect · ssrf_detect · cve_mapping · default_creds",
+    "Vulns:  sqli_detect · xss_detect · command_injection · ssti_detect · lfi_detect · open_redirect ·",
+    "        ssrf_detect · jwt_attacks · auth_bypass · idor_detect · bruteforce · cve_mapping · default_creds",
     "DB:     db_security   (run via --profile db_scan — dedicated red-team database audit)",
     "CVE:    cve_vulnerability   (menu option 8 — CVE intelligence; build the corpus with tools/build_vulndb.py)",
     "TLS:    hephaestus_tls   (menu option 9 / --profile tls_scan — offensive TLS audit via SSLyze)",
 ]
 
 EXAMPLES = [
-    ("Interactive menu (asks URL + scan type)", "py main.py"),
-    ("Quick scan of a site", "py main.py --url https://example.com --profile quick"),
-    ("Full scan + HTML report", "py main.py -u https://example.com -p full -o html"),
-    ("Run only one module", "py main.py -u https://example.com -m headers_check"),
-    ("Scan through Burp Suite proxy", "py main.py -u https://example.com --proxy http://127.0.0.1:8080"),
-    ("Authenticated scan (with a cookie)", "py main.py -u https://example.com --cookies \"session=abc123\""),
-    ("More threads (faster)", "py main.py -u https://example.com -t 25"),
-    ("Detect + launch sqlmap on SQLi", "py main.py -u \"http://testaspnet.vulnweb.com/Comments.aspx?id=1\" --exploit"),
-    ("Database security audit + HTML report", "py main.py -u https://example.com -p db_scan -o html"),
-    ("DB audit + auto-exploit confirmed SQLi", "py main.py -u http://testaspnet.vulnweb.com -p db_scan --exploit"),
-    ("CVE intelligence (interactive menu, option 8)", "py main.py -u https://example.com"),
-    ("Build the full offline CVE corpus (once)", "py tools/build_vulndb.py"),
-    ("Offensive TLS/SSL audit (SSLyze)", "py main.py -u https://example.com -p tls_scan"),
-    ("Show all flags", "py main.py --help"),
+    ("Interactive menu (asks URL + scan type)", "python hades.py"),
+    ("Quick scan of a site", "python hades.py --url https://example.com --profile quick"),
+    ("Full scan (HTML + JSON written automatically)", "python hades.py -u https://example.com -p full"),
+    ("Run only one module", "python hades.py -u https://example.com -m headers_check"),
+    ("Scan through Burp Suite proxy", "python hades.py -u https://example.com --proxy http://127.0.0.1:8080"),
+    ("Authenticated scan (form login + CSRF)", "python hades.py -u https://example.com --login-url https://example.com/login --login-data \"username=admin&password=secret\" --login-check \"Logout\""),
+    ("Authenticated scan (with a cookie)", "python hades.py -u https://example.com --cookies \"session=abc123\""),
+    ("More threads (faster)", "python hades.py -u https://example.com -t 25"),
+    ("Detect + launch sqlmap on SQLi", "python hades.py -u \"http://testaspnet.vulnweb.com/Comments.aspx?id=1\" --exploit"),
+    ("Database security audit", "python hades.py -u https://example.com -p db_scan"),
+    ("DB audit + auto-exploit confirmed SQLi", "python hades.py -u http://testaspnet.vulnweb.com -p db_scan --exploit"),
+    ("CVE intelligence (interactive menu, option 8)", "python hades.py -u https://example.com"),
+    ("Build the full offline CVE corpus (once)", "python tools/build_vulndb.py"),
+    ("Offensive TLS/SSL audit (SSLyze)", "python hades.py -u https://example.com -p tls_scan"),
+    ("RedTeam Arsenal (no scan)", "python hades.py --arsenal"),
+    ("Skills Library (no scan)", "python hades.py --skills"),
+    ("Show all flags", "python hades.py --help"),
 ]
 
 
@@ -129,7 +141,7 @@ def build():
     story = [Spacer(1, 4 * mm),
              Paragraph("HADES", TITLE),
              Paragraph("Command-Line Flags — Cheat Sheet", SUB),
-             Paragraph(f"Run with the 'py' launcher, e.g.  py main.py [flags]    ·    {date.today().isoformat()}", SUB),
+             Paragraph(f"Run with:  python hades.py [flags]    ·    {date.today().isoformat()}", SUB),
              Spacer(1, 6 * mm)]
 
     # Flags table
