@@ -7,9 +7,16 @@ Two discovery sources are merged:
               guessable, with no requests to the target).
 
 Every discovered sub-domain that resolves is then probed for a dangling-DNS / sub-domain
-takeover: if it points at a cloud service whose resource is gone (S3 "NoSuchBucket",
-GitHub Pages "isn't a GitHub Pages site", Heroku "No such app", …) an attacker could claim
-it → High. Sensitive sub-domains (dev, staging, admin, vpn, git…) are flagged Low.
+takeover. To avoid false positives, a takeover is only reported when BOTH hold:
+  1. the sub-domain's DNS actually points at the suspected service (its CNAME chain matches a
+     service domain such as ``*.s3.amazonaws.com`` / ``*.herokudns.com``, or its IP is in a
+     service range), AND
+  2. the served page carries that service's "unclaimed resource" fingerprint (S3 "NoSuchBucket",
+     GitHub Pages "isn't a GitHub Pages site", …).
+A generic 404 alone (e.g. an App Engine ``*.appspot.com`` page) never matches — without DNS
+correlation to the service it is not a dangling third-party resource. Strong-fingerprint services
+report High; services whose only fingerprint is a generic 404 (Unbounce) report Medium "verify".
+Sensitive sub-domains (dev, staging, admin, vpn, git…) are flagged Low.
 """
 from __future__ import annotations
 
@@ -17,6 +24,7 @@ import random
 import socket
 import string
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
@@ -42,24 +50,41 @@ _SENSITIVE_LABELS: dict[str, str] = {
     "backup": "backup", "old": "legacy", "legacy": "legacy", "beta": "pre-release",
 }
 
-# (service, fingerprint substring) — a match on a resolving sub-domain suggests takeover.
-_TAKEOVER: list[tuple[str, str]] = [
-    ("GitHub Pages", "there isn't a github pages site here"),
-    ("AWS S3", "nosuchbucket"),
-    ("AWS S3", "the specified bucket does not exist"),
-    ("Heroku", "no such app"),
-    ("Shopify", "sorry, this shop is currently unavailable"),
-    ("Fastly", "fastly error: unknown domain"),
-    ("Surge.sh", "project not found"),
-    ("Bitbucket", "repository not found"),
-    ("Ghost", "the thing you were looking for is no longer here"),
-    ("Pantheon", "the gods are wise, but do not know of the site"),
-    ("Tumblr", "whatever you were looking for doesn't currently exist"),
-    ("Unbounce", "the requested url was not found on this server"),
-    ("Help Scout", "no settings were found for this company"),
-    ("Cargo", "404 not found · cargo"),
-    ("Webflow", "the page you are looking for doesn't exist or has been moved"),
-]
+@dataclass(frozen=True)
+class _Service:
+    """A takeover-prone service: its body fingerprints AND the DNS targets that prove a sub-domain
+    actually points at it (a fingerprint alone is never enough — see _detect_takeover)."""
+    name: str
+    fingerprints: tuple[str, ...]          # lowercased body signatures of the "unclaimed" page
+    cnames: tuple[str, ...]                # CNAME-chain domain suffixes owned by the service
+    ips: tuple[str, ...] = ()              # stable service IPs (used when there is no CNAME)
+    confidence: str = "high"              # "medium" when the only fingerprint is a generic 404
+
+# DNS correlation is REQUIRED: a fingerprint match on a sub-domain whose DNS does not point at the
+# service is treated as a generic 404, not a takeover (this is what made *.appspot.com a false positive).
+_SERVICES: tuple[_Service, ...] = (
+    _Service("GitHub Pages", ("there isn't a github pages site here",), ("github.io",),
+             ("185.199.108.153", "185.199.109.153", "185.199.110.153", "185.199.111.153")),
+    _Service("AWS S3", ("nosuchbucket", "the specified bucket does not exist"),
+             ("amazonaws.com",)),
+    _Service("Heroku", ("no such app",), ("herokudns.com", "herokuapp.com", "herokussl.com")),
+    _Service("Shopify", ("sorry, this shop is currently unavailable",), ("myshopify.com",)),
+    _Service("Fastly", ("fastly error: unknown domain",), ("fastly.net",)),
+    _Service("Surge.sh", ("project not found",), ("surge.sh",)),
+    _Service("Bitbucket", ("repository not found",), ("bitbucket.io",)),
+    _Service("Ghost", ("the thing you were looking for is no longer here",), ("ghost.io",)),
+    _Service("Pantheon", ("the gods are wise, but do not know of the site",), ("pantheonsite.io",)),
+    _Service("Tumblr", ("whatever you were looking for doesn't currently exist",),
+             ("domains.tumblr.com",)),
+    # Unbounce's fingerprint is a generic Apache/App-Engine 404 — only meaningful with DNS correlation,
+    # and even then reported Medium "verify manually" rather than High.
+    _Service("Unbounce", ("the requested url was not found on this server",),
+             ("unbouncepages.com", "unbounce.com"), confidence="medium"),
+    _Service("Help Scout", ("no settings were found for this company",), ("helpscoutdocs.com",)),
+    _Service("Cargo", ("404 not found · cargo",), ("cargocollective.com", "cargo.site")),
+    _Service("Webflow", ("the page you are looking for doesn't exist or has been moved",),
+             ("webflow.io", "proxy-ssl.webflow.com")),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -119,12 +144,58 @@ def _fetch_body(engine: ScanEngine, host: str) -> str | None:
     return None
 
 
-def _takeover_service(body: str) -> tuple[str, str] | None:
-    """Return (service, matched-fingerprint) on a takeover signature, else None."""
+def _cname_targets(host: str) -> set[str]:
+    """CNAME-chain targets for *host* (lowercased, trailing dot stripped); empty on any failure.
+
+    Used to correlate a takeover fingerprint with DNS that actually points at the suspected service —
+    without this, a generic 404 from any host (e.g. App Engine) looks like a dangling third-party page.
+    """
+    targets: set[str] = set()
+    try:
+        import dns.resolver
+    except Exception:  # noqa: BLE001 — dnspython missing/broken → no correlation possible
+        return targets
+    host_l = host.rstrip(".").lower()
+    for rdtype in ("CNAME", "A"):
+        try:
+            ans = dns.resolver.resolve(host, rdtype, raise_on_no_answer=False)
+        except Exception:  # noqa: BLE001 — NXDOMAIN / timeout / servfail
+            continue
+        cn = str(getattr(ans, "canonical_name", "") or "").rstrip(".").lower()
+        if cn and cn != host_l:
+            targets.add(cn)
+        if rdtype == "CNAME":
+            for rr in ans:
+                try:
+                    targets.add(str(rr.target).rstrip(".").lower())
+                except Exception:  # noqa: BLE001
+                    pass
+    return targets
+
+
+def _correlates(svc: _Service, cname_targets: set[str], ips: set[str]) -> str | None:
+    """Return the DNS evidence (a CNAME target or IP) proving the sub-domain points at *svc*, else None."""
+    for t in cname_targets:
+        for c in svc.cnames:
+            if t == c or t.endswith("." + c):
+                return t
+    for ip in ips:
+        if ip in svc.ips:
+            return ip
+    return None
+
+
+def _detect_takeover(body: str, cname_targets: set[str], ips: set[str]) -> tuple[_Service, str, str] | None:
+    """Return (service, fingerprint, dns_evidence) only when DNS points at the service AND its
+    unclaimed-resource fingerprint is present. A fingerprint without DNS correlation is ignored."""
     low = body.lower()
-    for service, sig in _TAKEOVER:
-        if sig in low:
-            return service, sig
+    for svc in _SERVICES:
+        corr = _correlates(svc, cname_targets, ips)
+        if not corr:
+            continue
+        sig = next((s for s in svc.fingerprints if s in low), None)
+        if sig:
+            return svc, sig, corr
     return None
 
 
@@ -205,7 +276,7 @@ def run(engine: ScanEngine) -> list[Finding]:
                 {"subdomain": name, "category": _SENSITIVE_LABELS[label],
                  "ips": sorted(found[name]), "confidence": "high"}))
 
-    # --- Subdomain takeover ---
+    # --- Subdomain takeover (fingerprint AND DNS correlation required; see _detect_takeover) ---
     with ThreadPoolExecutor(max_workers=engine.threads) as pool:
         futures = {pool.submit(_fetch_body, engine, name): name for name in names[:_MAX_TAKEOVER_CHECKS]}
         for fut in as_completed(futures):
@@ -213,20 +284,26 @@ def run(engine: ScanEngine) -> list[Finding]:
             name = futures[fut]
             if not body:
                 continue
-            match = _takeover_service(body)
-            if match:
-                service, sig = match
-                findings.append(Finding(
-                    MODULE, f"Possible Subdomain Takeover: {name} ({service})",
-                    (f"{name} resolves but {service} returns a 'resource not found' page — the DNS "
-                     f"record dangles at an unclaimed {service} resource. An attacker could register "
-                     "it and serve content on your sub-domain."),
-                    Severity.HIGH,
-                    (f"Remove the dangling DNS record for {name} or re-claim the {service} resource. "
-                     "Audit DNS for other unused records pointing at third-party services."),
-                    {"subdomain": name, "service": service, "confidence": "high",
-                     "evidence": [
-                         f"{name} resolves to {', '.join(sorted(found[name]))}",
-                         f"served {service} dangling-resource page (matched fingerprint: \"{sig}\")"]}))
+            match = _detect_takeover(body, _cname_targets(name), found.get(name, set()))
+            if not match:
+                continue
+            svc, sig, corr = match
+            severity = Severity.HIGH if svc.confidence == "high" else Severity.MEDIUM
+            caveat = ("" if svc.confidence == "high"
+                      else f" Note: the {svc.name} fingerprint is a generic 404 — confirm the resource "
+                           "is actually unclaimed before acting.")
+            findings.append(Finding(
+                MODULE, f"Possible Subdomain Takeover: {name} ({svc.name})",
+                (f"{name} points at {svc.name} (DNS → {corr}) and serves {svc.name}'s unclaimed-resource "
+                 f"page — the DNS record dangles at an unclaimed {svc.name} resource, so an attacker "
+                 f"could register it and serve content on your sub-domain.{caveat}"),
+                severity,
+                (f"Remove the dangling DNS record for {name} or re-claim the {svc.name} resource. "
+                 "Audit DNS for other unused records pointing at third-party services."),
+                {"subdomain": name, "service": svc.name, "dns_target": corr,
+                 "confidence": svc.confidence,
+                 "evidence": [
+                     f"{name} → {corr} (DNS points at {svc.name} infrastructure)",
+                     f"served {svc.name} unclaimed-resource page (fingerprint: \"{sig}\")"]}))
 
     return findings

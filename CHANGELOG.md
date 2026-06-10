@@ -52,6 +52,12 @@ JSON report backward-compatible.
   per-module copies).
 
 ### Fixed
+- **Subdomain-takeover false positives**: a takeover is now reported only when the sub-domain's DNS
+  actually points at the suspected service (CNAME chain matches e.g. `*.amazonaws.com` /
+  `*.herokudns.com`, or the IP is in a service range) **and** the page carries that service's
+  unclaimed-resource fingerprint. A generic 404 alone (e.g. an App Engine `*.appspot.com` page) no
+  longer matches, and services whose only fingerprint is a generic 404 (Unbounce) report Medium
+  "verify" instead of High.
 - **Sensitive-file false positives**: a `200` is validated by body length, content-type and
   file-specific indicators before it is confirmed; an empty/served-but-blank file (e.g. an empty
   `/.htaccess`) degrades to a calm low finding instead of a false-positive critical.

@@ -2659,12 +2659,13 @@ class TestPortScan:
 # ---------------------------------------------------------------------------
 
 class TestSubdomainScan:
-    def _patch(self, monkeypatch, labels, resolve, crtsh=None, fetch=None):
+    def _patch(self, monkeypatch, labels, resolve, crtsh=None, fetch=None, cname=None):
         from scanner.web import subdomain_scan
         monkeypatch.setattr(subdomain_scan, "_load_labels", lambda: labels)
         monkeypatch.setattr(subdomain_scan, "_resolve", resolve)
         monkeypatch.setattr(subdomain_scan, "_crtsh", crtsh or (lambda d: set()))
         monkeypatch.setattr(subdomain_scan, "_fetch_body", fetch or (lambda eng, host: None))
+        monkeypatch.setattr(subdomain_scan, "_cname_targets", cname or (lambda host: set()))
         return subdomain_scan
 
     def test_sensitive_subdomain_flagged(self, monkeypatch):
@@ -2710,14 +2711,45 @@ class TestSubdomainScan:
         assert disc and "api.example.com" in disc[0].raw["subdomains"]
 
     def test_subdomain_takeover_detected(self, monkeypatch):
+        """Fingerprint + DNS pointing at the service (CNAME → *.amazonaws.com) → High takeover."""
         def fake_resolve(host):
             return {"203.0.113.7"} if host == "shop.example.com" else None
         mod = self._patch(monkeypatch, ["shop"], fake_resolve,
-                          fetch=lambda eng, host: "<html>NoSuchBucket</html>")
+                          fetch=lambda eng, host: "<html>NoSuchBucket</html>",
+                          cname=lambda host: ({"shop.example.com.s3.amazonaws.com"}
+                                              if host == "shop.example.com" else set()))
         findings = mod.run(ScanEngine("https://example.com", rate_delay=0))
         takeover = [f for f in findings if "takeover" in f.title.lower()]
         assert takeover and takeover[0].severity == Severity.HIGH
         assert takeover[0].raw["service"] == "AWS S3"
+        assert takeover[0].raw.get("evidence")
+
+    def test_generic_404_without_dns_correlation_is_not_takeover(self, monkeypatch):
+        """An App Engine *.appspot.com 404 (the apac.appspot.com false positive) must NOT be flagged:
+        the page carries a generic 'not found on this server' string but DNS points at Google, not Unbounce."""
+        def fake_resolve(host):
+            return {"142.250.75.116"} if host.startswith("apac.") else None
+        mod = self._patch(monkeypatch, ["apac"], fake_resolve,
+                          fetch=lambda eng, host: ("<h1>Error: Not Found</h1>The requested URL was not "
+                                                   "found on this server."),
+                          cname=lambda host: set())          # resolves to Google A records, no service CNAME
+        findings = mod.run(ScanEngine("https://appspot.com", rate_delay=0))
+        assert not any("takeover" in f.title.lower() for f in findings)
+
+    def test_takeover_requires_dns_correlation_unbounce(self, monkeypatch):
+        """A real dangling Unbounce sub (CNAME → *.unbouncepages.com + its 404) IS reported — but Medium,
+        because the fingerprint is a generic 404 (verify-manually rather than High)."""
+        def fake_resolve(host):
+            return {"1.2.3.4"} if host.startswith("promo.") else None
+        mod = self._patch(monkeypatch, ["promo"], fake_resolve,
+                          fetch=lambda eng, host: "The requested URL was not found on this server.",
+                          cname=lambda host: ({"abc123.unbouncepages.com"}
+                                              if host.startswith("promo.") else set()))
+        findings = mod.run(ScanEngine("https://victim.com", rate_delay=0))
+        takeover = [f for f in findings if "takeover" in f.title.lower()]
+        assert takeover and takeover[0].raw["service"] == "Unbounce"
+        assert takeover[0].severity == Severity.MEDIUM      # generic fingerprint → verify, not High
+        assert takeover[0].raw.get("evidence")
 
 
 # ---------------------------------------------------------------------------
