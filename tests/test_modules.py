@@ -76,7 +76,7 @@ def _no_real_browser(monkeypatch):
     helpers call monkeypatch.undo() or re-patch as needed."""
     from scanner.vulns import dom_xss
     monkeypatch.setattr(dom_xss, "candidates", lambda engine: [])
-    monkeypatch.setattr(dom_xss, "verify", lambda engine, pages: [])
+    monkeypatch.setattr(dom_xss, "verify", lambda engine, pages, params=None: [])
 
 
 @pytest.fixture
@@ -1645,6 +1645,23 @@ class TestDomXss:
         assert f.severity == Severity.HIGH and "URL fragment" in f.title
         assert f.raw["vector"] == "fragment"
         assert f.raw["exploitation"][0]["command"] == poc        # repro is the full hash URL
+
+    def test_set_param_replaces_query_value(self):
+        from scanner.vulns import dom_xss
+        out = dom_xss._set_param("http://t/level4/frame?timer=3", "timer", "');PWN//")
+        assert "timer=" in out and "3" not in out.split("timer=")[1][:3]
+
+    def test_to_finding_param_vector_is_reflected_xss(self):
+        from scanner.vulns import dom_xss
+        poc = "http://t/level4/frame?timer=%27%29%3Balert(document.domain)%3B%2F%2F"
+        hit = dom_xss.DomXssHit(url="http://t/level4/frame", field="URL parameter 'timer'",
+                                payload="');...//", trigger="dom-hook", token="tk",
+                                vector="param", poc=poc)
+        f = dom_xss.to_finding(hit)
+        assert f.severity == Severity.HIGH
+        assert f.title.startswith("Reflected XSS (browser-verified)")   # reflected, not DOM-based
+        assert "timer" in f.title and f.raw["vector"] == "param"
+        assert f.raw["exploitation"][0]["command"] == poc
 
     def test_run_emits_info_hint_when_browser_unavailable(self, base_url, monkeypatch):
         """With forms present but no browser, xss_detect surfaces a single INFO install hint."""

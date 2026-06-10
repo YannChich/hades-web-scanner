@@ -24,6 +24,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from loguru import logger
 
@@ -53,6 +54,17 @@ _FRAG_TEMPLATES = (
     ('<img src=x onerror="{cb}">', "'"),    # raw HTML element / innerHTML
     ('"><img src=x onerror="{cb}">', "'"),  # attribute → element
 )
+# Reflected query-parameter sinks. The browser executes them, so this catches contexts an HTTP-only
+# check mis-reads — notably an event-handler attribute (onload="…('{param}')…"), where the server may
+# entity-encode the quote (&#39;) yet the browser decodes it back to ' before running the JS.
+_PARAM_TEMPLATES = (
+    ("');{cb};//", "'"),                    # break a single-quoted JS string (event handler) — level 4
+    ('");{cb};//', '"'),                    # break a double-quoted JS string
+    ('<img src=x onerror="{cb}">', "'"),    # HTML body / text
+    ('"><img src=x onerror="{cb}">', "'"),  # break a double-quoted attribute → element
+    ("'><img src=x onerror=\"{cb}\">", "'"),  # break a single-quoted attribute → element
+)
+_MAX_PARAMS = 8
 _POC = "alert(document.domain)"             # self-contained PoC (no quotes → safe in any context)
 
 # Runs before page scripts on every navigation: defines the hook + wraps dialogs (capped so a payload
@@ -100,6 +112,14 @@ def _poc_payload(template: str) -> str:
 def _payload(token: str) -> str:
     """Detection payload for a form field (value inserted via innerHTML)."""
     return _det_payload(_FORM_TEMPLATE[0], _FORM_TEMPLATE[1], token)
+
+
+def _set_param(url: str, param: str, value: str) -> str:
+    """Return *url* with query parameter *param* set to *value*."""
+    pr = urlparse(url)
+    qs = parse_qs(pr.query, keep_blank_values=True)
+    qs[param] = [value]
+    return urlunparse(pr._replace(query=urlencode(qs, doseq=True)))
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +210,31 @@ def _verify_fragment(context: Any, url: str) -> DomXssHit | None:
     return None
 
 
+def _verify_param(context: Any, url: str, param: str) -> DomXssHit | None:
+    """Navigate to *url* with *param* set to token-bearing breakout payloads; report the first that
+    executes in the browser. Catches reflected XSS whose context an HTTP-only check mis-reads."""
+    for template, token_quote in _PARAM_TEMPLATES:
+        token = uuid.uuid4().hex[:12]
+        det = _det_payload(template, token_quote, token)
+        page = context.new_page()
+        try:
+            page.goto(_set_param(url, param, det), timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
+            page.wait_for_timeout(_FRAG_SETTLE_MS)
+            trigger = _fired_token(page, token)
+            if trigger:
+                return DomXssHit(url=url, field=f"URL parameter '{param}'", payload=det, trigger=trigger,
+                                 token=token, vector="param",
+                                 poc=_set_param(url, param, _poc_payload(template)))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"dom_xss: param probe {param} on {url} failed: {exc}")
+        finally:
+            try:
+                page.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return None
+
+
 def _verify_field(context: Any, url: str, index: int) -> DomXssHit | None:
     """Fill the *index*-th text field on a fresh load of *url*, submit, reload, check for a fire."""
     page = context.new_page()
@@ -239,8 +284,10 @@ def _field_count(context: Any, url: str) -> int:
             pass
 
 
-def verify(engine: ScanEngine, pages: list[str]) -> list[DomXssHit]:
-    """Drive headless Chromium over *pages*; return confirmed DOM/stored XSS hits. Never raises."""
+def verify(engine: ScanEngine, pages: list[str],
+           params: list[tuple[str, str]] | None = None) -> list[DomXssHit]:
+    """Drive headless Chromium: probe *pages* (fragment + form vectors) and reflected *params* (a list
+    of (url, param)). Return confirmed XSS hits. Never raises."""
     hits: list[DomXssHit] = []
     try:
         from playwright.sync_api import sync_playwright
@@ -253,6 +300,19 @@ def verify(engine: ScanEngine, pages: list[str]) -> list[DomXssHit]:
             browser, context = br.launch_context(p, engine)
             try:
                 context.add_init_script(_INIT_SCRIPT)
+                # Reflected query-parameter vector (browser-executed → catches event-handler/entity cases).
+                tried: set[str] = set()
+                for url, param in (params or [])[:_MAX_PARAMS]:
+                    if param in tried:
+                        continue
+                    tried.add(param)
+                    try:
+                        hit = _verify_param(context, url, param)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug(f"dom_xss: param {param} failed: {exc}")
+                        continue
+                    if hit:
+                        hits.append(hit)
                 for url in pages[:_MAX_PAGES]:
                     # 1) URL-fragment vector (no form needed) — one strong finding per page is enough.
                     try:
@@ -287,14 +347,23 @@ def verify(engine: ScanEngine, pages: list[str]) -> list[DomXssHit]:
 # ---------------------------------------------------------------------------
 
 def to_finding(hit: DomXssHit) -> Finding:
-    if hit.vector == "fragment":
+    if hit.vector == "param":
+        where = f"{hit.field} on {hit.url}"
+        sink = ("the reflected parameter is executed as JavaScript by the browser — e.g. inside an "
+                "event-handler attribute, where the server may entity-encode the quote (&#39;) yet the "
+                "browser decodes it back before running the JS, so HTTP-only checks wrongly read it as safe")
+        repro_desc = ("Reproduce in any browser — open this URL; the reflected parameter executes. "
+                      "(Hades detected it with a benign hook — see the evidence box for the exact payload.)")
+        repro_cmd = hit.poc or hit.url
+        title_kind, title_what = "Reflected XSS", hit.field
+    elif hit.vector == "fragment":
         where = f"the URL fragment (#) of {hit.url}"
         sink = "client-side JS reads location.hash and writes it into the DOM"
         repro_desc = ("Reproduce in any browser — load this URL; the payload runs when the page reads "
                       "location.hash. (Hades detected it with a benign hook — see the evidence box for "
                       "the exact payload it fired.)")
         repro_cmd = hit.poc or hit.url
-        title_what = "URL fragment (#)"
+        title_kind, title_what = "DOM-based XSS", "URL fragment (#)"
     else:
         where = f"form field '{hit.field}' on {hit.url}"
         sink = "the saved value is written into the DOM (e.g. innerHTML) and runs when the page renders"
@@ -302,11 +371,11 @@ def to_finding(hit: DomXssHit) -> Finding:
                       f"field at {hit.url}; it fires when the value renders. (Hades detected it with a "
                       "benign hook — see the evidence box for the exact payload it fired.)")
         repro_cmd = hit.poc or '<img src=x onerror="alert(document.domain)">'
-        title_what = hit.field
+        title_kind, title_what = "DOM-based / Stored XSS", hit.field
 
     desc = (f"A benign token payload injected at {where} executed in a real browser (trigger: "
-            f"{hit.trigger}) — {sink}. This is a DOM-based XSS: it runs in the browser and never appears "
-            "in the server response, so HTTP-only checks miss it.")
+            f"{hit.trigger}) — {sink}. Confirmed by actual execution in headless Chromium, not by "
+            "inspecting the response — so encoding that looks safe to an HTTP-only check is caught.")
     raw = {
         "location": where, "url": hit.url, "field": hit.field, "vector": hit.vector,
         "payload": hit.payload, "trigger": hit.trigger, "confidence": "high", "verified": "browser",
@@ -324,7 +393,7 @@ def to_finding(hit: DomXssHit) -> Finding:
     }
     return Finding(
         module=MODULE,
-        title=f"DOM-based XSS (browser-verified): {title_what}",
+        title=f"{title_kind} (browser-verified): {title_what}",
         description=desc,
         severity=Severity.HIGH,
         recommendation=("Never write untrusted input (form values, URL/location.hash) with innerHTML — "

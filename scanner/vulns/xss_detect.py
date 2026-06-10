@@ -343,14 +343,23 @@ def run(engine: ScanEngine) -> list[Finding]:
     dom_pages = dom_xss.candidates(engine)
     if dom_pages:
         if br.ensure_chromium():
-            for hit in dom_xss.verify(engine, dom_pages):
+            verified_param_locs: set[str] = set()
+            for hit in dom_xss.verify(engine, dom_pages, url_work):
                 findings.append(dom_xss.to_finding(hit))
+                if hit.vector == "param":
+                    verified_param_locs.add(hit.field)   # e.g. "URL parameter 'timer'"
+            # A browser-verified HIGH for a parameter supersedes the httpx "reflected but encoded" LOW
+            # for the same parameter (e.g. an event-handler attribute where &#39; is decoded at runtime).
+            if verified_param_locs:
+                findings = [f for f in findings if not (
+                    f.severity == Severity.LOW and f.raw.get("location") in verified_param_locs)]
         else:
             findings.append(Finding(
                 MODULE, "DOM/Stored XSS Verification Skipped (no browser)",
-                "A client-rendered (DOM/stored) XSS pass needs a headless browser. Install it with "
-                "'pip install playwright && playwright install chromium' to verify DOM-based and "
-                "stored XSS (URL-fragment and form sinks) that never appears in the HTTP response.",
+                "A browser-verified XSS pass needs a headless browser. Install it with "
+                "'pip install playwright && playwright install chromium' to verify DOM-based, stored and "
+                "event-handler XSS (URL-fragment, form and reflected-parameter sinks) that an HTTP-only "
+                "check can misread.",
                 Severity.INFO, "", {"reason": "browser_unavailable", "confidence": "high"}))
 
     if not findings:

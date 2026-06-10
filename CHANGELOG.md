@@ -12,8 +12,11 @@ JSON report backward-compatible.
   re-checks the *display* pages, not just the submission's own response — and (2) ships an optional
   **browser-verified DOM/stored** pass (`scanner/vulns/dom_xss.py`, headless Chromium via Playwright)
   that catches payloads written into the DOM by client-side JS (`innerHTML`, `location.hash`, …) which
-  never appear in the HTTP response and only execute in a browser — covering both **form-field** sinks
-  and the **URL `#fragment`** vector. Benign, token-based, detection-only; degrades to an
+  never appear in the HTTP response and only execute in a browser — covering **form-field**, **URL
+  `#fragment`** and **reflected query-parameter** sinks. The last catches event-handler-attribute XSS
+  (`onload="…('PARAM')…"`) where the server entity-encodes the quote (`&#39;`) but the browser decodes
+  it before running the JS — which an HTTP-only check wrongly reads as safe; a browser-verified HIGH
+  there supersedes the old "reflected but encoded" LOW. Benign, token-based, detection-only; degrades to an
   install hint when Playwright/Chromium is absent. A shared `scanner/browser.py` helper centralises the
   self-healing Chromium bootstrap (also used by `screenshot`).
 - **Evidence-grade findings.** Every actionable finding now carries a structured proof block
