@@ -65,6 +65,14 @@ def run(engine: ScanEngine) -> list[Finding]:
     has_password = bool(_PASSWORD.search(body))
     has_form = "<form" in body
 
+    xfo_raw = resp.headers.get("x-frame-options", "").strip()
+    fa = _frame_ancestors(resp.headers.get("content-security-policy", ""))
+    evidence = [
+        f"X-Frame-Options: {xfo_raw}" if xfo_raw else "X-Frame-Options header absent",
+        (f"CSP frame-ancestors: {' '.join(fa)}" if fa else "CSP frame-ancestors directive absent"),
+        f"interactive targets — password field: {has_password}, form: {has_form}",
+    ]
+
     if has_password:
         severity = Severity.HIGH
         impact = ("The page contains a password/login form, so a framing attack could trick users "
@@ -86,5 +94,5 @@ def run(engine: ScanEngine) -> list[Finding]:
         recommendation=("Add 'X-Frame-Options: DENY' (or SAMEORIGIN) and a "
                         "'Content-Security-Policy: frame-ancestors 'none'' directive."),
         raw={"protected": False, "has_password": has_password, "has_form": has_form,
-             "confidence": "high"},
+             "confidence": "high", "evidence": evidence},
     )]

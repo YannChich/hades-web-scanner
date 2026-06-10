@@ -126,6 +126,8 @@ def _analyse(token: str) -> list[Finding]:
             recommendation="Reject the 'none' algorithm; pin the expected algorithm server-side.",
             raw={"token": _redact(token), "alg": "none", "claims": payload, "confidence": "high",
                  "attack": "T1606.001 Web Session Cookie / Forge Web Credentials",
+                 "evidence": [f"decoded JWT header alg = 'none' (unsigned): {_redact(token)}",
+                              "any claim can be edited and the signature dropped — the token still validates"],
                  "exploitation": [
                      {"step": 1, "description": "Forge an unsigned token to bypass signature checks.",
                       "command": "jwt_tool <token> -X a"},
@@ -148,6 +150,8 @@ def _analyse(token: str) -> list[Finding]:
                                 "rotate the current key immediately."),
                 raw={"token": _redact(token), "alg": alg, "secret": secret, "claims": payload,
                      "confidence": "high", "attack": "T1552 Unsecured Credentials",
+                     "evidence": [f"{alg} signature cracked offline — signing secret = '{secret}'",
+                                  f"HMAC-{alg} of header.payload with '{secret}' matches the token signature"],
                      "exploitation": [
                          {"step": 1, "description": f"Mint an admin token signed with the cracked secret '{secret}'.",
                           "command": f'jwt_tool <token> -S {alg.lower()} -p "{secret}" -I -pc role -pv admin'},

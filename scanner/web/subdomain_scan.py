@@ -119,11 +119,12 @@ def _fetch_body(engine: ScanEngine, host: str) -> str | None:
     return None
 
 
-def _takeover_service(body: str) -> str | None:
+def _takeover_service(body: str) -> tuple[str, str] | None:
+    """Return (service, matched-fingerprint) on a takeover signature, else None."""
     low = body.lower()
     for service, sig in _TAKEOVER:
         if sig in low:
-            return service
+            return service, sig
     return None
 
 
@@ -212,8 +213,9 @@ def run(engine: ScanEngine) -> list[Finding]:
             name = futures[fut]
             if not body:
                 continue
-            service = _takeover_service(body)
-            if service:
+            match = _takeover_service(body)
+            if match:
+                service, sig = match
                 findings.append(Finding(
                     MODULE, f"Possible Subdomain Takeover: {name} ({service})",
                     (f"{name} resolves but {service} returns a 'resource not found' page — the DNS "
@@ -222,6 +224,9 @@ def run(engine: ScanEngine) -> list[Finding]:
                     Severity.HIGH,
                     (f"Remove the dangling DNS record for {name} or re-claim the {service} resource. "
                      "Audit DNS for other unused records pointing at third-party services."),
-                    {"subdomain": name, "service": service, "confidence": "high"}))
+                    {"subdomain": name, "service": service, "confidence": "high",
+                     "evidence": [
+                         f"{name} resolves to {', '.join(sorted(found[name]))}",
+                         f"served {service} dangling-resource page (matched fingerprint: \"{sig}\")"]}))
 
     return findings
