@@ -233,7 +233,7 @@ WEB = [
 ]
 
 # ===========================================================================
-# 3 · VULNERABILITY DETECTION  (12 modules)
+# 3 · VULNERABILITY DETECTION  (13 modules)
 # ===========================================================================
 VULNS = [
     module("sqli_detect", "SQL Injection Detection",
@@ -281,6 +281,11 @@ VULNS = [
         "A protected page becomes reachable without proper authorisation.",
         "Broken access control — viewing or using admin/internal functionality you should not reach.",
         "Enforce authorisation in the application, not at the proxy/header layer."),
+    module("idor_detect", "IDOR / BOLA (Broken Object-Level Access)",
+        "Tampers object-reference ids found in URL parameters and path segments (e.g. ?id=1 → 2, /invoice/1001) and compares responses; when scanning authenticated, it also re-fetches objects without the session to prove they are served with no access control.",
+        "One user can read or modify another user's objects — accounts, invoices, messages — just by changing an id.",
+        "Horizontal/vertical privilege escalation and bulk data harvesting by enumerating ids.",
+        "JSON-aware and noise-calibrated to avoid false positives; interactive menu option 11 auto-finds the login page so it can run authenticated with just your credentials."),
     module("bruteforce", "Credential Spraying (opt-in)",
         "With the --bruteforce flag only, sprays a small list of common credentials against discovered login forms and HTTP Basic-Auth.",
         "A weak or default password opens a real account.",
@@ -418,7 +423,7 @@ def build():
     story.append(Paragraph("Every Module Explained — Plain &amp; Simple", H_SUB))
     story.append(Spacer(1, 8 * mm))
     disclaimer = ("<b>For authorised security testing only.</b> Scanning systems without explicit "
-                  "written permission is illegal. For each of the 43 scan modules — and the dedicated "
+                  "written permission is illegal. For each of the 44 scan modules — and the dedicated "
                   "Database, AI/LLM, Engagement, Out-of-Band, CVE Intelligence and TLS profiles — this guide "
                   "explains, in plain language: <b>what it checks</b>, the <b>consequence of a finding</b>, "
                   "and the <b>type of attack</b> it enables.")
@@ -467,7 +472,7 @@ def build():
 
     for heading, mods in [("1 · Reconnaissance Modules (11)", RECON),
                           ("2 · Website &amp; Misconfiguration Modules (20)", WEB),
-                          ("3 · Vulnerability Detection Modules (12)", VULNS),
+                          ("3 · Vulnerability Detection Modules (13)", VULNS),
                           ("4 · Database Security Audit — db_scan", DB),
                           ("5 · AI / LLM Security — ai_scan", AI),
                           ("6 · Active Engagement — engage", ENGAGE),
