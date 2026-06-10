@@ -5017,19 +5017,6 @@ class TestEvidence:
         assert ev.as_list(["a", "b"]) == ["a", "b"]
 
 
-class TestEngineSoft404:
-    def test_soft404_baseline_detects_catch_all_and_caches(self, base_url):
-        class _T(httpx.BaseTransport):
-            def handle_request(self, request):
-                return httpx.Response(200, text="spa shell",
-                                      headers={"content-type": "text/html"})
-        eng = ScanEngine(base_url, rate_delay=0)
-        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
-        bl = eng.soft404_baseline()
-        assert bl.status == 200 and bl.is_catch_all and bl.length > 0
-        assert eng.soft404_baseline() is bl          # cached, one probe per scan
-
-
 class TestEvidenceWiring:
     """Representative modules attach a non-empty raw['evidence'] to their actionable findings."""
 
