@@ -2757,7 +2757,8 @@ class TestBlacklistCheck:
 class TestScreenshot:
     def test_capture_success(self, base_url, monkeypatch):
         from scanner.web import screenshot
-        monkeypatch.setattr(screenshot, "_ensure_browser", lambda: True)
+        from scanner import browser
+        monkeypatch.setattr(browser, "ensure_chromium", lambda: True)
         monkeypatch.setattr(screenshot, "_capture", lambda eng, path: None)
 
         findings = screenshot.run(ScanEngine(base_url, rate_delay=0))
@@ -2765,7 +2766,8 @@ class TestScreenshot:
 
     def test_capture_failure_is_graceful(self, base_url, monkeypatch):
         from scanner.web import screenshot
-        monkeypatch.setattr(screenshot, "_ensure_browser", lambda: True)
+        from scanner import browser
+        monkeypatch.setattr(browser, "ensure_chromium", lambda: True)
 
         def boom(eng, path):
             raise RuntimeError("page navigation timed out")
@@ -2777,7 +2779,8 @@ class TestScreenshot:
     def test_browser_unavailable_is_graceful(self, base_url, monkeypatch):
         """If the browser can't be installed, the scan still continues with a clear note."""
         from scanner.web import screenshot
-        monkeypatch.setattr(screenshot, "_ensure_browser", lambda: False)
+        from scanner import browser
+        monkeypatch.setattr(browser, "ensure_chromium", lambda: False)
 
         findings = screenshot.run(ScanEngine(base_url, rate_delay=0))
         assert findings[0].severity == Severity.INFO
@@ -2785,10 +2788,10 @@ class TestScreenshot:
         assert "antivirus" in findings[0].description.lower()
 
     def test_autoinstall_runs_once_when_missing(self, monkeypatch, tmp_path):
-        """_ensure_browser installs once when the binary is missing, then re-checks."""
-        from scanner.web import screenshot
+        """ensure_chromium installs once when the binary is missing, then re-checks."""
+        from scanner import browser
 
-        screenshot._install_attempted = False
+        browser._install_attempted = False
         missing = str(tmp_path / "nope.exe")
         present = str(tmp_path / "ok.exe")
         (tmp_path / "ok.exe").write_text("x")
@@ -2802,9 +2805,9 @@ class TestScreenshot:
         def fake_install(*a, **k):
             calls["install"] += 1
 
-        monkeypatch.setattr(screenshot, "_browser_path", fake_path)
-        monkeypatch.setattr(screenshot.subprocess, "run", fake_install)
-        assert screenshot._ensure_browser() is True
+        monkeypatch.setattr(browser, "_browser_path", fake_path)
+        monkeypatch.setattr(browser.subprocess, "run", fake_install)
+        assert browser.ensure_chromium() is True
         assert calls["install"] == 1
 
 
