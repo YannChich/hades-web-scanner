@@ -1502,6 +1502,65 @@ class TestXssDetect:
         assert not any(f.severity == Severity.HIGH and f.raw.get("context") == "js_string"
                        for f in findings)
 
+    def test_stored_xss_via_form_is_high(self, base_url):
+        """Value not echoed in the POST response but rendered unescaped on a display page → Stored XSS."""
+        from scanner.vulns.xss_detect import run
+        from scanner.crawler import CrawlResult, Form
+
+        class _T(httpx.BaseTransport):
+            def __init__(self):
+                self.store: list[str] = []
+
+            def handle_request(self, req):
+                if req.method == "POST":
+                    msg = parse_qs(req.content.decode()).get("message", [""])[0]
+                    self.store.append(msg)
+                    return httpx.Response(200, text="<html>posted, thanks</html>",
+                                         headers={"content-type": "text/html"})
+                items = "".join(f"<blockquote>{m}</blockquote>" for m in self.store)
+                return httpx.Response(200, text=f"<html><body>{items}</body></html>",
+                                     headers={"content-type": "text/html"})
+
+        form = Form(action=f"{base_url}/post", method="post",
+                    fields={"message": "test"}, source_url=base_url)
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        stored = [f for f in findings if f.severity == Severity.HIGH and f.title.startswith("Stored XSS")]
+        assert stored, [f.title for f in findings]
+        assert stored[0].raw.get("evidence")
+
+    def test_stored_encoded_value_is_low(self, base_url):
+        """A stored value echoed *escaped* on the display page is LOW, never a HIGH stored XSS."""
+        from scanner.vulns.xss_detect import run
+        from scanner.crawler import CrawlResult, Form
+        import html as htmllib
+
+        class _T(httpx.BaseTransport):
+            def __init__(self):
+                self.store: list[str] = []
+
+            def handle_request(self, req):
+                if req.method == "POST":
+                    self.store.append(parse_qs(req.content.decode()).get("message", [""])[0])
+                    return httpx.Response(200, text="<html>ok</html>",
+                                         headers={"content-type": "text/html"})
+                items = "".join(f"<blockquote>{htmllib.escape(m)}</blockquote>" for m in self.store)
+                return httpx.Response(200, text=f"<html><body>{items}</body></html>",
+                                     headers={"content-type": "text/html"})
+
+        form = Form(action=f"{base_url}/post", method="post",
+                    fields={"message": "test"}, source_url=base_url)
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(forms=[form]))
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+
+        findings = run(eng)
+        assert not any(f.title.startswith("Stored XSS:") and f.severity == Severity.HIGH for f in findings)
+        assert any(f.severity == Severity.LOW for f in findings)
+
 
 # ---------------------------------------------------------------------------
 # Injection arsenal tests (command_injection, ssti, lfi, open_redirect, ssrf)

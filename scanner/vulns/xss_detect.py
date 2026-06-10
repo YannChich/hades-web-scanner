@@ -123,15 +123,18 @@ _CTX_LABEL = {
 # ---------------------------------------------------------------------------
 
 def _finding(where: str, ctx: str, payload: str, severity: Severity, confidence: str,
-             proof_url: str | None = None, evidence: list[str] | None = None) -> Finding:
+             proof_url: str | None = None, evidence: list[str] | None = None,
+             kind: str = "Reflected") -> Finding:
+    verb = "stored and reflected" if kind == "Stored" else "reflected"
     if severity == Severity.LOW:
-        title = f"Reflected Input (encoded): {where}"
-        desc = (f"Input to {where} is reflected in the response but its special characters are "
+        title = f"{kind} Input (encoded): {where}"
+        desc = (f"Input to {where} is {verb} in the response but its special characters are "
                 "encoded, so it is likely not exploitable. Verify the exact context manually.")
     else:
-        title = f"Reflected XSS: {where} [{_CTX_LABEL.get(ctx, ctx)}]"
-        desc = (f"Input to {where} is reflected in a {_CTX_LABEL.get(ctx, ctx)} context and a breakout "
-                f"payload survived unencoded (payload: {payload!r}). This is an exploitable reflected XSS.")
+        title = f"{kind} XSS: {where} [{_CTX_LABEL.get(ctx, ctx)}]"
+        desc = (f"Input to {where} is {verb} in a {_CTX_LABEL.get(ctx, ctx)} context and a breakout "
+                f"payload survived unencoded (payload: {payload!r}). This is an exploitable "
+                f"{kind.lower()} XSS.")
         if proof_url:
             desc += ("\n\nThe clickable proof link opens the injected request — in a browser it may "
                      "execute the payload (e.g. pop an alert). Verify/exploit with dalfox:\n"
@@ -186,6 +189,57 @@ def _probe(inject: InjectFn, where: str,
     return _finding(where, "reflected", canary, Severity.LOW, "low",
                     evidence=[f"injected into {where}: {ev.note(canary)[:80]}"]
                     + ev.from_response(resp, indicator="canary reflected but special characters encoded"))
+
+
+def _display_urls(engine: ScanEngine, form: Form) -> list[str]:
+    """Pages where a stored form value is likely to resurface (deduped)."""
+    urls: list[str] = []
+    for u in (form.source_url, form.action, engine.url):
+        if u and u not in urls:
+            urls.append(u)
+    return urls
+
+
+def _probe_stored(engine: ScanEngine, form: Form, field: str) -> Finding | None:
+    """Submit a form field, then look for the value on a *display* page (server-rendered stored XSS).
+
+    The reflected probe only inspects the submission's own response; a stored XSS only resurfaces when
+    a later page renders the saved value. This submits a canary, finds a display page that echoes it,
+    then submits a context breakout and re-fetches that page to confirm it survives unencoded.
+    Client-rendered sinks (value injected into the DOM by JS) won't appear here — that is the
+    browser-verified pass's job.
+    """
+    inject = _form_injector(engine, form, field)
+    nonce = uuid.uuid4().hex[:10]
+    canary = f"hs{nonce}"
+    if inject(canary) is None:
+        return None
+
+    target_url, base = None, None
+    for url in _display_urls(engine, form):
+        r = _get(engine, url)
+        if r is not None and not _looks_blocked(r) and canary in r.text:
+            target_url, base = url, r
+            break
+    if base is None:
+        return None  # not stored server-side (or client-rendered → browser-verified pass)
+
+    where = f"form field '{field}' ({form.method.upper()} {form.action}) → stored, rendered on {target_url}"
+    for ctx in _classify_context(base.text, canary):
+        payload, success = _breakout(ctx, nonce)
+        inject(payload)
+        r2 = _get(engine, target_url)
+        if r2 is not None and not _looks_blocked(r2) and success(r2.text):
+            evidence = [f"submitted to '{field}': {ev.note(payload)[:80]}",
+                        f"breakout resurfaced unencoded on {target_url}"] + ev.from_response(
+                r2, indicator=f"stored breakout survived in {_CTX_LABEL.get(ctx, ctx)} context")
+            return _finding(where, ctx, payload, Severity.HIGH, "high", evidence=evidence, kind="Stored")
+
+    # Stored and echoed, but special characters were encoded → not exploitable as-is.
+    return _finding(where, "reflected", canary, Severity.LOW, "low", kind="Stored",
+                    evidence=[f"submitted to '{field}': {ev.note(canary)[:80]}",
+                              f"value stored and echoed on {target_url} but special characters encoded"]
+                    + ev.from_response(base, indicator="stored value reflected but encoded"))
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +328,8 @@ def run(engine: ScanEngine) -> list[Finding]:
             # POST forms have no shareable GET proof URL.
             futures.append(pool.submit(_probe, _form_injector(engine, form, field),
                                        f"form field '{field}' ({form.method.upper()} {form.action})"))
+            # Stored pass: submit, then look for the value on a display page (server-rendered).
+            futures.append(pool.submit(_probe_stored, engine, form, field))
         for future in as_completed(futures):
             result = future.result()
             if result:
