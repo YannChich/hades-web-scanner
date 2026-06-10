@@ -22,7 +22,7 @@
 
 **Hades is a terminal-based, red-team web security scanner that does not just *find* weaknesses — it *proves* them.**
 
-It runs 44 checks across reconnaissance, misconfiguration and vulnerability detection, confirms each
+It runs 44 modules across reconnaissance, misconfiguration and vulnerability detection, confirms each
 finding with an evaluated payload / timing / content signature (no blind guessing), maps it to
 **CWE / OWASP / MITRE ATT&CK** with a CVSS score, links a step-by-step **expert playbook**, and weaves
 everything into a single copy-paste **kill-chain attack path** — then exports a polished, self-contained
@@ -593,6 +593,8 @@ Contributions are welcome.
 New scan modules follow the `run(engine: ScanEngine) -> list[Finding]` signature and must handle their
 own exceptions without crashing the engine. Active injection modules reuse `scanner/vulns/_common.py`
 (crawler parameters/forms, safe-mode check, proof URLs).
+
+Recent changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
