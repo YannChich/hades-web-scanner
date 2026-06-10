@@ -382,6 +382,11 @@ class ScanEngine:
         target = f"{self.url}{path}" if path else self.url
         return self.request("HEAD", target, **kwargs)
 
+    def is_safe_mode(self) -> bool:
+        """True when the scan runs in safe/passive mode (one polite request lane). Modules use this to
+        skip destructive/active probing. Single source of truth — see SAFE_MODE_RATE_DELAY."""
+        return self._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
+
     def soft404_baseline(self) -> "Soft404":
         """Probe a random, certainly-nonexistent path once per scan and cache the fingerprint.
 

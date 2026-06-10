@@ -24,7 +24,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx
 from loguru import logger
 
-from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as ev
 from scanner.crawler import Form, fresh_form_fields
 from scanner.engine import Finding, Severity, ScanEngine
@@ -227,19 +226,12 @@ def _form_injector(engine: ScanEngine, form: Form, field: str) -> InjectFn:
     return inject
 
 
-def _is_safe_mode(engine: ScanEngine) -> bool:
-    try:
-        return engine._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
-    except AttributeError:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def run(engine: ScanEngine) -> list[Finding]:
-    if _is_safe_mode(engine):
+    if engine.is_safe_mode():
         logger.info("xss_detect: safe mode — skipping")
         return [Finding(MODULE, "XSS Scan Skipped (Safe Mode)",
                         "Active XSS probing was skipped because safe mode is enabled.",

@@ -24,18 +24,10 @@ import uuid
 import httpx
 from loguru import logger
 
-from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
 MODULE = "http_methods"
-
-
-def _is_safe_mode(engine: ScanEngine) -> bool:
-    try:
-        return engine._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
-    except AttributeError:
-        return False
 
 
 def _parse_allow(headers: httpx.Headers) -> set[str]:
@@ -109,7 +101,7 @@ def run(engine: ScanEngine) -> list[Finding]:
         return []
 
     advertised = _parse_allow(options.headers)
-    active_ok = engine.profile != "passive" and not _is_safe_mode(engine)
+    active_ok = engine.profile != "passive" and not engine.is_safe_mode()
     findings: list[Finding] = []
 
     if advertised:

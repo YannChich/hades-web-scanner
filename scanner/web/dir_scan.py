@@ -30,7 +30,7 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from config import PROJECT_ROOT, SAFE_MODE_RATE_DELAY, WORDLIST_DIRS
+from config import PROJECT_ROOT, WORDLIST_DIRS
 from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
@@ -95,12 +95,6 @@ _LISTING_MARKERS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # Wordlist
 # ---------------------------------------------------------------------------
-
-def _is_safe_mode(engine: ScanEngine) -> bool:
-    try:
-        return engine._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
-    except AttributeError:
-        return False
 
 
 def _load_wordlist(engine: ScanEngine) -> list[str]:
@@ -285,7 +279,7 @@ def _blanket_5xx_finding(paths: list[str]) -> Finding:
 # ---------------------------------------------------------------------------
 
 def run(engine: ScanEngine) -> list[Finding]:
-    safe_mode = _is_safe_mode(engine)
+    safe_mode = engine.is_safe_mode()
 
     paths = _load_wordlist(engine)
     if not paths:

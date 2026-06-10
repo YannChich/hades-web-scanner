@@ -22,7 +22,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx
 from loguru import logger
 
-from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as ev
 from scanner.engine import Finding, Severity, ScanEngine
 
@@ -220,19 +219,12 @@ def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> F
     return None
 
 
-def _is_safe_mode(engine: ScanEngine) -> bool:
-    try:
-        return engine._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
-    except AttributeError:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def run(engine: ScanEngine) -> list[Finding]:
-    if _is_safe_mode(engine):
+    if engine.is_safe_mode():
         logger.info("sqli_detect: safe mode — skipping active injection")
         return [Finding(MODULE, "SQL Injection Scan Skipped (Safe Mode)",
                         "Active SQLi probing was skipped because safe mode is enabled.",

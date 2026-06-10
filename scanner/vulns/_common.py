@@ -16,7 +16,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import httpx
 from loguru import logger
 
-from config import SAFE_MODE_RATE_DELAY
 from scanner import evidence as _ev
 from scanner.crawler import fresh_form_fields
 from scanner.engine import ScanEngine
@@ -39,8 +38,10 @@ class Injector:
 # ---------------------------------------------------------------------------
 
 def is_safe_mode(engine: ScanEngine) -> bool:
+    """Thin wrapper around ScanEngine.is_safe_mode() (kept for the many call sites that import it here);
+    tolerant of mock engines used in tests."""
     try:
-        return engine._rate_limiter._delay >= SAFE_MODE_RATE_DELAY
+        return engine.is_safe_mode()
     except AttributeError:
         return False
 
