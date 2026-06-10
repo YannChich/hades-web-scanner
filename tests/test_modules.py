@@ -1651,6 +1651,19 @@ class TestDomXss:
         out = dom_xss._set_param("http://t/level4/frame?timer=3", "timer", "');PWN//")
         assert "timer=" in out and "3" not in out.split("timer=")[1][:3]
 
+    def test_field_templates_cover_event_handler_breakout(self):
+        """A form field can feed an event handler, so the templates must include a JS-string breakout."""
+        from scanner.vulns import dom_xss
+        payloads = [dom_xss._det_payload(t, q, "TOK") for t, q in dom_xss._FIELD_TEMPLATES]
+        assert any(p.startswith("');") for p in payloads)          # single-quoted JS string close
+        assert any("<img" in p for p in payloads)                  # innerHTML / attribute breakout
+
+    def test_input_name_extracts_quoted_name(self):
+        from scanner.vulns import xss_detect
+        assert xss_detect._input_name("form field 'timer' (GET https://x)") == "timer"
+        assert xss_detect._input_name("URL parameter 'timer'") == "timer"
+        assert xss_detect._input_name("URL fragment (#)") is None
+
     def test_to_finding_param_vector_is_reflected_xss(self):
         from scanner.vulns import dom_xss
         poc = "http://t/level4/frame?timer=%27%29%3Balert(document.domain)%3B%2F%2F"

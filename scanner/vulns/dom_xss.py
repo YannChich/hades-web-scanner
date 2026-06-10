@@ -48,6 +48,13 @@ _TEXTISH = ("message", "comment", "status", "body", "content", "text", "post", "
 # Benign payload templates. {cb} is the callback expression; the second tuple item is the quote the
 # callback's token must use so it does NOT clash with the attribute quote in the template.
 _FORM_TEMPLATE = ('"><img src=x onerror="{cb}">', "'")     # value inserted via innerHTML → break out
+# A form field can feed any sink — innerHTML (stored), an event-handler attribute, an inline script — so
+# try several contexts via the real form submit (which handles both JS-stored and navigating forms).
+_FIELD_TEMPLATES = (
+    _FORM_TEMPLATE,                          # innerHTML / attribute (stored, e.g. level 2)
+    ("');{cb};//", "'"),                     # single-quoted JS string (event handler, e.g. level 4 form)
+    ('");{cb};//', '"'),                     # double-quoted JS string
+)
 _FRAG_TEMPLATES = (
     ("x' onerror='{cb}", '"'),              # single-quoted attribute (xss-game level 3)
     ('x" onerror="{cb}', "'"),              # double-quoted attribute
@@ -236,38 +243,42 @@ def _verify_param(context: Any, url: str, param: str) -> DomXssHit | None:
 
 
 def _verify_field(context: Any, url: str, index: int) -> DomXssHit | None:
-    """Fill the *index*-th text field on a fresh load of *url*, submit, reload, check for a fire."""
-    page = context.new_page()
-    try:
-        page.goto(url, timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
-        fields = page.query_selector_all(_FIELD_SELECTOR)
-        if index >= len(fields):
-            return None
-        field = fields[index]
-        name = field.get_attribute("name") or field.get_attribute("id") or f"field#{index}"
-        token = uuid.uuid4().hex[:12]
-        payload = _payload(token)
-        field.fill(payload)
-        _submit(page, field)
-        page.wait_for_timeout(_SETTLE_MS)
+    """Fuzz the *index*-th text field on *url* across several sink contexts (submit, then reload for the
+    stored case); report the first payload that executes."""
+    for template, token_quote in _FIELD_TEMPLATES:
+        page = context.new_page()
+        try:
+            page.goto(url, timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
+            fields = page.query_selector_all(_FIELD_SELECTOR)
+            if index >= len(fields):
+                return None                        # fewer fields than expected → nothing more to try
+            field = fields[index]
+            name = field.get_attribute("name") or field.get_attribute("id") or f"field#{index}"
+            token = uuid.uuid4().hex[:12]
+            payload = _det_payload(template, token_quote, token)
+            field.fill(payload)
+            _submit(page, field)
+            page.wait_for_timeout(_SETTLE_MS)
 
-        trigger = _fired_token(page, token)        # reflected / immediate (SPA) render
-        if not trigger:
-            try:                                   # stored: reload so saved content re-renders
-                page.goto(url, timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
-                page.wait_for_timeout(_SETTLE_MS)
-                trigger = _fired_token(page, token)
+            trigger = _fired_token(page, token)    # reflected / immediate (SPA or navigating) render
+            if not trigger:
+                try:                               # stored: reload so saved content re-renders
+                    page.goto(url, timeout=_NAV_TIMEOUT_MS, wait_until=_NAV_WAIT)
+                    page.wait_for_timeout(_SETTLE_MS)
+                    trigger = _fired_token(page, token)
+                except Exception:  # noqa: BLE001
+                    pass
+            if trigger:
+                return DomXssHit(url=url, field=name, payload=payload, trigger=trigger, token=token,
+                                 vector="form", poc=_poc_payload(template))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"dom_xss: field#{index} on {url} failed: {exc}")
+        finally:
+            try:
+                page.close()
             except Exception:  # noqa: BLE001
                 pass
-        if trigger:
-            return DomXssHit(url=url, field=name, payload=payload, trigger=trigger, token=token,
-                             vector="form", poc=_poc_payload(_FORM_TEMPLATE[0]))
-        return None
-    finally:
-        try:
-            page.close()
-        except Exception:  # noqa: BLE001
-            pass
+    return None
 
 
 def _field_count(context: Any, url: str) -> int:
@@ -366,12 +377,13 @@ def to_finding(hit: DomXssHit) -> Finding:
         title_kind, title_what = "DOM-based XSS", "URL fragment (#)"
     else:
         where = f"form field '{hit.field}' on {hit.url}"
-        sink = "the saved value is written into the DOM (e.g. innerHTML) and runs when the page renders"
+        sink = ("the submitted value is written into the page (innerHTML when stored, or an event-handler "
+                "attribute) and executes in the browser")
         repro_desc = (f"Reproduce in any browser — submit this self-contained PoC into the '{hit.field}' "
                       f"field at {hit.url}; it fires when the value renders. (Hades detected it with a "
                       "benign hook — see the evidence box for the exact payload it fired.)")
         repro_cmd = hit.poc or '<img src=x onerror="alert(document.domain)">'
-        title_kind, title_what = "DOM-based / Stored XSS", hit.field
+        title_kind, title_what = "XSS", f"form field '{hit.field}'"
 
     desc = (f"A benign token payload injected at {where} executed in a real browser (trigger: "
             f"{hit.trigger}) — {sink}. Confirmed by actual execution in headless Chromium, not by "

@@ -289,6 +289,12 @@ def _form_injector(engine: ScanEngine, form: Form, field: str) -> InjectFn:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _input_name(text: str) -> str | None:
+    """Pull the quoted input name from a finding location, e.g. "form field 'timer' (GET …)" → timer."""
+    m = re.search(r"'([^']+)'", text or "")
+    return m.group(1) if m else None
+
+
 def run(engine: ScanEngine) -> list[Finding]:
     if engine.is_safe_mode():
         logger.info("xss_detect: safe mode — skipping")
@@ -343,16 +349,18 @@ def run(engine: ScanEngine) -> list[Finding]:
     dom_pages = dom_xss.candidates(engine)
     if dom_pages:
         if br.ensure_chromium():
-            verified_param_locs: set[str] = set()
+            verified_names: set[str] = set()
             for hit in dom_xss.verify(engine, dom_pages, url_work):
                 findings.append(dom_xss.to_finding(hit))
-                if hit.vector == "param":
-                    verified_param_locs.add(hit.field)   # e.g. "URL parameter 'timer'"
-            # A browser-verified HIGH for a parameter supersedes the httpx "reflected but encoded" LOW
-            # for the same parameter (e.g. an event-handler attribute where &#39; is decoded at runtime).
-            if verified_param_locs:
+                if hit.vector in ("param", "form"):
+                    verified_names.add(_input_name(hit.field) or hit.field)
+            # A browser-verified HIGH for an input supersedes the httpx "reflected but encoded" LOW for
+            # the same input name (e.g. a GET form field feeding an event-handler attribute, where the
+            # server entity-encodes the quote but the browser decodes it before running the JS).
+            if verified_names:
                 findings = [f for f in findings if not (
-                    f.severity == Severity.LOW and f.raw.get("location") in verified_param_locs)]
+                    f.severity == Severity.LOW
+                    and _input_name(f.raw.get("location") or "") in verified_names)]
         else:
             findings.append(Finding(
                 MODULE, "DOM/Stored XSS Verification Skipped (no browser)",
