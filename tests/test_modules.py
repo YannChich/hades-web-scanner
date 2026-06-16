@@ -3611,6 +3611,39 @@ class TestGobusterScan:
 
 
 # ---------------------------------------------------------------------------
+# theharvester_scan integration tests
+# ---------------------------------------------------------------------------
+
+class TestTheHarvesterScan:
+    def test_parse_extracts_emails_hosts_ips(self):
+        from scanner.integrations import theharvester_scan as th
+        data = {"emails": ["a@x.com", "a@x.com", " b@x.com "],
+                "hosts": ["www.x.com:1.2.3.4", "API.x.com", ""],
+                "ips": ["1.2.3.4", "1.2.3.4"]}
+        emails, hosts, ips = th._parse(data)
+        assert emails == ["a@x.com", "b@x.com"]
+        assert hosts == ["api.x.com", "www.x.com"]           # lowercased, ip stripped, deduped
+        assert ips == ["1.2.3.4"]
+
+    def test_domain_extraction(self):
+        from scanner.integrations import theharvester_scan as th
+        assert th._domain("https://www.example.co/path") == "example.co"
+
+    def test_build_findings_emails_are_low_hosts_info(self):
+        from scanner.integrations import theharvester_scan as th
+        findings = th._build_findings("x.com", ["a@x.com"], ["api.x.com"], ["1.2.3.4"])
+        emails = [f for f in findings if "E-mail" in f.title]
+        assert emails and emails[0].severity == Severity.LOW and emails[0].raw.get("evidence")
+        assert any(f.severity == Severity.INFO and "Host" in f.title for f in findings)
+
+    def test_missing_theharvester_is_graceful_info(self, monkeypatch):
+        from scanner.integrations import theharvester_scan as th
+        monkeypatch.setattr(th, "which", lambda *a: None)
+        findings = th.run(ScanEngine("http://x.com", rate_delay=0))
+        assert len(findings) == 1 and "not installed" in findings[0].title.lower()
+
+
+# ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
 

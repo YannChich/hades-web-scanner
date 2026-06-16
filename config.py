@@ -117,6 +117,7 @@ _INTEGRATIONS_ACTIVE: list[str] = [
     "scanner.integrations.gobuster_scan",
 ]
 _INTEGRATIONS_OSINT: list[str] = [
+    "scanner.integrations.theharvester_scan",
 ]
 
 PROFILE_MODULES: dict[str, list[str]] = {
@@ -246,6 +247,7 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "ssl_check":         {"cwe": "CWE-326", "owasp": "A02:2021 Cryptographic Failures",             "mitre": []},
     # ── External-tool integrations ──
     "nmap_scan":         {"cwe": "CWE-668", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1046"]},
+    "theharvester_scan": {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1589.002"]},
 }
 
 # ---------------------------------------------------------------------------
