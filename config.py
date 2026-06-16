@@ -118,6 +118,7 @@ _INTEGRATIONS_ACTIVE: list[str] = [
 ]
 _INTEGRATIONS_OSINT: list[str] = [
     "scanner.integrations.theharvester_scan",
+    "scanner.integrations.reconng_scan",
 ]
 
 PROFILE_MODULES: dict[str, list[str]] = {

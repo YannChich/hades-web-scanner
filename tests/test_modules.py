@@ -3644,6 +3644,45 @@ class TestTheHarvesterScan:
 
 
 # ---------------------------------------------------------------------------
+# reconng_scan integration tests
+# ---------------------------------------------------------------------------
+
+class TestReconngScan:
+    def test_read_hosts_from_workspace_db(self, tmp_path):
+        import sqlite3
+        from scanner.integrations import reconng_scan as r
+        db = tmp_path / "data.db"
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE hosts (host TEXT, ip_address TEXT)")
+        con.executemany("INSERT INTO hosts VALUES (?, ?)",
+                        [("WWW.x.com", "1.2.3.4"), ("api.x.com", None), ("www.x.com", "1.2.3.4")])
+        con.commit()
+        con.close()
+        hosts = r._read_hosts(str(db))
+        assert ("www.x.com", "1.2.3.4") in hosts and ("api.x.com", "") in hosts
+        assert len(hosts) == 2                               # deduped + lowercased
+
+    def test_resource_script_sets_source_and_modules(self):
+        from scanner.integrations import reconng_scan as r
+        script = r._resource_script("example.com")
+        assert "options set SOURCE example.com" in script
+        assert "modules load recon/domains-hosts/hackertarget" in script
+        assert script.strip().endswith("exit")
+
+    def test_build_findings_summary(self):
+        from scanner.integrations import reconng_scan as r
+        findings = r._build_findings("x.com", [("api.x.com", "1.2.3.4"), ("www.x.com", "")])
+        assert findings[0].severity == Severity.INFO and findings[0].raw["count"] == 2
+        assert findings[0].raw.get("evidence")
+
+    def test_missing_reconng_is_graceful_info(self, monkeypatch):
+        from scanner.integrations import reconng_scan as r
+        monkeypatch.setattr(r, "which", lambda *a: None)
+        findings = r.run(ScanEngine("http://x.com", rate_delay=0))
+        assert len(findings) == 1 and "not installed" in findings[0].title.lower()
+
+
+# ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
 
