@@ -7,6 +7,13 @@ JSON report backward-compatible.
 ## [Unreleased]
 
 ### Added
+- **External tool integrations** (`scanner/integrations/`). Hades now drives best-in-class tools when
+  they're installed and degrades gracefully (a single INFO hint) when they're not: **Nmap** (`-sV`
+  service/version + OS on the resolved host), **Gobuster** (fast content discovery), **theHarvester**
+  (passive OSINT — e-mails/hosts/IPs) and **Recon-ng** (passive host enumeration via a batch resource
+  script → workspace DB). Active tools skip in safe mode; OSINT ones query third parties, not the target.
+  Plus a **Maltego** export (`--maltego`) — the scan's entities (domain/hosts/IPs/e-mails) as a
+  Maltego-importable CSV. All optional, all flowing through the normal report pipeline.
 - **Stored & DOM-based XSS detection (`xss_detect`).** Beyond the existing context-aware *reflected*
   pass, `xss_detect` now (1) detects **server-rendered stored XSS** — it submits a form field and
   re-checks the *display* pages, not just the submission's own response — and (2) ships an optional

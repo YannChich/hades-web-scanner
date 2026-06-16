@@ -90,6 +90,7 @@ Skills Library, **11** for an authenticated IDOR / access-control scan (it asks 
 - [Usage](#usage)
 - [Scan Profiles](#scan-profiles)
 - [Modules](#modules)
+- [External Tool Integrations](#external-tool-integrations)
 - [Example Output](#example-output)
 - [Cross-Referenced Integrations](#cross-referenced-integrations)
 - [Roadmap](#roadmap)
@@ -302,8 +303,10 @@ pip install -r requirements.txt
 python hades.py --url https://example.com      # that's it — HTML + JSON reports are generated
 
 # Optional extras (Hades runs fine without them):
-playwright install chromium    # enables homepage screenshots in the report
+playwright install chromium    # homepage screenshots + browser-verified DOM/stored XSS
 pip install sqlmap             # enables the --exploit sqlmap launcher
+sudo apt install nmap gobuster # service/version + content-discovery integrations
+pip install theHarvester recon-ng   # passive OSINT integrations (see Tool Integrations)
 ```
 
 **Docker**
@@ -398,6 +401,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
+| `--maltego` | | `false` | Also export the scan's entities (domain / hosts / IPs / e-mails) as a **Maltego-importable CSV** under `reports/` |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
@@ -490,6 +494,30 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 
 ---
 
+## External Tool Integrations
+
+Hades drives best-in-class external tools when they're installed and degrades gracefully (a single INFO
+hint) when they're not — it **never hard-depends** on them, and it shells out to the real tool rather
+than reimplementing it. Active tools are **skipped in safe mode**; OSINT tools query third parties, not
+the target. Findings flow through the normal pipeline (severity, evidence, CWE/OWASP/ATT&CK, playbooks).
+
+| Tool | What Hades does with it | When it runs |
+|------|------------------------|--------------|
+| **[Nmap](https://nmap.org/)** | `-sV` service/version (+ OS) fingerprinting on the resolved host — the depth the built-in socket `port_scan` can't reach; each open port rated by exposure | `full` (active) |
+| **[Gobuster](https://github.com/OJ/gobuster)** | Fast Go content/directory discovery with Hades' wordlist (proxy/cookies/UA honoured); defers classification to `dir_scan`/`sensitive_files` | `full` (active) |
+| **[theHarvester](https://github.com/laramies/theHarvester)** | Passive OSINT — public e-mails (Low), hosts/sub-domains and IPs (Info) from keyless sources (crt.sh, DuckDuckGo, OTX, RapidDNS, HackerTarget) | `passive` + `full` |
+| **[Recon-ng](https://github.com/lanmaster53/recon-ng)** | Passive OSINT host enumeration — a batch resource script runs keyless modules, then Hades reads the workspace SQLite DB | `passive` + `full` |
+| **[Maltego](https://www.maltego.com/)** | **Export** (Maltego is GUI-only): the scan's entities — domain, hosts, IPs, e-mails — written as a Maltego-importable CSV to pivot on | `--maltego` |
+
+```bash
+# Install whichever you want — each integration lights up automatically on the next scan:
+sudo apt install nmap gobuster          # active engines
+pip install theHarvester recon-ng       # passive OSINT
+python hades.py --url https://example.com --profile full --maltego   # + Maltego CSV export
+```
+
+---
+
 ## Example Output
 
 The unified kill-chain attack path, grouped by MITRE ATT&CK tactic with copy-paste commands:
@@ -549,6 +577,7 @@ Hades is under active development. Planned and in-progress work:
 - [x] Out-of-band (OAST) blind-vulnerability detection with auto-tunnel
 - [x] Unified kill-chain attack path across all profiles
 - [x] AI/LLM and database red-team profiles
+- [x] External tool integrations (Nmap, Gobuster, theHarvester, Recon-ng, Maltego export)
 
 ---
 
@@ -556,8 +585,9 @@ Hades is under active development. Planned and in-progress work:
 
 `httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
 `cryptography` (TLS) &middot; `BeautifulSoup4` / `lxml` &middot; `Markdown` &middot; `loguru` &middot;
-`mmh3` &middot; optional: `Playwright` (screenshots) &middot; `SSLyze` (TLS audit) &middot;
-`sqlmap` (`--exploit`). Reports: self-contained **HTML** + structured **JSON**.
+`mmh3` &middot; optional: `Playwright` (screenshots + browser-verified XSS) &middot; `SSLyze` (TLS audit) &middot;
+`sqlmap` (`--exploit`) &middot; external tools: `Nmap` / `Gobuster` / `theHarvester` / `Recon-ng`
+(auto-detected) &middot; `Maltego` (CSV export). Reports: self-contained **HTML** + structured **JSON**.
 
 ---
 
@@ -577,7 +607,8 @@ hades-web-scanner/
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
 │   ├── intel/               # Skills-library enrichment (ATT&CK/tag matching, red+blue playbooks) + Skills Library page
-│   └── output/              # Console, scoring, attack path, HTML + JSON reports
+│   ├── integrations/        # Optional external tools: Nmap, Gobuster, theHarvester, Recon-ng
+│   └── output/              # Console, scoring, attack path, HTML + JSON + Maltego reports
 ├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)
 ├── docs/                    # Reference PDFs + their generator scripts
 ├── tools/                   # Dev utilities (import check, playbook bundle builder)
