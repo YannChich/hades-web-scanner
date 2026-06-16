@@ -3570,6 +3570,47 @@ class TestNmapScan:
 
 
 # ---------------------------------------------------------------------------
+# gobuster_scan integration tests
+# ---------------------------------------------------------------------------
+
+_GOBUSTER_OUT = """/admin                (Status: 301) [Size: 234] [--> /admin/]
+/images               (Status: 200) [Size: 1234]
+/.git                 (Status: 200) [Size: 92]
+/server-status        (Status: 403) [Size: 300]
+"""
+
+
+class TestGobusterScan:
+    def test_parse_paths(self):
+        from scanner.integrations import gobuster_scan
+        paths = gobuster_scan._parse(_GOBUSTER_OUT)
+        by = {p: (s, z) for p, s, z in paths}
+        assert by["/admin"][0] == 301 and by["/images"] == (200, 1234)
+        assert "/server-status" in by and len(paths) == 4
+
+    def test_missing_gobuster_is_graceful_info(self, monkeypatch):
+        from scanner.integrations import gobuster_scan
+        monkeypatch.setattr(gobuster_scan, "which", lambda *a: None)
+        findings = gobuster_scan.run(ScanEngine("http://t.test", rate_delay=0))
+        assert len(findings) == 1 and "not installed" in findings[0].title.lower()
+
+    def test_safe_mode_skips(self):
+        from scanner.integrations import gobuster_scan
+        from config import SAFE_MODE_RATE_DELAY
+        findings = gobuster_scan.run(ScanEngine("http://t.test", rate_delay=SAFE_MODE_RATE_DELAY))
+        assert "safe mode" in findings[0].title.lower()
+
+    def test_run_summarises_discovered_paths(self, monkeypatch):
+        from scanner.integrations import gobuster_scan
+        monkeypatch.setattr(gobuster_scan, "which", lambda *a: "/usr/bin/gobuster")
+        monkeypatch.setattr(gobuster_scan, "run_tool", lambda cmd, timeout: (0, _GOBUSTER_OUT, ""))
+        findings = gobuster_scan.run(ScanEngine("http://t.test", rate_delay=0))
+        assert len(findings) == 1 and findings[0].raw["count"] == 4
+        assert any(p["path"] == "/admin" for p in findings[0].raw["paths"])
+        assert findings[0].raw.get("evidence")
+
+
+# ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
 

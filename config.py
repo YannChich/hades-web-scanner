@@ -114,6 +114,7 @@ _VULNS: list[str] = [
 # skipped in safe mode; OSINT ones (theHarvester/Recon-ng) query third parties → passive + full.
 _INTEGRATIONS_ACTIVE: list[str] = [
     "scanner.integrations.nmap_scan",
+    "scanner.integrations.gobuster_scan",
 ]
 _INTEGRATIONS_OSINT: list[str] = [
 ]
