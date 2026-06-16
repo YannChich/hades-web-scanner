@@ -109,6 +109,15 @@ _VULNS: list[str] = [
     "scanner.vulns.default_creds",
 ]
 
+# Optional external-tool integrations — run the real industry-standard tool when it is installed,
+# else emit a single INFO install-hint. ACTIVE ones (Nmap/Gobuster) probe the target → full profile,
+# skipped in safe mode; OSINT ones (theHarvester/Recon-ng) query third parties → passive + full.
+_INTEGRATIONS_ACTIVE: list[str] = [
+    "scanner.integrations.nmap_scan",
+]
+_INTEGRATIONS_OSINT: list[str] = [
+]
+
 PROFILE_MODULES: dict[str, list[str]] = {
     "quick": [
         "scanner.recon.basic_info",
@@ -116,7 +125,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
         "scanner.recon.ssl_check",
         "scanner.web.robots_txt",
     ],
-    "passive": _RECON_ALL + _WEB_PASSIVE,
+    "passive": _RECON_ALL + _WEB_PASSIVE + _INTEGRATIONS_OSINT,
     "cms": [
         "scanner.recon.tech_stack",
         "scanner.web.cms_detect",
@@ -124,7 +133,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
         "scanner.vulns.cve_mapping",
         "scanner.vulns.default_creds",
     ],
-    "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS,
+    "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS + _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
     "db_scan": ["scanner.db.db_security"],
     "ai_scan": ["scanner.ai.llm_recon"],
     "engage": ["scanner.offensive.engage"],
@@ -138,9 +147,10 @@ PROFILE_MODULES: dict[str, list[str]] = {
 # Maps a display category to its module dotted-paths (grouped, ordered).
 # ---------------------------------------------------------------------------
 MODULE_CATALOG: dict[str, list[str]] = {
-    "Recon":           _RECON_ALL,
-    "Web":             _WEB_PASSIVE + _WEB_ACTIVE,
-    "Vulnerabilities": _VULNS,
+    "Recon":            _RECON_ALL,
+    "Web":              _WEB_PASSIVE + _WEB_ACTIVE,
+    "Vulnerabilities":  _VULNS,
+    "Tool Integrations": _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
 }
 
 # Flat set of every runnable module dotted-path (for validation).
@@ -233,6 +243,8 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "email_exposure":    {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1589.002"]},
     # ── Transport / crypto ──
     "ssl_check":         {"cwe": "CWE-326", "owasp": "A02:2021 Cryptographic Failures",             "mitre": []},
+    # ── External-tool integrations ──
+    "nmap_scan":         {"cwe": "CWE-668", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1046"]},
 }
 
 # ---------------------------------------------------------------------------
@@ -279,6 +291,7 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "cve_vulnerability":["performing-cve-prioritization-with-kev-catalog"],
     "subdomain_scan":   ["performing-subdomain-enumeration-with-subfinder"],
     "port_scan":        ["scanning-network-with-nmap-advanced"],
+    "nmap_scan":        ["scanning-network-with-nmap-advanced"],
     "ssl_check":        ["performing-ssl-tls-security-assessment"],
     "hephaestus_tls":   ["performing-ssl-tls-security-assessment"],
     "cloud_buckets":    ["auditing-aws-s3-bucket-permissions",

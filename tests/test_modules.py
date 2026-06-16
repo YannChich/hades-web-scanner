@@ -3515,6 +3515,61 @@ class TestDbSecurity:
 
 
 # ---------------------------------------------------------------------------
+# nmap_scan integration tests
+# ---------------------------------------------------------------------------
+
+_NMAP_XML = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/>
+        <service name="ssh" product="OpenSSH" version="8.2p1"/></port>
+      <port protocol="tcp" portid="6379"><state state="open"/>
+        <service name="redis" product="Redis key-value store" version="6.0.16"/></port>
+      <port protocol="tcp" portid="443"><state state="closed"/>
+        <service name="https"/></port>
+    </ports>
+    <os><osmatch name="Linux 5.4"/></os>
+  </host>
+</nmaprun>"""
+
+
+class TestNmapScan:
+    def test_parse_open_ports_and_os(self):
+        from scanner.integrations import nmap_scan
+        ports, os_guess = nmap_scan._parse(_NMAP_XML)
+        by_port = {p[0]: p for p in ports}
+        assert set(by_port) == {22, 6379}                       # the closed 443 is excluded
+        assert by_port[22][2] == "ssh" and "OpenSSH" in by_port[22][3]
+        assert os_guess == "Linux 5.4"
+
+    def test_missing_nmap_is_graceful_info(self, monkeypatch):
+        from scanner.integrations import nmap_scan
+        monkeypatch.setattr(nmap_scan, "which", lambda *a: None)
+        findings = nmap_scan.run(ScanEngine("http://host.test", rate_delay=0))
+        assert len(findings) == 1 and findings[0].severity == Severity.INFO
+        assert "not installed" in findings[0].title.lower()
+
+    def test_safe_mode_skips(self):
+        from scanner.integrations import nmap_scan
+        from config import SAFE_MODE_RATE_DELAY
+        findings = nmap_scan.run(ScanEngine("http://host.test", rate_delay=SAFE_MODE_RATE_DELAY))
+        assert findings[0].severity == Severity.INFO and "safe mode" in findings[0].title.lower()
+
+    def test_run_emits_severity_rated_findings(self, monkeypatch):
+        from scanner.integrations import nmap_scan
+        monkeypatch.setattr(nmap_scan, "which", lambda *a: "/usr/bin/nmap")
+        monkeypatch.setattr(nmap_scan, "run_tool", lambda cmd, timeout: (0, _NMAP_XML, ""))
+        findings = nmap_scan.run(ScanEngine("http://host.test", rate_delay=0))
+        redis = [f for f in findings if f.raw.get("port") == 6379]
+        ssh = [f for f in findings if f.raw.get("port") == 22]
+        assert redis and redis[0].severity == Severity.HIGH and "6.0.16" in redis[0].title
+        assert ssh and ssh[0].severity == Severity.LOW
+        assert any("OS Fingerprint" in f.title for f in findings)
+        assert redis[0].raw.get("evidence")
+
+
+# ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
 
