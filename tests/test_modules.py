@@ -3683,6 +3683,45 @@ class TestReconngScan:
 
 
 # ---------------------------------------------------------------------------
+# maltego_export tests
+# ---------------------------------------------------------------------------
+
+class TestMaltegoExport:
+    def _findings(self):
+        return [
+            Finding("subdomain_scan", "x", "", Severity.INFO, "", {"subdomains": ["api.x.com", "www.x.com"]}),
+            Finding("theharvester_scan", "x", "", Severity.LOW, "", {"emails": ["a@x.com"]}),
+            Finding("nmap_scan", "x", "", Severity.HIGH, "", {"host": "x.com", "ip": "1.2.3.4"}),
+            Finding("reconng_scan", "x", "", Severity.INFO, "", {"hosts": [{"host": "vpn.x.com", "ip": "5.6.7.8"}]}),
+        ]
+
+    def test_build_rows_extracts_entities(self):
+        from scanner.output import maltego_export as mx
+        rows = mx.build_rows("https://www.x.com", self._findings())
+        types = {(t, v) for t, v, _ in rows}
+        assert ("Domain", "x.com") in types
+        assert ("DNSName", "api.x.com") in types and ("DNSName", "vpn.x.com") in types
+        assert ("EmailAddress", "a@x.com") in types
+        assert ("IPv4Address", "1.2.3.4") in types and ("IPv4Address", "5.6.7.8") in types
+
+    def test_build_rows_deduplicates(self):
+        from scanner.output import maltego_export as mx
+        dup = [Finding("a", "x", "", Severity.INFO, "", {"subdomains": ["api.x.com"]}),
+               Finding("b", "x", "", Severity.INFO, "", {"subdomains": ["API.x.com"]})]
+        rows = [r for r in mx.build_rows("https://x.com", dup) if r[0] == "DNSName"]
+        assert len(rows) == 1                                # case-insensitive dedupe
+
+    def test_export_writes_csv(self, tmp_path):
+        import csv
+        from scanner.output import maltego_export as mx
+        path = mx.export("https://x.com", self._findings(), tmp_path)
+        with open(path, newline="", encoding="utf-8") as fh:
+            rows = list(csv.reader(fh))
+        assert rows[0] == ["EntityType", "Value", "LinkedTo"]
+        assert any(r[0] == "DNSName" and r[1] == "api.x.com" for r in rows)
+
+
+# ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
 

@@ -441,6 +441,12 @@ def build_parser() -> argparse.ArgumentParser:
              "grouped by subdomain (no scan; also available as menu option 10)",
     )
     parser.add_argument(
+        "--maltego",
+        action="store_true",
+        help="Also export the scan's entities (domain / hosts / IPs / e-mails) as a Maltego-importable "
+             "CSV under reports/ (import in Maltego via Import > Tables/CSV)",
+    )
+    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -619,6 +625,7 @@ def main() -> None:
         open_report=not args.no_open,
         oob_host=args.oob_host,
         oob_port=args.oob_port,
+        maltego=args.maltego,
     )
 
 
