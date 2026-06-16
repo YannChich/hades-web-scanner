@@ -70,7 +70,8 @@ confidence level, the evidence behind it, and a fix, so you know what's real and
 > optional extras (`playwright`, `sslyze`) are skipped gracefully if you don't install them.
 
 Prefer to point and shoot? Launch `python hades.py` and pick a scan — options **1 to 9**, **10** for the
-Skills Library, **11** for an authenticated IDOR / access-control scan (it asks for your login), or
+Skills Library, **11** for an authenticated IDOR / access-control scan (it asks for your login), **12**
+for the external **Tool Integrations** suite (Nmap, Gobuster, theHarvester, Recon-ng + Maltego), or
 **666** for the RedTeam Arsenal:
 
 <p align="center">
@@ -396,7 +397,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
+| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `tools` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--module` | `-m` | — | Run a single module only (e.g. `headers_check`); overrides `--profile` |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
@@ -428,6 +429,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `passive` | Moderate | All recon and passive web modules, no active probing |
 | `cms` | Targeted | CMS detection, admin panels, CVE mapping |
 | `full` | Thorough | Everything, including the injection arsenal (default) |
+| `tools` | Integrations | External-tool suite (menu option 12) — Nmap, Gobuster, theHarvester, Recon-ng + Maltego CSV export |
 | `db_scan` | Red team | Database security audit |
 | `ai_scan` | Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) |
 | `engage` | Offensive | Active engagement — auto-exploit confirmed RCE/LFI/SSRF |
@@ -496,24 +498,26 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 
 ## External Tool Integrations
 
-Hades drives best-in-class external tools when they're installed and degrades gracefully (a single INFO
-hint) when they're not — it **never hard-depends** on them, and it shells out to the real tool rather
-than reimplementing it. Active tools are **skipped in safe mode**; OSINT tools query third parties, not
-the target. Findings flow through the normal pipeline (severity, evidence, CWE/OWASP/ATT&CK, playbooks).
+The external tools live in their **own dedicated suite** — interactive **menu option 12** (or
+`--profile tools`) — kept separate from Hades' built-in scan modules. Hades drives each tool when it's
+installed and degrades gracefully (a single INFO hint) when it's not — it **never hard-depends** on
+them, and shells out to the real tool rather than reimplementing it. Active tools are **skipped in safe
+mode**; OSINT tools query third parties, not the target. Findings flow through the normal pipeline
+(severity, evidence, CWE/OWASP/ATT&CK, playbooks).
 
-| Tool | What Hades does with it | When it runs |
-|------|------------------------|--------------|
-| **[Nmap](https://nmap.org/)** | `-sV` service/version (+ OS) fingerprinting on the resolved host — the depth the built-in socket `port_scan` can't reach; each open port rated by exposure | `full` (active) |
-| **[Gobuster](https://github.com/OJ/gobuster)** | Fast Go content/directory discovery with Hades' wordlist (proxy/cookies/UA honoured); defers classification to `dir_scan`/`sensitive_files` | `full` (active) |
-| **[theHarvester](https://github.com/laramies/theHarvester)** | Passive OSINT — public e-mails (Low), hosts/sub-domains and IPs (Info) from keyless sources (crt.sh, DuckDuckGo, OTX, RapidDNS, HackerTarget) | `passive` + `full` |
-| **[Recon-ng](https://github.com/lanmaster53/recon-ng)** | Passive OSINT host enumeration — a batch resource script runs keyless modules, then Hades reads the workspace SQLite DB | `passive` + `full` |
-| **[Maltego](https://www.maltego.com/)** | **Export** (Maltego is GUI-only): the scan's entities — domain, hosts, IPs, e-mails — written as a Maltego-importable CSV to pivot on | `--maltego` |
+| Tool | What Hades does with it |
+|------|------------------------|
+| **[Nmap](https://nmap.org/)** | `-sV` service/version (+ OS) fingerprinting on the resolved host — the depth the built-in socket `port_scan` can't reach; each open port rated by exposure |
+| **[Gobuster](https://github.com/OJ/gobuster)** | Fast Go content/directory discovery with Hades' wordlist (proxy/cookies/UA honoured); defers classification to `dir_scan`/`sensitive_files` |
+| **[theHarvester](https://github.com/laramies/theHarvester)** | Passive OSINT — public e-mails (Low), hosts/sub-domains and IPs (Info) from keyless sources (crt.sh, DuckDuckGo, OTX, RapidDNS, HackerTarget) |
+| **[Recon-ng](https://github.com/lanmaster53/recon-ng)** | Passive OSINT host enumeration — a batch resource script runs keyless modules, then Hades reads the workspace SQLite DB |
+| **[Maltego](https://www.maltego.com/)** | **Export** (Maltego is GUI-only): the suite's entities — domain, hosts, IPs, e-mails — written as a Maltego-importable CSV (always, with the `tools` profile; elsewhere via `--maltego`) |
 
 ```bash
-# Install whichever you want — each integration lights up automatically on the next scan:
+# Install whichever you want, then run the whole suite from menu option 12 (or --profile tools):
 sudo apt install nmap gobuster          # active engines
 pip install theHarvester recon-ng       # passive OSINT
-python hades.py --url https://example.com --profile full --maltego   # + Maltego CSV export
+python hades.py --url https://example.com --profile tools   # runs all four + writes the Maltego CSV
 ```
 
 ---

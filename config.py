@@ -128,7 +128,7 @@ PROFILE_MODULES: dict[str, list[str]] = {
         "scanner.recon.ssl_check",
         "scanner.web.robots_txt",
     ],
-    "passive": _RECON_ALL + _WEB_PASSIVE + _INTEGRATIONS_OSINT,
+    "passive": _RECON_ALL + _WEB_PASSIVE,
     "cms": [
         "scanner.recon.tech_stack",
         "scanner.web.cms_detect",
@@ -136,7 +136,10 @@ PROFILE_MODULES: dict[str, list[str]] = {
         "scanner.vulns.cve_mapping",
         "scanner.vulns.default_creds",
     ],
-    "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS + _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
+    "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS,
+    # External-tool integrations live in their own profile (interactive menu option 12), not mixed into
+    # the regular scan modules — run Nmap / Gobuster / theHarvester / Recon-ng as a dedicated suite.
+    "tools": _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
     "db_scan": ["scanner.db.db_security"],
     "ai_scan": ["scanner.ai.llm_recon"],
     "engage": ["scanner.offensive.engage"],
@@ -153,11 +156,13 @@ MODULE_CATALOG: dict[str, list[str]] = {
     "Recon":            _RECON_ALL,
     "Web":              _WEB_PASSIVE + _WEB_ACTIVE,
     "Vulnerabilities":  _VULNS,
-    "Tool Integrations": _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
 }
 
-# Flat set of every runnable module dotted-path (for validation).
-ALL_MODULES: list[str] = [m for mods in MODULE_CATALOG.values() for m in mods]
+# Flat set of every runnable module dotted-path (for `--module` validation). The external-tool
+# integrations are excluded from the single-module menu (they have their own profile / menu option 12)
+# but stay resolvable here so `--module nmap_scan` still works from the CLI.
+ALL_MODULES: list[str] = ([m for mods in MODULE_CATALOG.values() for m in mods]
+                          + _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT)
 
 # ---------------------------------------------------------------------------
 # Risk / severity score weights (used by scorer.py)

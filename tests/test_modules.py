@@ -3721,6 +3721,27 @@ class TestMaltegoExport:
         assert any(r[0] == "DNSName" and r[1] == "api.x.com" for r in rows)
 
 
+class TestToolsProfileWiring:
+    def test_tools_profile_holds_the_integrations(self):
+        from config import PROFILE_MODULES
+        tools = PROFILE_MODULES["tools"]
+        assert "scanner.integrations.nmap_scan" in tools
+        assert "scanner.integrations.gobuster_scan" in tools
+        assert "scanner.integrations.theharvester_scan" in tools
+        assert "scanner.integrations.reconng_scan" in tools
+
+    def test_integrations_left_out_of_full_and_catalog(self):
+        from config import PROFILE_MODULES, MODULE_CATALOG, ALL_MODULES
+        assert not any("integrations" in m for m in PROFILE_MODULES["full"])
+        assert not any("integrations" in m for m in PROFILE_MODULES["passive"])
+        assert not any("integrations" in m for cat in MODULE_CATALOG.values() for m in cat)
+        assert "scanner.integrations.nmap_scan" in ALL_MODULES          # still resolvable via --module
+
+    def test_resolve_module_still_finds_an_integration(self):
+        from main import resolve_module
+        assert resolve_module("nmap_scan") == "scanner.integrations.nmap_scan"
+
+
 # ---------------------------------------------------------------------------
 # crawler tests
 # ---------------------------------------------------------------------------
