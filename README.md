@@ -70,8 +70,7 @@ confidence level, the evidence behind it, and a fix, so you know what's real and
 > optional extras (`playwright`, `sslyze`) are skipped gracefully if you don't install them.
 
 Prefer to point and shoot? Launch `python hades.py` and pick a scan — options **1 to 9**, **10** for the
-Skills Library, **11** for an authenticated IDOR / access-control scan (it asks for your login), **12**
-for the external **Tool Integrations** suite (Nmap, Gobuster, theHarvester, Recon-ng + Maltego), or
+Skills Library, **11** for an authenticated IDOR / access-control scan (it asks for your login), or
 **666** for the RedTeam Arsenal:
 
 <p align="center">
@@ -306,8 +305,7 @@ python hades.py --url https://example.com      # that's it — HTML + JSON repor
 # Optional extras (Hades runs fine without them):
 playwright install chromium    # homepage screenshots + browser-verified DOM/stored XSS
 pip install sqlmap             # enables the --exploit sqlmap launcher
-sudo apt install nmap gobuster # service/version + content-discovery integrations
-pip install theHarvester recon-ng   # passive OSINT integrations (see Tool Integrations)
+sudo apt install nmap gobuster # service/version + content-discovery integrations (run via --module)
 ```
 
 **Docker**
@@ -397,12 +395,11 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Target URL (required, or prompted interactively) |
-| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `tools` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
+| `--profile` | `-p` | `full` | `quick` `passive` `cms` `full` `db_scan` `ai_scan` `engage` `oob_scan` `tls_scan` (`cve_scan` is menu option 8) |
 | `--module` | `-m` | — | Run a single module only (e.g. `headers_check`); overrides `--profile` |
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
-| `--maltego` | | `false` | Also export the scan's entities (domain / hosts / IPs / e-mails) as a **Maltego-importable CSV** under `reports/` |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
@@ -429,7 +426,6 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `passive` | Moderate | All recon and passive web modules, no active probing |
 | `cms` | Targeted | CMS detection, admin panels, CVE mapping |
 | `full` | Thorough | Everything, including the injection arsenal (default) |
-| `tools` | Integrations | External-tool suite (menu option 12) — Nmap, Gobuster, theHarvester, Recon-ng + Maltego CSV export |
 | `db_scan` | Red team | Database security audit |
 | `ai_scan` | Red team | AI/LLM attack surface (OWASP LLM Top 10 + ATLAS) |
 | `engage` | Offensive | Active engagement — auto-exploit confirmed RCE/LFI/SSRF |
@@ -498,26 +494,22 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 
 ## External Tool Integrations
 
-The external tools live in their **own dedicated suite** — interactive **menu option 12** (or
-`--profile tools`) — kept separate from Hades' built-in scan modules. Hades drives each tool when it's
-installed and degrades gracefully (a single INFO hint) when it's not — it **never hard-depends** on
-them, and shells out to the real tool rather than reimplementing it. Active tools are **skipped in safe
-mode**; OSINT tools query third parties, not the target. Findings flow through the normal pipeline
-(severity, evidence, CWE/OWASP/ATT&CK, playbooks).
+Hades optionally drives two best-in-class external scanners, offered as **standalone single-modules**
+(the interactive **Single module** menu, or `--module <name>`) — not bundled into a scan profile. Each
+runs the real tool when it's installed and degrades gracefully to a single INFO install-hint when it's
+not; Hades **never hard-depends** on them and shells out rather than reimplementing the engine. Active →
+**skipped in safe mode**. Findings flow through the normal pipeline (severity, evidence, CWE/OWASP/ATT&CK,
+playbooks).
 
-| Tool | What Hades does with it |
-|------|------------------------|
-| **[Nmap](https://nmap.org/)** | `-sV` service/version (+ OS) fingerprinting on the resolved host — the depth the built-in socket `port_scan` can't reach; each open port rated by exposure |
-| **[Gobuster](https://github.com/OJ/gobuster)** | Fast Go content/directory discovery with Hades' wordlist (proxy/cookies/UA honoured); defers classification to `dir_scan`/`sensitive_files` |
-| **[theHarvester](https://github.com/laramies/theHarvester)** | Passive OSINT — public e-mails (Low), hosts/sub-domains and IPs (Info) from keyless sources (crt.sh, DuckDuckGo, OTX, RapidDNS, HackerTarget) |
-| **[Recon-ng](https://github.com/lanmaster53/recon-ng)** | Passive OSINT host enumeration — a batch resource script runs keyless modules, then Hades reads the workspace SQLite DB |
-| **[Maltego](https://www.maltego.com/)** | **Export** (Maltego is GUI-only): the suite's entities — domain, hosts, IPs, e-mails — written as a Maltego-importable CSV (always, with the `tools` profile; elsewhere via `--maltego`) |
+| Tool | Module | What Hades does with it |
+|------|--------|------------------------|
+| **[Nmap](https://nmap.org/)** | `nmap_scan` | `-sV` service/version (+ OS) fingerprinting on the resolved host — the depth the built-in socket `port_scan` can't reach; each open port rated by exposure |
+| **[Gobuster](https://github.com/OJ/gobuster)** | `gobuster_scan` | Fast Go content/directory discovery with Hades' wordlist (proxy/cookies/UA honoured); defers classification to `dir_scan`/`sensitive_files` |
 
 ```bash
-# Install whichever you want, then run the whole suite from menu option 12 (or --profile tools):
-sudo apt install nmap gobuster          # active engines
-pip install theHarvester recon-ng       # passive OSINT
-python hades.py --url https://example.com --profile tools   # runs all four + writes the Maltego CSV
+sudo apt install nmap gobuster                              # install the engines you want
+python hades.py --url https://example.com --module nmap_scan     # run a single tool
+python hades.py --url https://example.com --module gobuster_scan
 ```
 
 ---
@@ -581,7 +573,7 @@ Hades is under active development. Planned and in-progress work:
 - [x] Out-of-band (OAST) blind-vulnerability detection with auto-tunnel
 - [x] Unified kill-chain attack path across all profiles
 - [x] AI/LLM and database red-team profiles
-- [x] External tool integrations (Nmap, Gobuster, theHarvester, Recon-ng, Maltego export)
+- [x] External tool integrations (Nmap, Gobuster — standalone single-modules)
 
 ---
 
@@ -590,8 +582,8 @@ Hades is under active development. Planned and in-progress work:
 `httpx` (HTTP) &middot; `Rich` (terminal UI) &middot; `dnspython` &middot; `python-whois` &middot;
 `cryptography` (TLS) &middot; `BeautifulSoup4` / `lxml` &middot; `Markdown` &middot; `loguru` &middot;
 `mmh3` &middot; optional: `Playwright` (screenshots + browser-verified XSS) &middot; `SSLyze` (TLS audit) &middot;
-`sqlmap` (`--exploit`) &middot; external tools: `Nmap` / `Gobuster` / `theHarvester` / `Recon-ng`
-(auto-detected) &middot; `Maltego` (CSV export). Reports: self-contained **HTML** + structured **JSON**.
+`sqlmap` (`--exploit`) &middot; external tools: `Nmap` / `Gobuster` (auto-detected, run via `--module`).
+Reports: self-contained **HTML** + structured **JSON**.
 
 ---
 
@@ -611,8 +603,8 @@ hades-web-scanner/
 │   ├── cve/                 # CVE Vulnerability Intelligence (cve_scan, menu option 8)
 │   ├── tls/                 # Offensive TLS/SSL audit via SSLyze (tls_scan, menu option 9)
 │   ├── intel/               # Skills-library enrichment (ATT&CK/tag matching, red+blue playbooks) + Skills Library page
-│   ├── integrations/        # Optional external tools: Nmap, Gobuster, theHarvester, Recon-ng
-│   └── output/              # Console, scoring, attack path, HTML + JSON + Maltego reports
+│   ├── integrations/        # Optional external tools: Nmap, Gobuster (standalone single-modules)
+│   └── output/              # Console, scoring, attack path, HTML + JSON reports
 ├── data/vulndb/            # CVE module: aliases.json (tracked) + local SQLite DB (git-ignored)
 ├── docs/                    # Reference PDFs + their generator scripts
 ├── tools/                   # Dev utilities (import check, playbook bundle builder)

@@ -109,16 +109,12 @@ _VULNS: list[str] = [
     "scanner.vulns.default_creds",
 ]
 
-# Optional external-tool integrations — run the real industry-standard tool when it is installed,
-# else emit a single INFO install-hint. ACTIVE ones (Nmap/Gobuster) probe the target → full profile,
-# skipped in safe mode; OSINT ones (theHarvester/Recon-ng) query third parties → passive + full.
-_INTEGRATIONS_ACTIVE: list[str] = [
+# Optional external-tool integrations — run the real industry-standard tool when it is installed, else
+# emit a single INFO install-hint. Offered as STANDALONE single-modules (interactive "Single module"
+# menu / `--module nmap_scan`), not bundled into a scan profile. Active → skipped in safe mode.
+_INTEGRATIONS: list[str] = [
     "scanner.integrations.nmap_scan",
     "scanner.integrations.gobuster_scan",
-]
-_INTEGRATIONS_OSINT: list[str] = [
-    "scanner.integrations.theharvester_scan",
-    "scanner.integrations.reconng_scan",
 ]
 
 PROFILE_MODULES: dict[str, list[str]] = {
@@ -137,9 +133,6 @@ PROFILE_MODULES: dict[str, list[str]] = {
         "scanner.vulns.default_creds",
     ],
     "full": _RECON_ALL + _WEB_PASSIVE + _WEB_ACTIVE + _VULNS,
-    # External-tool integrations live in their own profile (interactive menu option 12), not mixed into
-    # the regular scan modules — run Nmap / Gobuster / theHarvester / Recon-ng as a dedicated suite.
-    "tools": _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT,
     "db_scan": ["scanner.db.db_security"],
     "ai_scan": ["scanner.ai.llm_recon"],
     "engage": ["scanner.offensive.engage"],
@@ -156,13 +149,12 @@ MODULE_CATALOG: dict[str, list[str]] = {
     "Recon":            _RECON_ALL,
     "Web":              _WEB_PASSIVE + _WEB_ACTIVE,
     "Vulnerabilities":  _VULNS,
+    # Optional external tools — offered as standalone single-modules, not part of a scan profile.
+    "Tool Integrations": _INTEGRATIONS,
 }
 
-# Flat set of every runnable module dotted-path (for `--module` validation). The external-tool
-# integrations are excluded from the single-module menu (they have their own profile / menu option 12)
-# but stay resolvable here so `--module nmap_scan` still works from the CLI.
-ALL_MODULES: list[str] = ([m for mods in MODULE_CATALOG.values() for m in mods]
-                          + _INTEGRATIONS_ACTIVE + _INTEGRATIONS_OSINT)
+# Flat set of every runnable module dotted-path (for `--module` validation and the single-module menu).
+ALL_MODULES: list[str] = [m for mods in MODULE_CATALOG.values() for m in mods]
 
 # ---------------------------------------------------------------------------
 # Risk / severity score weights (used by scorer.py)
@@ -253,7 +245,6 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "ssl_check":         {"cwe": "CWE-326", "owasp": "A02:2021 Cryptographic Failures",             "mitre": []},
     # ── External-tool integrations ──
     "nmap_scan":         {"cwe": "CWE-668", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1046"]},
-    "theharvester_scan": {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1589.002"]},
 }
 
 # ---------------------------------------------------------------------------

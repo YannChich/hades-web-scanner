@@ -61,7 +61,7 @@ DISCLAIMER = (
     "The author assumes no liability for misuse."
 )
 
-PROFILES = ("quick", "passive", "cms", "full", "tools", "db_scan", "ai_scan", "engage", "oob_scan",
+PROFILES = ("quick", "passive", "cms", "full", "db_scan", "ai_scan", "engage", "oob_scan",
             "cve_scan", "tls_scan")
 
 
@@ -155,12 +155,13 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
     console.print("  [accent]9[/accent]. [ok]TLS / SSL Attack Surface[/ok]  Offensive TLS audit via SSLyze (protocols, ciphers, certs, Heartbleed/ROBOT)")
     console.print("  [accent]10[/accent]. [ok]Skills Library[/ok]   Browse the 754 expert playbooks Hades draws on (no scan)")
     console.print("  [accent]11[/accent]. [ok]IDOR / Access Control[/ok]  Authenticated scan for broken access control (IDOR/BOLA) — asks for the login")
-    console.print("  [accent]12[/accent]. [ok]Tool Integrations[/ok]   Run the external tools — Nmap, Gobuster, theHarvester, Recon-ng (+ Maltego CSV export)")
     console.print("  [danger]666[/danger]. [danger]RedTeam Arsenal[/danger]   Open the offensive-tools reference page (no scan — ignores the target)")
+    console.print()
+    console.print("[dim]  Tip: the external tools (Nmap, Gobuster) are under option 3 (Single module).[/dim]")
     console.print()
 
     choice = Prompt.ask("[ok]  Choice[/ok]",
-                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "666"],
+                        choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "666"],
                         default="2").strip()
 
     match choice:
@@ -187,8 +188,6 @@ def prompt_scan_choice() -> tuple[str, Optional[list[str]]]:
             return "skills", None
         case "11":
             return "auth_idor", None
-        case "12":
-            return "tools", None
         case _:
             return "full", None
 
@@ -444,12 +443,6 @@ def build_parser() -> argparse.ArgumentParser:
              "grouped by subdomain (no scan; also available as menu option 10)",
     )
     parser.add_argument(
-        "--maltego",
-        action="store_true",
-        help="Also export the scan's entities (domain / hosts / IPs / e-mails) as a Maltego-importable "
-             "CSV under reports/ (import in Maltego via Import > Tables/CSV)",
-    )
-    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -628,9 +621,6 @@ def main() -> None:
         open_report=not args.no_open,
         oob_host=args.oob_host,
         oob_port=args.oob_port,
-        # The Tool Integrations suite (menu 12 / --profile tools) gathers exactly the entities Maltego
-        # pivots on, so it always emits the Maltego CSV; otherwise honour the explicit --maltego flag.
-        maltego=args.maltego or profile == "tools",
     )
 
 

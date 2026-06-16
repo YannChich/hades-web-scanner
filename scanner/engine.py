@@ -623,7 +623,6 @@ def run_scan(
     open_report: bool = True,
     oob_host: Optional[str] = None,
     oob_port: int = 0,
-    maltego: bool = False,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested."""
     with ScanEngine(
@@ -692,16 +691,6 @@ def run_scan(
     html_path = generate_html(findings, url, score)
     json_path = generate_json(findings, url, score)
     print_report_paths(html_path, json_path, log_path=str(get_log_path()))
-
-    # Opt-in Maltego export: write the scan's entities (domain/hosts/IPs/emails) as a Maltego CSV.
-    if maltego:
-        try:
-            from scanner.output.maltego_export import export as export_maltego  # local import
-            mpath = export_maltego(url, findings, "reports")
-            console.print(f"[dim]  🗺  Maltego CSV exported: {mpath} "
-                          "(import in Maltego via Import ▸ Tables/CSV).[/dim]")
-        except Exception as exc:  # noqa: BLE001 — export is best-effort
-            logger.debug(f"maltego export skipped: {exc}")
 
     if open_report and html_path:
         _open_in_browser(html_path)

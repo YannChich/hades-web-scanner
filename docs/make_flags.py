@@ -70,7 +70,6 @@ PROFILES = [
     ("passive", "All reconnaissance + passive web checks. No active probing (no SQLi/XSS/brute-force)."),
     ("cms", "CMS-focused: CMS detection, admin panels, and CVE mapping."),
     ("full", "Everything — the most thorough scan (this is the default behaviour)."),
-    ("tools", "External-tool integrations suite (also interactive menu option 12): runs Nmap (service/version), Gobuster (content discovery), theHarvester and Recon-ng (OSINT) when installed, and writes a Maltego-importable CSV of the discovered entities. Each tool degrades to an install hint if absent."),
     ("db_scan", "Red-team database security audit: DB ports, unauth access + data extraction, SQL/NoSQL injection, leaked secrets/connection strings, GraphQL, admin GUIs, dumps; emits a DB exposure score, attack path and loot. Pair with --exploit to launch sqlmap on confirmed SQLi."),
     ("ai_scan", "Red-team AI/LLM audit: SDK/provider fingerprint, exposed AI keys, unauthenticated local LLM servers, exposed AI UIs and the prompt-injection surface (OWASP LLM Top 10 + MITRE ATLAS)."),
     ("engage", "Active exploitation engagement: confirms bugs then proves impact with benign payloads (RCE via id/uname, LFI read, SSRF to cloud metadata), writing evidence to loot/. Authorisation-gated."),

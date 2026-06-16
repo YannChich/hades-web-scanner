@@ -3611,133 +3611,21 @@ class TestGobusterScan:
 
 
 # ---------------------------------------------------------------------------
-# theharvester_scan integration tests
+# external-tool integration wiring (standalone single-modules — not a scan profile)
 # ---------------------------------------------------------------------------
 
-class TestTheHarvesterScan:
-    def test_parse_extracts_emails_hosts_ips(self):
-        from scanner.integrations import theharvester_scan as th
-        data = {"emails": ["a@x.com", "a@x.com", " b@x.com "],
-                "hosts": ["www.x.com:1.2.3.4", "API.x.com", ""],
-                "ips": ["1.2.3.4", "1.2.3.4"]}
-        emails, hosts, ips = th._parse(data)
-        assert emails == ["a@x.com", "b@x.com"]
-        assert hosts == ["api.x.com", "www.x.com"]           # lowercased, ip stripped, deduped
-        assert ips == ["1.2.3.4"]
+class TestIntegrationWiring:
+    def test_integrations_are_standalone_single_modules(self):
+        from config import MODULE_CATALOG, ALL_MODULES, PROFILE_MODULES
+        cat = MODULE_CATALOG["Tool Integrations"]
+        assert "scanner.integrations.nmap_scan" in cat and "scanner.integrations.gobuster_scan" in cat
+        assert "scanner.integrations.nmap_scan" in ALL_MODULES
+        # not bundled into any scan profile, and the removed `tools` profile is gone
+        assert "tools" not in PROFILE_MODULES
+        for prof in ("full", "passive"):
+            assert not any("integrations" in m for m in PROFILE_MODULES[prof])
 
-    def test_domain_extraction(self):
-        from scanner.integrations import theharvester_scan as th
-        assert th._domain("https://www.example.co/path") == "example.co"
-
-    def test_build_findings_emails_are_low_hosts_info(self):
-        from scanner.integrations import theharvester_scan as th
-        findings = th._build_findings("x.com", ["a@x.com"], ["api.x.com"], ["1.2.3.4"])
-        emails = [f for f in findings if "E-mail" in f.title]
-        assert emails and emails[0].severity == Severity.LOW and emails[0].raw.get("evidence")
-        assert any(f.severity == Severity.INFO and "Host" in f.title for f in findings)
-
-    def test_missing_theharvester_is_graceful_info(self, monkeypatch):
-        from scanner.integrations import theharvester_scan as th
-        monkeypatch.setattr(th, "which", lambda *a: None)
-        findings = th.run(ScanEngine("http://x.com", rate_delay=0))
-        assert len(findings) == 1 and "not installed" in findings[0].title.lower()
-
-
-# ---------------------------------------------------------------------------
-# reconng_scan integration tests
-# ---------------------------------------------------------------------------
-
-class TestReconngScan:
-    def test_read_hosts_from_workspace_db(self, tmp_path):
-        import sqlite3
-        from scanner.integrations import reconng_scan as r
-        db = tmp_path / "data.db"
-        con = sqlite3.connect(db)
-        con.execute("CREATE TABLE hosts (host TEXT, ip_address TEXT)")
-        con.executemany("INSERT INTO hosts VALUES (?, ?)",
-                        [("WWW.x.com", "1.2.3.4"), ("api.x.com", None), ("www.x.com", "1.2.3.4")])
-        con.commit()
-        con.close()
-        hosts = r._read_hosts(str(db))
-        assert ("www.x.com", "1.2.3.4") in hosts and ("api.x.com", "") in hosts
-        assert len(hosts) == 2                               # deduped + lowercased
-
-    def test_resource_script_sets_source_and_modules(self):
-        from scanner.integrations import reconng_scan as r
-        script = r._resource_script("example.com")
-        assert "options set SOURCE example.com" in script
-        assert "modules load recon/domains-hosts/hackertarget" in script
-        assert script.strip().endswith("exit")
-
-    def test_build_findings_summary(self):
-        from scanner.integrations import reconng_scan as r
-        findings = r._build_findings("x.com", [("api.x.com", "1.2.3.4"), ("www.x.com", "")])
-        assert findings[0].severity == Severity.INFO and findings[0].raw["count"] == 2
-        assert findings[0].raw.get("evidence")
-
-    def test_missing_reconng_is_graceful_info(self, monkeypatch):
-        from scanner.integrations import reconng_scan as r
-        monkeypatch.setattr(r, "which", lambda *a: None)
-        findings = r.run(ScanEngine("http://x.com", rate_delay=0))
-        assert len(findings) == 1 and "not installed" in findings[0].title.lower()
-
-
-# ---------------------------------------------------------------------------
-# maltego_export tests
-# ---------------------------------------------------------------------------
-
-class TestMaltegoExport:
-    def _findings(self):
-        return [
-            Finding("subdomain_scan", "x", "", Severity.INFO, "", {"subdomains": ["api.x.com", "www.x.com"]}),
-            Finding("theharvester_scan", "x", "", Severity.LOW, "", {"emails": ["a@x.com"]}),
-            Finding("nmap_scan", "x", "", Severity.HIGH, "", {"host": "x.com", "ip": "1.2.3.4"}),
-            Finding("reconng_scan", "x", "", Severity.INFO, "", {"hosts": [{"host": "vpn.x.com", "ip": "5.6.7.8"}]}),
-        ]
-
-    def test_build_rows_extracts_entities(self):
-        from scanner.output import maltego_export as mx
-        rows = mx.build_rows("https://www.x.com", self._findings())
-        types = {(t, v) for t, v, _ in rows}
-        assert ("Domain", "x.com") in types
-        assert ("DNSName", "api.x.com") in types and ("DNSName", "vpn.x.com") in types
-        assert ("EmailAddress", "a@x.com") in types
-        assert ("IPv4Address", "1.2.3.4") in types and ("IPv4Address", "5.6.7.8") in types
-
-    def test_build_rows_deduplicates(self):
-        from scanner.output import maltego_export as mx
-        dup = [Finding("a", "x", "", Severity.INFO, "", {"subdomains": ["api.x.com"]}),
-               Finding("b", "x", "", Severity.INFO, "", {"subdomains": ["API.x.com"]})]
-        rows = [r for r in mx.build_rows("https://x.com", dup) if r[0] == "DNSName"]
-        assert len(rows) == 1                                # case-insensitive dedupe
-
-    def test_export_writes_csv(self, tmp_path):
-        import csv
-        from scanner.output import maltego_export as mx
-        path = mx.export("https://x.com", self._findings(), tmp_path)
-        with open(path, newline="", encoding="utf-8") as fh:
-            rows = list(csv.reader(fh))
-        assert rows[0] == ["EntityType", "Value", "LinkedTo"]
-        assert any(r[0] == "DNSName" and r[1] == "api.x.com" for r in rows)
-
-
-class TestToolsProfileWiring:
-    def test_tools_profile_holds_the_integrations(self):
-        from config import PROFILE_MODULES
-        tools = PROFILE_MODULES["tools"]
-        assert "scanner.integrations.nmap_scan" in tools
-        assert "scanner.integrations.gobuster_scan" in tools
-        assert "scanner.integrations.theharvester_scan" in tools
-        assert "scanner.integrations.reconng_scan" in tools
-
-    def test_integrations_left_out_of_full_and_catalog(self):
-        from config import PROFILE_MODULES, MODULE_CATALOG, ALL_MODULES
-        assert not any("integrations" in m for m in PROFILE_MODULES["full"])
-        assert not any("integrations" in m for m in PROFILE_MODULES["passive"])
-        assert not any("integrations" in m for cat in MODULE_CATALOG.values() for m in cat)
-        assert "scanner.integrations.nmap_scan" in ALL_MODULES          # still resolvable via --module
-
-    def test_resolve_module_still_finds_an_integration(self):
+    def test_resolve_module_finds_an_integration(self):
         from main import resolve_module
         assert resolve_module("nmap_scan") == "scanner.integrations.nmap_scan"
 
