@@ -5742,3 +5742,48 @@ class TestRetestReports:
         console.print_retest_diff(diff, 72, "C")             # must not raise
         console.print_retest_diff({"baseline": True}, 80, "B")
         console.print_retest_diff(None, 80, "B")             # no-op
+
+
+class TestScopeRules:
+    """--scope / --deny allow/deny enforcement (scanner/scope.py)."""
+
+    def test_no_rules_returns_none(self):
+        from scanner.scope import ScopeRules
+        assert ScopeRules.build("https://t.com") is None
+        assert ScopeRules.build("https://t.com", allow=[], deny=[]) is None
+
+    def test_allow_list_scopes_to_patterns(self):
+        from scanner.scope import ScopeRules
+        r = ScopeRules.build("https://target.com", allow=["*.target.com", "api.other.com/v1"])
+        assert r.in_scope("https://target.com/x")            # target host auto-allowed
+        assert r.in_scope("https://sub.target.com/a")        # subdomain wildcard
+        assert r.in_scope("https://api.other.com/v1/users")  # host + path prefix
+        assert not r.in_scope("https://api.other.com/v2/x")  # wrong path prefix
+        assert not r.in_scope("https://evil.com/")           # not allowed
+
+    def test_deny_wins_over_allow_and_target(self):
+        from scanner.scope import ScopeRules
+        r = ScopeRules.build("https://target.com",
+                             allow=["*.target.com"], deny=["target.com/admin", "logout.target.com"])
+        assert r.in_scope("https://target.com/app")
+        assert not r.in_scope("https://target.com/admin/panel")   # denied path prefix
+        assert not r.in_scope("https://logout.target.com/")       # denied host
+
+    def test_deny_only_blocks_listed(self):
+        from scanner.scope import ScopeRules
+        r = ScopeRules.build("https://target.com", deny=["ads.tracker.com"])
+        assert r.in_scope("https://anything.com/")               # open except the denied host
+        assert not r.in_scope("http://ads.tracker.com/beacon")
+
+    def test_scheme_and_trailing_dot_tolerated(self):
+        from scanner.scope import ScopeRules
+        r = ScopeRules.build("https://target.com", allow=["https://api.target.com/"])
+        assert r.in_scope("https://api.target.com/anything")
+
+    def test_check_raises_and_counts(self):
+        from scanner.scope import ScopeRules, OutOfScopeError
+        r = ScopeRules.build("https://target.com", allow=["target.com"])
+        r.check("https://target.com/ok")                         # in scope → no raise
+        with pytest.raises(OutOfScopeError):
+            r.check("https://evil.com/x")
+        assert r.blocked == 1
