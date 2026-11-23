@@ -5787,3 +5787,31 @@ class TestScopeRules:
         with pytest.raises(OutOfScopeError):
             r.check("https://evil.com/x")
         assert r.blocked == 1
+
+
+class TestScopeEnforcement:
+    """The engine blocks out-of-scope requests before they leave (scanner/scope.py in engine)."""
+
+    def test_engine_blocks_out_of_scope_request(self):
+        from scanner.scope import ScopeRules, OutOfScopeError
+        rules = ScopeRules.build("https://target.com", allow=["target.com"])
+        eng = ScanEngine("https://target.com", rate_delay=0, scope=rules)
+        # In-scope requests are not blocked by scope (transport will just fail/really connect — we
+        # only assert the scope gate, so use request_anonymous which checks scope first).
+        with pytest.raises(OutOfScopeError):
+            eng.request_anonymous("GET", "https://evil.com/x")
+        assert rules.blocked == 1
+
+    def test_engine_without_scope_does_not_block(self):
+        eng = ScanEngine("https://target.com", rate_delay=0)   # no scope → gate disabled
+        assert eng._scope is None
+
+    def test_collect_scope_merges_file_and_flags(self, tmp_path):
+        import main
+        f = tmp_path / "scope.txt"
+        f.write_text("# header\n*.target.com\n!logout.target.com\n", encoding="utf-8")
+        args = main.build_parser().parse_args(
+            ["-u", "http://target.com", "--scope-file", str(f), "--deny", "ads.com"])
+        allow, deny = main._collect_scope(args)
+        assert "*.target.com" in allow
+        assert "logout.target.com" in deny and "ads.com" in deny

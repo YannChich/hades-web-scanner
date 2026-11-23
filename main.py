@@ -6,6 +6,7 @@ Handles CLI argument parsing, the interactive menu, and delegates to the scan en
 import argparse
 import sys
 import io
+from pathlib import Path
 from typing import Optional
 
 # Force UTF-8 on Windows so box-drawing characters in the banner render correctly.
@@ -400,6 +401,27 @@ def confirm_engagement(already_authorised: bool) -> bool:
 # Argument parser
 # ---------------------------------------------------------------------------
 
+def _collect_scope(args: argparse.Namespace) -> tuple[list[str], list[str]]:
+    """Merge --scope / --deny flags with an optional --scope-file into (allow, deny) lists.
+
+    In a scope file, one pattern per line; a line starting with '!' is a deny, '#' is a comment,
+    blank lines are ignored. Missing/unreadable files are skipped with a warning (never fatal).
+    """
+    allow = list(getattr(args, "scope", None) or [])
+    deny = list(getattr(args, "deny", None) or [])
+    path = getattr(args, "scope_file", None)
+    if path:
+        try:
+            for line in Path(path).read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                (deny if line.startswith("!") else allow).append(line.lstrip("!").strip())
+        except OSError as exc:
+            console.print(f"[warn]  ⚠ Could not read --scope-file {path}: {exc}[/warn]")
+    return allow, deny
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hades",
@@ -489,6 +511,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Diff this scan against the target's previous run: label every finding "
              "new / still-present / fixed, show the delta, and record the run under "
              "reports/history/ (first run becomes the baseline)",
+    )
+    parser.add_argument(
+        "--scope",
+        action="append",
+        metavar="PATTERN",
+        help="Allowlist a host or host/path for the engagement (repeatable). Patterns: "
+             "example.com, example.com/api, *.example.com. The target host is always in scope; "
+             "anything not allowed is blocked before the request leaves",
+    )
+    parser.add_argument(
+        "--deny",
+        action="append",
+        metavar="PATTERN",
+        help="Denylist a host or host/path (repeatable); deny always wins over --scope "
+             "(e.g. logout.example.com, example.com/admin)",
+    )
+    parser.add_argument(
+        "--scope-file",
+        metavar="FILE",
+        help="Read scope patterns from a file (one per line; a line starting with '!' is a deny, "
+             "'#' comments). Merged with --scope / --deny",
     )
     parser.add_argument(
         "--wordlist", "-w",
@@ -610,6 +653,8 @@ def main() -> None:
     console.print(f"\n[accent]>>  Starting scan[/accent]  target=[ok]{url}[/ok]  {scope}")
     console.print(f"[info]    Log: {log_path}[/info]\n")
 
+    scope_allow, scope_deny = _collect_scope(args)
+
     run_scan(
         url=url,
         profile=profile,
@@ -629,6 +674,8 @@ def main() -> None:
         oob_host=args.oob_host,
         oob_port=args.oob_port,
         retest=args.retest,
+        scope_allow=scope_allow,
+        scope_deny=scope_deny,
     )
 
 

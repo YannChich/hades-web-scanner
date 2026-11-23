@@ -14,6 +14,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scanner.crawler import CrawlResult
+    from scanner.scope import ScopeRules
 
 import httpx
 from loguru import logger
@@ -221,8 +222,12 @@ class ScanEngine:
         bruteforce: bool = False,
         oob_host: Optional[str] = None,
         oob_port: int = 0,
+        scope: "Optional[ScopeRules]" = None,
     ) -> None:
         self.url          = url.rstrip("/")
+        # Optional engagement scope: when set, every outbound request is checked against the
+        # allow/deny rules before it leaves (out-of-scope requests are blocked and counted).
+        self._scope       = scope
         self.profile      = profile
         self.threads      = threads
         # Explicit module list overrides the profile (e.g. single-module run).
@@ -311,6 +316,8 @@ class ScanEngine:
         fail fast instead of waiting on a timeout, so the scan finishes quickly rather than every
         module grinding to its budget. A successful request closes it again.
         """
+        if self._scope is not None:                           # enforce engagement scope first
+            self._scope.check(url)
         if self._breaker_open_until > time.monotonic():       # open → fail fast, no rate-limit wait
             raise httpx.ConnectError(f"circuit breaker open: {self.url} unresponsive")
         self._rate_limiter.acquire()
@@ -361,6 +368,8 @@ class ScanEngine:
     def request_anonymous(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Rate-limited request with NO session cookie or auth header — used by access-control
         checks to tell whether an object is reachable without being logged in."""
+        if self._scope is not None:                           # scope applies to anon traffic too
+            self._scope.check(url)
         if self._anon_client is None:
             mounts = (
                 {"http://": httpx.HTTPTransport(proxy=self.proxy),
@@ -624,12 +633,19 @@ def run_scan(
     oob_host: Optional[str] = None,
     oob_port: int = 0,
     retest: bool = False,
+    scope_allow: Optional[list[str]] = None,
+    scope_deny: Optional[list[str]] = None,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested.
 
     When ``retest`` is set, the run is diffed against the target's previous scan (new /
     still-present / fixed) and recorded to the per-target history under ``reports/history/``.
+    ``scope_allow`` / ``scope_deny`` constrain which hosts/paths may be requested.
     """
+    from scanner.scope import ScopeRules  # local import avoids a cycle
+    scope = ScopeRules.build(url, allow=scope_allow, deny=scope_deny)
+    if scope is not None:
+        console.print(f"[dim]  🎯 Scope enforced — {scope.describe()}[/dim]")
     with ScanEngine(
         url=url,
         profile=profile,
@@ -647,6 +663,7 @@ def run_scan(
         bruteforce=bruteforce,
         oob_host=oob_host,
         oob_port=oob_port,
+        scope=scope,
     ) as engine:
         if engine.authenticated:
             console.print("[dim]  🔓 Authenticated session established — scanning the logged-in surface.[/dim]")
@@ -654,6 +671,9 @@ def run_scan(
             console.print("[yellow]  ⚠ Login not confirmed — continuing unauthenticated "
                           "(check --login-data / --login-check).[/yellow]")
         findings = engine.run_scan()
+
+    if scope is not None and scope.blocked:
+        console.print(f"[dim]  🎯 Scope: blocked {scope.blocked} out-of-scope request(s).[/dim]")
 
     # Knowledge-base enrichment: attach matching expert playbooks from the skills
     # library (optional — silently no-ops if the library isn't present).
