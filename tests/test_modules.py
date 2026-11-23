@@ -5677,3 +5677,68 @@ class TestRetestHistory:
         cur = [self._f("x", "t")]
         history.tag_findings(cur, None)
         assert "retest" not in cur[0].raw
+
+
+class TestRetestReports:
+    """--retest rendering across the JSON report, the HTML report, and the console."""
+
+    def _tagged(self):
+        new = Finding(module="ssrf_detect", title="SSRF in url", description="x",
+                      severity=Severity.HIGH)
+        new.raw["retest"] = "new"
+        still = Finding(module="sqli_detect", title="SQLi in id", description="y",
+                        severity=Severity.CRITICAL)
+        still.raw["retest"] = "still-present"
+        diff = {"baseline": False, "previous_date": "2026-11-20T10:00:00+00:00",
+                "previous_score": 60, "previous_grade": "F",
+                "new": [new], "still_present": [still],
+                "fixed": [{"id": "XSS-1", "module": "xss_detect",
+                           "title": "Reflected XSS in q", "severity": "medium"}]}
+        return [new, still], diff
+
+    def test_json_report_carries_retest(self, tmp_path):
+        from scanner.output.report_json import generate_json
+        import json
+        findings, diff = self._tagged()
+        p = generate_json(findings, "http://x", 72, output_path=str(tmp_path), retest=diff)
+        data = json.loads(open(p).read())
+        assert data["retest"]["counts"] == {"new": 1, "still_present": 1, "fixed": 1}
+        assert data["retest"]["fixed"][0]["module"] == "xss_detect"
+        statuses = {f["module"]: f["retest"] for f in data["findings"]}
+        assert statuses == {"ssrf_detect": "new", "sqli_detect": "still-present"}
+
+    def test_json_report_retest_null_without_flag(self, tmp_path):
+        from scanner.output.report_json import generate_json
+        import json
+        findings, _ = self._tagged()
+        p = generate_json(findings, "http://x", 72, output_path=str(tmp_path))
+        assert json.loads(open(p).read())["retest"] is None
+
+    def test_html_report_has_retest_section_and_badges(self, tmp_path):
+        from scanner.output.report_html import generate_html
+        findings, diff = self._tagged()
+        p = generate_html(findings, "http://x", 72, output_path=str(tmp_path), retest=diff)
+        html = open(p).read()
+        assert "Retest · change since last scan" in html
+        assert "rt-new" in html and "rt-fixed" in html
+        assert "Reflected XSS in q" in html                   # the fixed row is rendered
+
+    def test_html_report_baseline_note(self, tmp_path):
+        from scanner.output.report_html import generate_html
+        findings, _ = self._tagged()
+        p = generate_html(findings, "http://x", 72, output_path=str(tmp_path),
+                          retest={"baseline": True})
+        assert "baseline" in open(p).read().lower()
+
+    def test_html_report_no_section_without_flag(self, tmp_path):
+        from scanner.output.report_html import generate_html
+        findings, _ = self._tagged()
+        p = generate_html(findings, "http://x", 72, output_path=str(tmp_path))
+        assert "Retest · change" not in open(p).read()
+
+    def test_console_diff_panel_renders(self):
+        from scanner.output import console
+        _, diff = self._tagged()
+        console.print_retest_diff(diff, 72, "C")             # must not raise
+        console.print_retest_diff({"baseline": True}, 80, "B")
+        console.print_retest_diff(None, 80, "B")             # no-op
