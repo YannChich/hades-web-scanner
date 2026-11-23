@@ -206,11 +206,19 @@ def print_findings(findings: list[Finding], url: str) -> None:
             description.append("\n🔗 verify → ", style="bold cyan")
             description.append(verify, style=f"link {verify} underline cyan")
 
+        # Retest marker (only present when --retest tagged the findings).
+        title_cell = Text(f.title, style="bold white")
+        _status = (f.raw or {}).get("retest")
+        if _status == "new":
+            title_cell.append("  ● NEW", style="bold red")
+        elif _status == "still-present":
+            title_cell.append("  • still", style="yellow")
+
         table.add_row(
             Text(label, style=style),
             _confidence_cell(f),
             f.module,
-            f.title,
+            title_cell,
             description,
         )
 
