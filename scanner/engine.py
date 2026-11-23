@@ -48,7 +48,7 @@ from scanner.severity import sort_by_severity
 from scanner.output.console import (print_findings, print_playbooks, print_report_paths,
                                     print_summary, print_verification_links)
 from scanner.output.logger import get_log_path
-from scanner.output.scorer import score_findings
+from scanner.output.scorer import calculate_score, score_findings
 from scanner.output.report_json import generate_json
 from scanner.output.report_html import generate_html
 
@@ -623,8 +623,13 @@ def run_scan(
     open_report: bool = True,
     oob_host: Optional[str] = None,
     oob_port: int = 0,
+    retest: bool = False,
 ) -> None:
-    """Instantiate the engine, run the scan, print results, and export a report if requested."""
+    """Instantiate the engine, run the scan, print results, and export a report if requested.
+
+    When ``retest`` is set, the run is diffed against the target's previous scan (new /
+    still-present / fixed) and recorded to the per-target history under ``reports/history/``.
+    """
     with ScanEngine(
         url=url,
         profile=profile,
@@ -660,10 +665,28 @@ def run_scan(
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"skills enrichment skipped: {exc}")
 
+    # Retest / diff loop (--retest): compare against the target's previous scan and tag each
+    # current finding (new / still-present) before the reports are rendered. Computed here so the
+    # badges land in the HTML/JSON output; the snapshot is recorded at the end of the run.
+    retest_diff = None
+    if retest:
+        try:
+            from scanner.output import history  # local import avoids a cycle
+            previous = history.last_run(url)
+            retest_diff = history.diff(findings, previous)
+            history.tag_findings(findings, previous)
+        except Exception as exc:  # noqa: BLE001 — retest must never abort a scan
+            logger.debug(f"retest diff skipped: {exc}")
+            retest_diff = None
+
     print_findings(findings, url)
     print_verification_links(findings, url)
     score = score_findings(findings)
+    _, grade = calculate_score(findings)
     print_summary(findings, score)
+    if retest_diff is not None:
+        from scanner.output.console import print_retest_diff  # local import avoids a cycle
+        print_retest_diff(retest_diff, score, grade)
     print_playbooks(findings)
 
     # Unified kill-chain attack path (all modules except db_security, which has its own panel).
@@ -688,9 +711,19 @@ def run_scan(
 
     # Every scan always produces both reports: a rich, auto-opened HTML report (the detailed view)
     # and a machine-readable JSON report (for tooling / records).
-    html_path = generate_html(findings, url, score)
-    json_path = generate_json(findings, url, score)
+    html_path = generate_html(findings, url, score, retest=retest_diff)
+    json_path = generate_json(findings, url, score, retest=retest_diff)
     print_report_paths(html_path, json_path, log_path=str(get_log_path()))
+
+    # Record this run to the per-target history so the next --retest can diff against it.
+    if retest:
+        try:
+            from scanner.output import history  # local import avoids a cycle
+            path = history.save_run(findings, url, score, grade)
+            if path:
+                console.print(f"[dim]  🕓 Retest snapshot recorded → {path}[/dim]")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"retest snapshot skipped: {exc}")
 
     if open_report and html_path:
         _open_in_browser(html_path)

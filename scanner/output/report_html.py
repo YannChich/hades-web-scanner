@@ -924,6 +924,7 @@ def generate_html(
     url: str,
     score: int,
     output_path: str = "reports",
+    retest: dict | None = None,
 ) -> str | None:
     """
     Generate a self-contained dark-theme HTML report.

@@ -484,6 +484,13 @@ def build_parser() -> argparse.ArgumentParser:
              "Basic-Auth (authorised targets only; off by default)",
     )
     parser.add_argument(
+        "--retest",
+        action="store_true",
+        help="Diff this scan against the target's previous run: label every finding "
+             "new / still-present / fixed, show the delta, and record the run under "
+             "reports/history/ (first run becomes the baseline)",
+    )
+    parser.add_argument(
         "--wordlist", "-w",
         metavar="FILE",
         help="Custom wordlist path (overrides built-in lists)",
@@ -621,6 +628,7 @@ def main() -> None:
         open_report=not args.no_open,
         oob_host=args.oob_host,
         oob_port=args.oob_port,
+        retest=args.retest,
     )
 
 

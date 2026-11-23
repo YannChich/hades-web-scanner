@@ -24,6 +24,7 @@ def generate_json(
     url: str,
     score: int,
     output_path: str = "reports",
+    retest: dict | None = None,
 ) -> str | None:
     """
     Serialise findings to JSON and write to output_path/webscan_report_TIMESTAMP.json.
