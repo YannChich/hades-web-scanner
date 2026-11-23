@@ -22,7 +22,7 @@
 Several of these are inspired by ARTEX (an autonomous pentest platform) but reimagined
 natively for Hades' Python CLI architecture — no code is copied.
 
-- [ ] **Retest / diff loop** (`--retest`): persist each scan's findings to
+- [x] **Retest / diff loop** (`--retest`): persist each scan's findings to
   `reports/history/<host>.json`; on re-run, compare against the last scan and label every
   finding `new` / `still-present` / `fixed`. Surface a diff panel in console + HTML report.
 - [ ] **Scope / deny rules** (`--scope`, `--deny`): allowlist/denylist of hosts and path
@@ -57,4 +57,9 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-23 — Retest / diff loop (`--retest`): per-target history store with finding
+  fingerprinting; findings labelled new / still-present / fixed with a diff panel in the
+  console and HTML report, retest status in the JSON report, and score delta vs the last run.
+- 2026-11-23 — Fixed a red `main`: the offline skills-library fallback now accepts a shared
+  module keyword, so common modules get an offensive playbook without the full external library.
 - 2026-11-22 — Added this roadmap/backlog to drive the daily autonomous work session.
