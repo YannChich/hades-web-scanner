@@ -209,6 +209,10 @@ evidence**, and every piece of evidence comes with the next move.
   CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
 - Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
 - Every finding carries a **confidence** level (high/medium/low) shown in the terminal and the reports.
+- **Retest / diff loop** (`--retest`): re-scan a target and Hades diffs against the previous run —
+  every finding is labelled **new**, **still-present** or **fixed**, with the score delta and a diff
+  panel in the console and HTML report. Each run is recorded under `reports/history/<host>.json`
+  (a rolling window of the last runs), so you can track remediation progress across engagements.
 - Every scan writes an **HTML report** (auto-opened) **and a JSON report**, plus a timestamped log.
 
 > A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
@@ -400,6 +404,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--no-open` | | `false` | Do not auto-open the HTML report in a browser (both HTML + JSON are always written) |
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
+| `--retest` | | `false` | Diff the scan against the target's previous run — labels every finding **new / still-present / fixed**, shows the score delta, and records the run under `reports/history/` (first run becomes the baseline) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
@@ -566,6 +571,7 @@ Hades is under active development. Planned and in-progress work:
 
 - [ ] Blind SQL injection over DNS (OAST DNS listener)
 - [x] Authenticated / session-aware crawling and BOLA / IDOR testing
+- [x] Retest / diff loop (`--retest`) — new / still-present / fixed across runs
 - [ ] WAF-aware payload mutation (auto-bypass and re-confirm)
 - [ ] Nuclei template bridge (ingest results into the framework/playbook layer)
 - [ ] Expanded MITRE ATLAS coverage for the AI/LLM profile
