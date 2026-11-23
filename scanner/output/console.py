@@ -19,6 +19,7 @@ from rich.text import Text
 from scanner import evidence as ev
 from scanner.severity import CONSOLE_STYLE as _SEVERITY_STYLE
 from scanner.severity import SEVERITY_ORDER as _SEVERITY_ORDER
+from scanner.severity import sort_by_severity
 
 if TYPE_CHECKING:
     from scanner.engine import Finding
@@ -331,6 +332,88 @@ def print_playbooks(findings: list[Finding]) -> None:
 
     console.print(table)
     console.print(f"\n[dim]{len(skills)} playbook(s) available under the skills library.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Retest / diff panel (--retest)
+# ---------------------------------------------------------------------------
+
+def print_retest_diff(diff: dict, score: int, grade: str) -> None:
+    """Render the change since the target's previous scan: new / still-present / fixed.
+
+    ``diff`` is the dict returned by ``scanner.output.history.diff``. On a baseline run (no prior
+    scan) it prints a short note instead. No-op if ``diff`` is falsy.
+    """
+    if not diff:
+        return
+
+    console.print()
+    console.print(Rule("[bold white]Retest · change since last scan[/bold white]", style="dim"))
+    console.print()
+
+    if diff.get("baseline"):
+        console.print(Panel(
+            "[dim]No previous scan on record for this target — this run is the [bold]baseline[/bold].\n"
+            "Re-run with [bold cyan]--retest[/bold cyan] later to see what changed "
+            "(new / still-present / fixed).[/dim]",
+            border_style="dim", padding=(1, 2)))
+        console.print()
+        return
+
+    new   = diff.get("new", [])
+    still = diff.get("still_present", [])
+    fixed = diff.get("fixed", [])
+
+    # Headline: counts + score delta vs the previous run.
+    prev_score = diff.get("previous_score")
+    delta_txt = ""
+    if isinstance(prev_score, (int, float)):
+        d = score - int(prev_score)
+        arrow = "▲" if d > 0 else ("▼" if d < 0 else "=")
+        colour = "green" if d > 0 else ("red" if d < 0 else "dim")
+        delta_txt = (f"   [dim]score[/dim] {int(prev_score)} → {score}  "
+                     f"[{colour}]{arrow} {d:+d}[/{colour}]")
+
+    console.print(
+        f"[bold red]{len(new)} new[/bold red]   ·   "
+        f"[yellow]{len(still)} still-present[/yellow]   ·   "
+        f"[green]{len(fixed)} fixed[/green]{delta_txt}")
+    prev_date = (diff.get("previous_date") or "")[:19].replace("T", " ")
+    if prev_date:
+        console.print(f"[dim]Compared against the scan from {prev_date} UTC.[/dim]")
+    console.print()
+
+    def _add_rows(table: Table, rows: list, status_label: str, style: str) -> None:
+        for item in rows:
+            if isinstance(item, dict):               # fixed → prior snapshot entry
+                sev, module, title, fid = (item.get("severity", ""), item.get("module", ""),
+                                           item.get("title", ""), item.get("id", ""))
+            else:                                    # new / still → live Finding
+                sev, module, title, fid = (item.severity.value, item.module, item.title,
+                                           item.finding_id)
+            table.add_row(
+                Text(status_label, style=style),
+                Text(sev.upper(), style=_SEVERITY_STYLE.get(sev, "white")),
+                fid, module, title)
+
+    if new or fixed:
+        table = Table(box=box.SIMPLE_HEAD, show_header=True, header_style="bold bright_white",
+                      expand=True, padding=(0, 1))
+        table.add_column("Status", width=14, no_wrap=True)
+        table.add_column("Sev",    width=9,  no_wrap=True)
+        table.add_column("ID",     style="dim", width=12, no_wrap=True)
+        table.add_column("Module", style="dim", width=18, no_wrap=True)
+        table.add_column("Title",  ratio=1)
+        # Regressions first (new), then resolved (fixed), each most-severe first.
+        _add_rows(table, sort_by_severity(new), "● NEW", "bold red")
+        _add_rows(table, sorted(fixed, key=lambda e: _SEVERITY_ORDER.index(e.get("severity", "info"))),
+                  "✓ FIXED", "green")
+        console.print(table)
+    else:
+        console.print("[green]✓ No new issues since the last scan.[/green]"
+                      if not still else
+                      "[dim]No change in the issue set since the last scan.[/dim]")
+    console.print()
 
 
 # ---------------------------------------------------------------------------
