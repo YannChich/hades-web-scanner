@@ -5594,3 +5594,86 @@ class TestStatefulFormXss:
                if f.severity == Severity.HIGH and "tfUName" in (f.raw.get("location") or "")]
         assert xss, "reflected XSS in the token-gated login form should be detected"
         assert xss[0].raw.get("evidence")
+
+
+# ---------------------------------------------------------------------------
+# Retest / diff loop — history store (scanner/output/history.py)
+# ---------------------------------------------------------------------------
+
+class TestRetestHistory:
+    """Per-target history snapshots + the new/still-present/fixed diff that drives --retest."""
+
+    def _f(self, module, title, severity=Severity.HIGH):
+        return Finding(module=module, title=title, description="", severity=severity)
+
+    def test_fingerprint_stable_and_location_aware(self):
+        from scanner.output import history
+        a = self._f("sqli_detect", "SQL Injection in 'id'")
+        b = self._f("sqli_detect", "SQL Injection in 'id'")
+        c = self._f("sqli_detect", "SQL Injection in 'q'")
+        assert history.fingerprint(a) == history.fingerprint(b)      # deterministic
+        assert history.fingerprint(a) != history.fingerprint(c)      # location-aware via title
+
+    def test_fingerprint_ignores_whitespace_and_case(self):
+        from scanner.output import history
+        a = self._f("xss_detect", "Reflected XSS")
+        b = self._f("xss_detect", "  reflected   xss ")
+        assert history.fingerprint(a) == history.fingerprint(b)
+
+    def test_history_path_slugs_host(self, tmp_path):
+        from scanner.output import history
+        p = history.history_path("https://ex.ample.com:8443/app?x=1", base=str(tmp_path))
+        assert p.name == "ex.ample.com_8443.json"
+
+    def test_save_then_load_last_run(self, tmp_path):
+        from scanner.output import history
+        findings = [self._f("sqli_detect", "SQLi in id", Severity.CRITICAL)]
+        history.save_run(findings, "https://x.test", 72, "C", base=str(tmp_path))
+        last = history.last_run("https://x.test", base=str(tmp_path))
+        assert last is not None
+        assert last["score"] == 72 and last["grade"] == "C"
+        assert last["findings"][0]["module"] == "sqli_detect"
+
+    def test_rolling_window_caps_runs(self, tmp_path):
+        from scanner.output import history
+        for i in range(history.MAX_RUNS + 5):
+            history.save_run([self._f("x", f"t{i}")], "https://x.test", i, "F", base=str(tmp_path))
+        runs = history.load_history("https://x.test", base=str(tmp_path))["runs"]
+        assert len(runs) == history.MAX_RUNS
+        assert runs[-1]["score"] == history.MAX_RUNS + 4      # newest kept
+
+    def test_diff_labels_new_still_fixed(self, tmp_path):
+        from scanner.output import history
+        first = [self._f("sqli_detect", "SQLi in id"), self._f("xss_detect", "Reflected XSS in q")]
+        history.save_run(first, "https://x.test", 50, "F", base=str(tmp_path))
+        prev = history.last_run("https://x.test", base=str(tmp_path))
+        # Second scan: SQLi still there, XSS fixed, a brand-new SSRF appears.
+        second = [self._f("sqli_detect", "SQLi in id"), self._f("ssrf_detect", "SSRF in url")]
+        d = history.diff(second, prev)
+        assert not d["baseline"]
+        assert [f.module for f in d["still_present"]] == ["sqli_detect"]
+        assert [f.module for f in d["new"]] == ["ssrf_detect"]
+        assert [e["module"] for e in d["fixed"]] == ["xss_detect"]
+
+    def test_diff_baseline_when_no_history(self):
+        from scanner.output import history
+        d = history.diff([self._f("x", "t")], None)
+        assert d["baseline"] is True
+        assert len(d["new"]) == 1 and d["fixed"] == []
+
+    def test_tag_findings_marks_status(self, tmp_path):
+        from scanner.output import history
+        history.save_run([self._f("sqli_detect", "SQLi in id")], "https://x.test", 50, "F",
+                         base=str(tmp_path))
+        prev = history.last_run("https://x.test", base=str(tmp_path))
+        cur = [self._f("sqli_detect", "SQLi in id"), self._f("ssrf_detect", "SSRF in url")]
+        history.tag_findings(cur, prev)
+        by_mod = {f.module: f.raw["retest"] for f in cur}
+        assert by_mod["sqli_detect"] == history.STATUS_STILL
+        assert by_mod["ssrf_detect"] == history.STATUS_NEW
+
+    def test_tag_findings_noop_on_baseline(self):
+        from scanner.output import history
+        cur = [self._f("x", "t")]
+        history.tag_findings(cur, None)
+        assert "retest" not in cur[0].raw
