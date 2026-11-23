@@ -367,22 +367,32 @@ def _candidate_names(finding: "Finding") -> list[str]:
 def _scored_names(finding: "Finding", *, limit: int) -> list[str]:
     """Offensive library skill names ranked by relevance to *finding* (long-tail fallback).
 
-    A skill is accepted only when it is **lexically** relevant (≥1 shared token) AND either shares
-    an ATT&CK technique or shares a 2nd token — so a broad shared technique alone is never enough to
-    attach a playbook. This keeps the long-tail matches precise. Returns up to *limit* names.
+    A skill is accepted only when it is **lexically** relevant (≥1 shared token) AND backed by a
+    strong signal: a shared ATT&CK technique, a shared *module keyword* (the finding's vuln class,
+    e.g. ``sensitive`` from ``sensitive_files``), or a 2nd shared token. A broad shared technique
+    with no lexical overlap, or a single incidental title token (``file``, ``exposed``), is never
+    enough — this keeps the long-tail matches precise even offline, where findings often carry no
+    ATT&CK data. Returns up to *limit* names.
     """
     meta = _skill_meta()
     if not meta:
         return []
     kws = _finding_keywords(finding)
+    module_kw = _module_keyword(finding.module)
     scored: list[tuple[int, str]] = []
     for name, m in meta.items():
         if not m["offensive"]:
             continue
         tech, kw = _score_skill(finding, m, kws)
-        if kw == 0 or (tech == 0 and kw < 2):
+        if kw == 0:
             continue
-        scored.append((tech + kw, name))
+        module_hit = module_kw in m["words"]
+        # Require a strong signal; a lone generic title token is too weak on its own.
+        if not (tech > 0 or module_hit or kw >= 2):
+            continue
+        # Rank a module-keyword match (the finding's actual vuln class) above incidental overlap.
+        boost = 2 if module_hit else 0
+        scored.append((tech + kw + boost, name))
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [name for _, name in scored[:limit]]
 

@@ -4389,6 +4389,19 @@ class TestExpandedSkillMatching:
         f.mitre = ["T1190"]                       # shared by many skills; lexically irrelevant title
         assert skills_kb.match_skills(f) == []
 
+    def test_module_keyword_beats_incidental_token(self):
+        """Offline (no ATT&CK data), the module keyword is the authoritative lexical signal: it wins
+        over an incidental title token so the fallback stays precise."""
+        from scanner.intel import skills_kb
+        f = Finding(module="sensitive_files", title=".env file exposed", description="",
+                    severity=Severity.CRITICAL)
+        f.mitre = []                               # force the offline, technique-less path
+        names = [s["name"] for s in skills_kb.match_skills(f)]
+        assert names, "a module-keyword match should attach a playbook even with no ATT&CK data"
+        # The top match reflects the vuln class, not the incidental 'file' token (→ file-carving).
+        assert "sensitive" in names[0]
+        assert not any("carving" in n for n in names)
+
     def test_curated_remediation_is_blue_team(self):
         from scanner.intel import skills_kb
         f = Finding(module="sqli_detect", title="SQL Injection: id", description="",
