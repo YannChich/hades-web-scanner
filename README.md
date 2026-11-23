@@ -213,6 +213,10 @@ evidence**, and every piece of evidence comes with the next move.
   every finding is labelled **new**, **still-present** or **fixed**, with the score delta and a diff
   panel in the console and HTML report. Each run is recorded under `reports/history/<host>.json`
   (a rolling window of the last runs), so you can track remediation progress across engagements.
+- **Scope / deny rules** (`--scope`, `--deny`, `--scope-file`): keep a scan inside an authorised
+  boundary. Allow/deny patterns (host, host/path-prefix, `*.wildcard` subdomains) are enforced in
+  the engine **before any request leaves** — out-of-scope hosts/paths are blocked and counted, with
+  deny always taking precedence.
 - Every scan writes an **HTML report** (auto-opened) **and a JSON report**, plus a timestamped log.
 
 > A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
@@ -405,6 +409,9 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--arsenal` | | `false` | Open the **RedTeam Arsenal** — a searchable HTML catalogue of 175 offensive tools by attack type, each with its project/GitHub link (no scan; also menu option **666**) |
 | `--skills` | | `false` | Open the **Skills Library** — a searchable HTML catalogue of the 754 expert playbooks Hades draws on, grouped by subdomain, each linking to its full write-up (no scan; also menu option **10**) |
 | `--retest` | | `false` | Diff the scan against the target's previous run — labels every finding **new / still-present / fixed**, shows the score delta, and records the run under `reports/history/` (first run becomes the baseline) |
+| `--scope` | | — | Allowlist a host or host/path for the engagement (repeatable; e.g. `*.example.com`, `example.com/api`). The target host is always in scope; anything not allowed is blocked before the request leaves |
+| `--deny` | | — | Denylist a host or host/path (repeatable); **deny wins** over `--scope` (e.g. `logout.example.com`) |
+| `--scope-file` | | — | Read scope patterns from a file (one per line; `!` prefix = deny, `#` = comment). Merged with `--scope` / `--deny` |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |

@@ -25,7 +25,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **Retest / diff loop** (`--retest`): persist each scan's findings to
   `reports/history/<host>.json`; on re-run, compare against the last scan and label every
   finding `new` / `still-present` / `fixed`. Surface a diff panel in console + HTML report.
-- [ ] **Scope / deny rules** (`--scope`, `--deny`): allowlist/denylist of hosts and path
+- [x] **Scope / deny rules** (`--scope`, `--deny`): allowlist/denylist of hosts and path
   prefixes enforced in `engine.py` before any request leaves. Out-of-scope requests are
   blocked and logged. Accept a scope file (`--scope-file`).
 - [ ] **Findings verification status**: add a `verified: bool` + `verification` note to
@@ -57,6 +57,9 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-23 — Scope / deny rules (`--scope`, `--deny`, `--scope-file`): allow/deny host and
+  path-prefix patterns (with `*.` subdomain wildcards) enforced in the engine before any request
+  leaves; out-of-scope requests are blocked and counted, deny takes precedence.
 - 2026-11-23 — Retest / diff loop (`--retest`): per-target history store with finding
   fingerprinting; findings labelled new / still-present / fixed with a diff panel in the
   console and HTML report, retest status in the JSON report, and score delta vs the last run.
