@@ -19,6 +19,33 @@ from scanner.output.scorer import calculate_score
 from scanner.severity import severity_counts
 
 
+def _retest_block(retest: dict | None) -> dict | None:
+    """Serialisable retest summary for the JSON report (None when --retest wasn't used).
+
+    Current findings live in the top-level ``findings`` array (each carries its own ``retest``
+    status), so here we only summarise counts, the previous run, and the ``fixed`` issues that
+    have no current finding object.
+    """
+    if not retest:
+        return None
+    return {
+        "baseline":       retest.get("baseline", False),
+        "previous_date":  retest.get("previous_date"),
+        "previous_score": retest.get("previous_score"),
+        "previous_grade": retest.get("previous_grade"),
+        "counts": {
+            "new":           len(retest.get("new", [])),
+            "still_present": len(retest.get("still_present", [])),
+            "fixed":         len(retest.get("fixed", [])),
+        },
+        "fixed": [
+            {"id": e.get("id"), "module": e.get("module"),
+             "title": e.get("title"), "severity": e.get("severity")}
+            for e in retest.get("fixed", [])
+        ],
+    }
+
+
 def generate_json(
     findings: list[Finding],
     url: str,
@@ -42,6 +69,7 @@ def generate_json(
         "score":           score,
         "grade":           grade,
         "findings_count":  counts,
+        "retest":          _retest_block(retest),
         "attack_path":     build_attack_path(findings, url),
         "findings": [
             {
@@ -50,6 +78,7 @@ def generate_json(
                 "title":          f.title,
                 "description":    f.description,
                 "severity":       f.severity.value,
+                "retest":         (f.raw or {}).get("retest"),
                 "confidence":     (f.raw or {}).get("confidence", ""),
                 "cvss":           f.cvss,
                 "cwe":            f.cwe,
