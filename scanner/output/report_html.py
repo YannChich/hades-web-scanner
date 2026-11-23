@@ -204,6 +204,30 @@ _CSS = web_theme.ROOT_VARS + web_theme.BASE_CSS + """
 .desc-cell  { color: var(--muted); max-width: 440px; }
 .rec-cell   { color: var(--blue); max-width: 260px; font-size: 0.78rem; }
 
+/* ── Retest status badges + diff panel (--retest) ── */
+.rt-badge {
+  font-family: var(--mono); display: inline-block; margin-left: 8px;
+  padding: 1px 7px; border-radius: 5px; font-size: 0.6rem; font-weight: bold;
+  letter-spacing: 1px; text-transform: uppercase; vertical-align: middle;
+  color: var(--rt-color); background: transparent; border: 1px solid var(--rt-color);
+}
+.rt-new   { --rt-color: var(--red);   }
+.rt-still { --rt-color: var(--yellow);}
+.rt-fixed { --rt-color: var(--green); }
+.retest-panel {
+  border: 1px solid var(--border); border-left: 3px solid var(--purple-line);
+  background: var(--surface); border-radius: 8px; padding: 16px 20px; margin: 4px 0 22px;
+}
+.retest-head { display: flex; flex-wrap: wrap; gap: 18px; align-items: baseline; margin-bottom: 6px; }
+.retest-stat { font-family: var(--mono); font-size: 0.9rem; font-weight: bold; }
+.retest-note { color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; }
+.retest-delta-up   { color: var(--green); }
+.retest-delta-down { color: var(--red); }
+.retest-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.retest-table th { text-align: left; color: var(--muted); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 1px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.retest-table td { padding: 5px 10px; border-bottom: 1px solid var(--border-soft); font-size: 0.82rem; }
+
 /* ── Evidence box: the exact request/response that proves the finding ── */
 .evidence-box {
   margin-top: 7px;
@@ -526,6 +550,92 @@ def _exploitation_html(f: Finding) -> str:
             f'({len(steps)} steps)</summary><ol class="exp-list">{items}</ol></details>')
 
 
+_RETEST_BADGE = {
+    "new":           ('rt-new',   'NEW'),
+    "still-present": ('rt-still', 'STILL'),
+}
+
+
+def _retest_badge(f: Finding) -> str:
+    """Inline new/still-present badge for a finding's title cell (empty unless --retest tagged it)."""
+    status = (f.raw or {}).get("retest")
+    pair = _RETEST_BADGE.get(status)
+    if not pair:
+        return ""
+    cls, label = pair
+    return f'<span class="rt-badge {cls}">{label}</span>'
+
+
+def _retest_section_html(retest: dict | None) -> str:
+    """The 'Retest · change since last scan' panel (empty unless --retest was used)."""
+    if not retest:
+        return ""
+
+    if retest.get("baseline"):
+        return (
+            '<div class="section-title">Retest</div>'
+            '<div class="retest-panel"><div class="retest-note">'
+            'No previous scan on record for this target — this run is the <b>baseline</b>. '
+            'Re-run with <code>--retest</code> to see what changed.'
+            '</div></div>'
+        )
+
+    new   = retest.get("new", [])
+    still = retest.get("still_present", [])
+    fixed = retest.get("fixed", [])
+
+    prev_score = retest.get("previous_score")
+    delta = ""
+    if isinstance(prev_score, (int, float)):
+        # The report's own score isn't passed here; show the previous score for context only.
+        delta = f'<span class="retest-stat" style="color:var(--muted);">prev score {int(prev_score)}</span>'
+    prev_date = (retest.get("previous_date") or "")[:19].replace("T", " ")
+    note = f'Compared against the scan from {_e(prev_date)} UTC.' if prev_date else ""
+
+    def _rows(items: list, status_cls: str, label: str) -> str:
+        out = ""
+        for it in items:
+            if isinstance(it, dict):
+                sev, module, title, fid = (it.get("severity", ""), it.get("module", ""),
+                                           it.get("title", ""), it.get("id", ""))
+            else:
+                sev, module, title, fid = (it.severity.value, it.module, it.title, it.finding_id)
+            color = _SEV_COLOR.get(sev, "#c9d1d9")
+            bg = _SEV_BG.get(sev, "transparent")
+            out += (
+                f'<tr><td><span class="rt-badge {status_cls}">{label}</span></td>'
+                f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'
+                f'{sev.upper()}</span></td>'
+                f'<td class="module-tag">{_e(str(fid))}</td>'
+                f'<td class="module-tag">{_e(str(module))}</td>'
+                f'<td class="title-cell">{_e(str(title))}</td></tr>'
+            )
+        return out
+
+    new_sorted = sorted(new, key=lambda f: _SEV_ORDER.index(f.severity.value))
+    fixed_sorted = sorted(fixed, key=lambda e: _SEV_ORDER.index(e.get("severity", "info")))
+    body = _rows(new_sorted, "rt-new", "NEW") + _rows(fixed_sorted, "rt-fixed", "FIXED")
+    table = (
+        '<table class="retest-table"><thead><tr>'
+        '<th>Status</th><th>Severity</th><th>ID</th><th>Module</th><th>Title</th>'
+        f'</tr></thead><tbody>{body}</tbody></table>'
+        if body else
+        '<div class="retest-note">No new or resolved issues since the last scan.</div>'
+    )
+
+    return (
+        '<div class="section-title">Retest · change since last scan</div>'
+        '<div class="retest-panel">'
+        '<div class="retest-head">'
+        f'<span class="retest-stat rt-new" style="color:var(--red);">{len(new)} new</span>'
+        f'<span class="retest-stat rt-still" style="color:var(--yellow);">{len(still)} still-present</span>'
+        f'<span class="retest-stat rt-fixed" style="color:var(--green);">{len(fixed)} fixed</span>'
+        f'{delta}</div>'
+        f'<div class="retest-note">{note}</div>'
+        f'{table}</div>'
+    )
+
+
 def _findings_table_html(findings: list[Finding]) -> str:
     if not findings:
         return "<p style='color:var(--muted);'>No findings recorded.</p>"
@@ -543,7 +653,7 @@ def _findings_table_html(findings: list[Finding]) -> str:
             f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'
             f"{sev.upper()}</span></td>"
             f'<td class="module-tag">{_e(f.module)}</td>'
-            f'<td class="title-cell">{_e(f.title)}{_refs_html(f, color)}</td>'
+            f'<td class="title-cell">{_e(f.title)}{_retest_badge(f)}{_refs_html(f, color)}</td>'
             f'{desc}'
             f'<td class="rec-cell">{_e(f.recommendation[:160])}{"…" if len(f.recommendation) > 160 else ""}</td>'
             f"</tr>"
@@ -984,6 +1094,9 @@ def generate_html(
     {_gauge_html(score, grade)}
     {_counts_html(counts)}
   </div>
+
+  <!-- Retest diff (only when --retest ran) -->
+  {_retest_section_html(retest)}
 
   <!-- Vulnerabilities (CRITICAL…LOW; INFO/recon is shown separately below) -->
   <div class="section-title">Vulnerabilities</div>
