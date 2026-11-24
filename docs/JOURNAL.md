@@ -37,6 +37,10 @@
   format standard (SARIF) que GitHub et les outils d'intégration continue savent lire directement.
   Concrètement : les failles trouvées peuvent s'afficher automatiquement dans l'onglet « Security »
   d'un projet GitHub, avec leur niveau de gravité et leurs étiquettes (CWE/OWASP). 6 tests de plus.
+- Une « CI » (vérification automatique). J'ai ajouté une configuration GitHub Actions qui relance
+  tout seul, à chaque modification envoyée sur GitHub, le contrôle des imports et les 435 tests —
+  sur trois versions de Python (3.10, 3.11, 3.12). Si quelque chose casse, GitHub le signale tout de
+  suite, ce qui protège la règle « ne jamais casser la branche principale ».
 
 **Les mots nouveaux**
 
@@ -76,6 +80,6 @@ marqueurs de sérieux qu'on retrouve dans les outils professionnels.
 
 **La suite**
 
-Deux pistes possibles : une **intégration continue (GitHub Actions)** pour que les tests tournent
-automatiquement à chaque modification du code, et la **reprise de scan** (`--resume`) pour qu'un
-scan interrompu reparte là où il s'était arrêté au lieu de tout recommencer.
+La **reprise de scan** (`--resume`) : permettre à un scan interrompu de repartir là où il s'était
+arrêté au lieu de tout recommencer. C'est un chantier plus délicat (il touche au cœur du moteur qui
+lance les tests en parallèle), donc il mérite une session dédiée.

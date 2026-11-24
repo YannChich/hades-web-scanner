@@ -51,7 +51,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [ ] Markdown report exporter for quick GitHub/issue pasting.
 - [ ] Config file support (`hades.toml`) for default flags per project.
 - [ ] More unit tests: raise coverage on `scanner/vulns/*` and `scanner/output/*`.
-- [ ] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
+- [x] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
 
 ---
 
@@ -59,6 +59,9 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-24 — CI workflow (`.github/workflows/ci.yml`): runs `tools/check_imports.py` + the full
+  `pytest` suite on every push/PR to main across Python 3.10–3.12, enforcing the "never break main"
+  rule in GitHub itself.
 - 2026-11-24 — SARIF export (`scanner/output/report_sarif.py`): every scan now also writes a
   SARIF 2.1.0 report (`reports/*.sarif`) with one rule per finding type (CWE/OWASP tags +
   CVSS-derived `security-severity`), results located at the target, and stable fingerprints — ready
