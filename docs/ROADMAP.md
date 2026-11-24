@@ -19,6 +19,15 @@
 
 ## In progress / Next up (priority order)
 
+> **Standing emphasis (set 2026-11-24):** sessions should keep a **balanced mix** across three
+> tracks — (1) **new detection modules** (broaden vulnerability coverage), (2) **new active
+> capabilities gated behind `--exploit`** (verified exploitation/proof, detection-first by default),
+> and (3) **improving existing modules** (accuracy / fewer false positives, more payloads, hardening,
+> test coverage). Rotate between the three rather than draining one. Always: detection-only by
+> default, active actions gated behind `--exploit`, authorised targets only, no malware, nothing
+> illegal. If an idea drifts toward an "attack framework" rather than a detection/verification
+> scanner, reframe it as detection/verification and note it in the end-of-session summary.
+
 Several of these are inspired by ARTEX (an autonomous pentest platform) but reimagined
 natively for Hades' Python CLI architecture — no code is copied.
 
@@ -42,6 +51,47 @@ natively for Hades' Python CLI architecture — no code is copied.
   resume (`--resume`) instead of restarting from scratch. *(Taken out of strict priority order this
   session: it touches the threaded scan loop and mid-scan persistence, so it was deferred in favour
   of the self-contained SARIF export rather than risk a half-done checkpoint on `main`.)*
+
+### Track 1 — New detection modules (detection-first, no flag needed)
+
+- [ ] **XXE detection** (`scanner/vulns/xxe_detect.py`): probe XML-accepting endpoints for external-
+  entity processing. In-band first (entity expansion reflected / error signatures); blind via the
+  existing OOB listener. Evidence + `verified` from the proof. Wire into the `full` vuln profile.
+- [ ] **NoSQL injection detection** (`scanner/vulns/nosqli_detect.py`): operator-injection payloads
+  (`$ne`, `$gt`, `$regex`, auth-bypass `[$ne]=`) against JSON and form params; confirm by response
+  divergence like the boolean SQLi logic. Detection-only; set `verified` on a confirmed split.
+- [ ] **GraphQL recon** (`scanner/web/graphql_detect.py`): find `/graphql`-style endpoints, test
+  whether **introspection** is enabled, and flag verbose errors / suggestion leaks and missing depth
+  limiting. INFO→MEDIUM depending on exposure; evidence from the introspection response.
+- [ ] **Host-header injection / cache-poisoning indicators** (`scanner/web/host_header.py`): detect
+  reflected/absolute-URL Host handling and unkeyed inputs that hint at web-cache poisoning. Report as
+  an indicator (detection), with the active cache-poisoning confirmation left behind `--exploit`.
+- [ ] **Insecure-deserialization indicators** (`scanner/vulns/deser_detect.py`): spot serialized
+  blobs in params/cookies (Java `rO0`, PHP `O:`, .NET viewstate, Python pickle) and flag them with
+  the matching risk; detection/heuristic only — no gadget execution.
+
+### Track 2 — New active capabilities (gated behind `--exploit`, verified)
+
+- [ ] **OOB confirmation for SSRF & XXE**: when `--exploit` + an OOB host are set, send a callback
+  payload through the existing `scanner/oob/` listener and mark the finding `verified` only on a real
+  interaction. Detection stays in-band by default; this just upgrades confidence to proof.
+- [ ] **Gated active IDOR confirmation**: with `--exploit`, re-request a neighbouring object id with
+  and without the session and confirm cross-object access by response diffing; write proof to `loot/`.
+  Default run stays detection-only (current behaviour).
+- [ ] **Exploit-chain surfacing in `engage`**: group confirmed findings into a short, ordered
+  kill-chain (recon → entry → impact) using existing data; copy-paste commands only, authorised-use
+  banner, no new offensive tooling.
+
+### Track 3 — Improve existing modules (accuracy / coverage / hardening)
+
+- [ ] **False-positive hardening pass** on the active injection modules: calibrate against the
+  soft-404 / WAF-block baselines already in `evidence.py`, and add regression tests for known
+  false-positive shapes (WAF 403 that echoes payloads, error pages that always contain "SQL").
+- [ ] **Broaden payload sets** for `xss_detect` (more contexts: SVG, event handlers, template
+  literals) and `lfi_detect` (wrappers, Windows paths), each with tests — keep the `verified` proof
+  logic intact.
+- [ ] **Raise unit-test coverage** on `scanner/vulns/*` and `scanner/output/*` toward parity with the
+  newer modules (every new behaviour mocked, no live traffic).
 
 ## Backlog (unordered ideas)
 
