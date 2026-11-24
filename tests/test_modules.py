@@ -164,6 +164,106 @@ class TestFindingTaxonomy:
 
 
 # ---------------------------------------------------------------------------
+# Findings verification status tests
+# ---------------------------------------------------------------------------
+
+class TestVerificationStatus:
+    def test_defaults_to_unverified(self):
+        f = Finding(module="headers_check", title="Missing HSTS", description="", severity=Severity.LOW)
+        assert f.verified is False
+        assert f.verification == ""
+        assert f.raw["verified"] is False
+
+    def test_verified_from_raw(self):
+        f = Finding(module="sqli_detect", title="t", description="", severity=Severity.CRITICAL,
+                    raw={"verified": True, "verification": "boolean split observed"})
+        assert f.verified is True
+        assert f.verification == "boolean split observed"
+
+    def test_verified_flag_gets_default_note(self):
+        f = Finding(module="sqli_detect", title="t", description="", severity=Severity.CRITICAL,
+                    raw={"verified": True})
+        assert f.verified is True
+        assert "evidence" in f.verification       # default note points at the stored evidence
+
+    def test_explicit_fields_sync_into_raw(self):
+        f = Finding(module="xss_detect", title="t", description="", severity=Severity.HIGH,
+                    verified=True, verification="payload reflected unencoded")
+        assert f.raw["verified"] is True
+        assert f.raw["verification"] == "payload reflected unencoded"
+
+    def test_json_report_exposes_verification(self, tmp_path):
+        from scanner.output.report_json import generate_json
+        import json
+        f = Finding(module="sqli_detect", title="SQLi", description="", severity=Severity.CRITICAL,
+                    raw={"verified": True, "verification": "true/false pages differ"})
+        path = generate_json([f], "http://t", 10, output_path=str(tmp_path))
+        data = json.loads(open(path).read())
+        finding = data["findings"][0]
+        assert finding["verified"] is True
+        assert finding["verification"] == "true/false pages differ"
+
+    def test_html_report_renders_badge_only_when_verified(self, tmp_path):
+        from scanner.output.report_html import generate_html
+        verified = Finding(module="sqli_detect", title="SQLi", description="d", severity=Severity.CRITICAL,
+                           raw={"verified": True, "verification": "boolean split"})
+        unverified = Finding(module="headers_check", title="Missing HSTS", description="d",
+                             severity=Severity.LOW)
+        html = open(generate_html([verified], "http://t", 10, output_path=str(tmp_path))).read()
+        assert '<span class="v-badge"' in html and "boolean split" in html
+        html2 = open(generate_html([unverified], "http://t", 90, output_path=str(tmp_path))).read()
+        assert '<span class="v-badge"' not in html2    # CSS defines .v-badge; no span is rendered
+
+    def test_console_shows_verified_marker(self):
+        import io
+        from rich.console import Console
+        from scanner.output import console as con
+        saved = con.console
+        con.console = Console(file=io.StringIO(), width=160, force_terminal=False)
+        try:
+            f = Finding(module="sqli_detect", title="SQL Injection", description="desc",
+                        severity=Severity.CRITICAL,
+                        raw={"verified": True, "verification": "true/false differ"})
+            con.print_findings([f], "http://t")
+            out = con.console.file.getvalue()
+        finally:
+            con.console = saved
+        assert "verified" in out
+
+    def test_ssti_finding_is_verified(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.ssti_detect import _test, _PRODUCT, _PROBES
+        payload = _PROBES[0][0]
+        inj = Injector(label="URL parameter 'q'", param="q",
+                       inject=lambda p: _resp(str(_PRODUCT) if p == payload else "q"),
+                       proof=lambda p: "https://t/?q=" + p, url="https://t/?q=1")
+        f = _test(inj)
+        assert f is not None and f.verified is True
+        assert "evaluated" in f.verification
+
+    def test_command_injection_output_based_is_verified(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.command_injection import _test, _OUTPUT_PAYLOADS
+        payload = _OUTPUT_PAYLOADS[0]
+        inj = Injector(label="URL parameter 'cmd'", param="cmd",
+                       inject=lambda p: _resp("uid=0(root) gid=0(root)" if p == payload else "x"),
+                       proof=lambda p: "https://t/?cmd=" + p, url="https://t/?cmd=1")
+        f = _test(MagicMock(), inj, allow_time=False)
+        assert f is not None and f.verified is True
+        assert "output" in f.verification
+
+    def test_ssrf_inband_finding_is_verified(self):
+        from scanner.vulns._common import Injector
+        from scanner.vulns.ssrf_detect import _test, _PAYLOADS
+        aws_payload = _PAYLOADS[0][0]
+        inj = Injector(label="URL parameter 'url'", param="url",
+                       inject=lambda p: _resp(_REAL_AWS_META if p == aws_payload else "", 200),
+                       proof=lambda p: "https://t/?url=" + p, url="https://t/?url=1")
+        f = _test(inj)
+        assert f is not None and f.verified is True
+
+
+# ---------------------------------------------------------------------------
 # Skills-library enrichment tests (Axe 2)
 # ---------------------------------------------------------------------------
 
