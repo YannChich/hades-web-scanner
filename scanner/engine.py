@@ -107,6 +107,14 @@ class Finding:
     cvss:       Optional[float] = None                # representative base score
     finding_id: str = ""                              # stable ID, e.g. "SQLI-3F9A"
     poc:        str = ""                              # reproducible proof (curl / HTTP request)
+    # ── Verification status ──
+    # ``verified`` is True when Hades holds *active* proof tying this finding to a concrete
+    # request/response (the lines in ``raw["evidence"]``): a reflected payload, an observed time
+    # delay, an object served without a session… Passive/heuristic findings stay unverified.
+    # ``verification`` is a one-line, human-readable note on how it was confirmed. Modules may set
+    # either field directly, or via ``raw["verified"]`` / ``raw["verification"]``.
+    verified:     bool = False
+    verification: str = ""
     # Matched expert playbooks from the skills library (filled by scanner.intel.skills_kb).
     skill_refs: list = field(default_factory=list)
     # Matched blue-team remediation playbook(s) — the defensive complement to skill_refs.
@@ -152,6 +160,19 @@ class Finding:
         self.raw = raw
         raw.setdefault("confidence",
                        "high" if sev in ("critical", "high") else "medium" if sev == "medium" else "low")
+
+        # Verification status — a finding is "verified" only when active proof backs it. Accept the
+        # flag/note from the explicit fields or from ``raw``, then keep both in sync so every render
+        # surface (console, HTML, JSON) reads the same value. A verified finding with no note gets a
+        # default one pointing the reader at the stored evidence.
+        if not self.verified:
+            self.verified = bool(raw.get("verified", False))
+        if not self.verification:
+            self.verification = str(raw.get("verification", "") or "")
+        if self.verified and not self.verification:
+            self.verification = "actively confirmed — see evidence"
+        raw["verified"] = self.verified
+        raw["verification"] = self.verification
 
         # Stable identifier last, so it is always present.
         if not self.finding_id:
