@@ -19,6 +19,7 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0 Safari/537.36 Hades/1.0"
 )
+HADES_VERSION: str = "1.0"          # tool version (reported in the SARIF driver, etc.)
 DEFAULT_TIMEOUT: float = 15.0       # seconds per HTTP request
 DEFAULT_THREADS: int = 10
 DEFAULT_RATE_DELAY: float = 0.5     # seconds between requests (normal)
