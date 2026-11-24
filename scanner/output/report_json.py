@@ -80,6 +80,8 @@ def generate_json(
                 "severity":       f.severity.value,
                 "retest":         (f.raw or {}).get("retest"),
                 "confidence":     (f.raw or {}).get("confidence", ""),
+                "verified":       bool(getattr(f, "verified", False)),
+                "verification":   getattr(f, "verification", "") or "",
                 "cvss":           f.cvss,
                 "cwe":            f.cwe,
                 "owasp":          f.owasp,
