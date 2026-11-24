@@ -19,6 +19,13 @@
   sa propre preuve (par ex. « le serveur a attendu le temps exact de la commande sleep injectée »).
 - J'ai écrit 10 nouveaux tests automatiques pour garantir que ce comportement reste correct dans le
   temps, et j'ai mis à jour le README et la feuille de route.
+- Un « registre de couverture » (coverage ledger). À la fin d'un scan, Hades dit maintenant
+  clairement ce qu'il a *réellement testé* : quels modules ont tourné, lesquels ont été sautés (par
+  exemple en mode sûr), lesquels ont planté ou dépassé le temps imparti, et lesquels n'ont pas été
+  lancés du tout. Il indique aussi la « surface » trouvée en explorant le site (nombre de pages,
+  d'URL avec paramètres, de formulaires) et si un module d'attaque a bien testé cette surface.
+- Ce registre s'affiche dans le terminal (section « Coverage ») et dans le rapport HTML, et il est
+  aussi dans le rapport JSON pour les outils automatiques. 11 tests de plus pour le fiabiliser.
 
 **Les mots nouveaux**
 
@@ -31,13 +38,23 @@
 - **SSRF** (Server-Side Request Forgery) : on force le serveur à aller chercher une URL à notre place,
   ce qui permet d'atteindre des services internes normalement inaccessibles.
 
+**Les mots nouveaux (suite)**
+
+- **Couverture (coverage)** : la liste honnête de ce qu'un scan a examiné. Un rapport « tout va
+  bien » n'a pas la même valeur si l'outil a tout testé ou s'il n'a touché qu'une petite partie du
+  site. La couverture rend cette différence visible.
+- **Surface d'attaque** : l'ensemble des endroits où une attaque est possible (pages, paramètres
+  d'URL, formulaires). Plus la surface explorée est grande, plus le scan est complet.
+
 **Pourquoi ça compte**
 
 Dans un rapport, séparer ce qui est *prouvé* de ce qui est *probable* fait gagner un temps énorme :
 le pentester sait tout de suite quelles failles sont du solide à montrer au client, sans devoir
-re-tester à la main. C'est un marqueur de sérieux qu'on retrouve dans les outils professionnels.
+re-tester à la main. Et la couverture évite le piège du faux sentiment de sécurité : un rapport
+propre après un scan partiel n'est pas une preuve que le site est sûr. Ces deux ajouts sont des
+marqueurs de sérieux qu'on retrouve dans les outils professionnels.
 
 **La suite**
 
-Un « registre de couverture » (coverage ledger) : savoir exactement quels modules ont tourné,
-lesquels ont été ignorés ou ont échoué, et quelles pages/paramètres ont réellement été testés.
+Un « gouverneur de bruit » (noise governor) : mieux régler la vitesse et l'agressivité du scan pour
+rester discret et ne pas surcharger la cible (ralentir automatiquement quand le serveur sature).

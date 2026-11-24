@@ -31,7 +31,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **Findings verification status**: add a `verified: bool` + `verification` note to
   `Finding`, tied to the request/response in `raw["evidence"]`. Render a `✓ verified` badge
   in HTML and a column in console. Active-injection findings set it from their proof.
-- [ ] **Coverage ledger**: track which modules ran vs skipped vs errored per target, and
+- [x] **Coverage ledger**: track which modules ran vs skipped vs errored per target, and
   which discovered endpoints/params were actually probed. Render a "Coverage" section in the
   HTML report (tested vs untested, DA-consistent).
 - [ ] **Noise governor**: extend the token-bucket limiter with adaptive pacing + jitter and a
@@ -57,6 +57,10 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-24 — Coverage ledger: every scan now builds a coverage model (`scanner/output/coverage.py`)
+  recording modules run / skipped / errored / timed-out / not-run plus the crawl-discovered surface
+  (pages, parametrised URLs, forms, parameters) and which input-probing modules exercised it. Rendered
+  as a Coverage section in the console and HTML report and a `coverage` object in the JSON report.
 - 2026-11-24 — Findings verification status: `Finding` now carries `verified: bool` +
   `verification` note (kept in sync with `raw`). Rendered as a green ✓ marker in the console, a
   badge + evidence-box note in the HTML report, and `verified`/`verification` fields in JSON. The

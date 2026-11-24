@@ -215,6 +215,12 @@ evidence**, and every piece of evidence comes with the next move.
   it is marked **✓ verified** with a one-line note on how it was confirmed. The marker shows as a
   green tick in the console and a badge in the HTML report, and the JSON report carries
   `verified` + `verification` fields so downstream tools can filter proven findings from heuristic ones.
+- **Coverage ledger**: every scan records what it actually *tested* — which modules ran, which were
+  skipped (e.g. safe mode), which errored or timed out, and which catalog modules were never
+  attempted — plus the attack surface the crawl discovered (pages, parametrised URLs, forms,
+  parameters) and whether an input-probing module exercised it. Shown as a **Coverage** section in
+  the console and HTML report, and a `coverage` object in JSON, so a clean report is never mistaken
+  for a thorough one.
 - **Retest / diff loop** (`--retest`): re-scan a target and Hades diffs against the previous run —
   every finding is labelled **new**, **still-present** or **fixed**, with the score delta and a diff
   panel in the console and HTML report. Each run is recorded under `reports/history/<host>.json`
