@@ -28,7 +28,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **Scope / deny rules** (`--scope`, `--deny`): allowlist/denylist of hosts and path
   prefixes enforced in `engine.py` before any request leaves. Out-of-scope requests are
   blocked and logged. Accept a scope file (`--scope-file`).
-- [ ] **Findings verification status**: add a `verified: bool` + `verification` note to
+- [x] **Findings verification status**: add a `verified: bool` + `verification` note to
   `Finding`, tied to the request/response in `raw["evidence"]`. Render a `✓ verified` badge
   in HTML and a column in console. Active-injection findings set it from their proof.
 - [ ] **Coverage ledger**: track which modules ran vs skipped vs errored per target, and
@@ -57,6 +57,11 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-24 — Findings verification status: `Finding` now carries `verified: bool` +
+  `verification` note (kept in sync with `raw`). Rendered as a green ✓ marker in the console, a
+  badge + evidence-box note in the HTML report, and `verified`/`verification` fields in JSON. The
+  active-injection modules (sqli, xss, command injection, ssti, LFI, open redirect, in-band SSRF)
+  set it from their proof, so proven findings are visibly distinct from heuristic ones.
 - 2026-11-23 — Scope / deny rules (`--scope`, `--deny`, `--scope-file`): allow/deny host and
   path-prefix patterns (with `*.` subdomain wildcards) enforced in the engine before any request
   leaves; out-of-scope requests are blocked and counted, deny takes precedence.

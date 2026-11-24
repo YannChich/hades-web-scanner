@@ -209,6 +209,12 @@ evidence**, and every piece of evidence comes with the next move.
   CWE → cwe.mitre.org, OWASP → owasp.org, ATT&CK → attack.mitre.org, tool → GitHub — just like the playbooks.
 - Weighted 0-100 risk score with an A-F grade (informational findings never affect the grade).
 - Every finding carries a **confidence** level (high/medium/low) shown in the terminal and the reports.
+- **Verified findings**: when Hades holds *active proof* tying a finding to a concrete
+  request/response — a reflected XSS breakout, a boolean/time-based SQLi split, OS-command output,
+  an evaluated template expression, a disclosed file, an open redirect, server-fetched SSRF content —
+  it is marked **✓ verified** with a one-line note on how it was confirmed. The marker shows as a
+  green tick in the console and a badge in the HTML report, and the JSON report carries
+  `verified` + `verification` fields so downstream tools can filter proven findings from heuristic ones.
 - **Retest / diff loop** (`--retest`): re-scan a target and Hades diffs against the previous run —
   every finding is labelled **new**, **still-present** or **fixed**, with the score delta and a diff
   panel in the console and HTML report. Each run is recorded under `reports/history/<host>.json`
