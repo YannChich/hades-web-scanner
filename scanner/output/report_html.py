@@ -223,6 +223,31 @@ _CSS = web_theme.ROOT_VARS + web_theme.BASE_CSS + """
   color: var(--green); background: transparent; border: 1px solid var(--green);
 }
 .ev-verified { color: var(--green); font-weight: bold; }
+
+/* ── Coverage ledger ── */
+.cov-grid { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 14px; }
+.cov-tile {
+  flex: 1 1 110px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); padding: 10px 14px; text-align: center;
+}
+.cov-num { font-family: var(--mono); font-size: 1.5rem; font-weight: bold; color: var(--cov-color, var(--bright)); }
+.cov-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 2px; }
+.cov-ran     { --cov-color: var(--green);  }
+.cov-skipped { --cov-color: var(--yellow); }
+.cov-errored { --cov-color: var(--red);    }
+.cov-timeout { --cov-color: var(--yellow); }
+.cov-notrun  { --cov-color: var(--muted);  }
+.cov-surface { color: var(--muted); font-size: 0.82rem; margin: 2px 0 12px; }
+.cov-surface b { color: var(--bright); font-weight: 600; }
+.cov-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.cov-table th { text-align: left; color: var(--muted); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 1px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.cov-table td { padding: 4px 10px; border-bottom: 1px solid var(--border-soft); font-size: 0.8rem;
+  font-family: var(--mono); }
+.cov-status { font-weight: bold; text-transform: uppercase; font-size: 0.65rem; letter-spacing: 1px; }
+.cs-ran { color: var(--green); } .cs-skipped { color: var(--yellow); }
+.cs-errored { color: var(--red); } .cs-timed_out { color: var(--yellow); }
+details.cov-all summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
 .retest-panel {
   border: 1px solid var(--border); border-left: 3px solid var(--purple-line);
   background: var(--surface); border-radius: 8px; padding: 16px 20px; margin: 4px 0 22px;
@@ -658,6 +683,83 @@ def _retest_section_html(retest: dict | None) -> str:
     )
 
 
+_COV_STATUS_LABEL = {"ran": "ran", "skipped": "skipped", "errored": "errored", "timed_out": "timed out"}
+
+
+def _coverage_section_html(coverage: dict | None) -> str:
+    """The 'Coverage' panel: what Hades tested vs skipped/errored/untested, and the discovered surface.
+
+    Empty when no coverage ledger was supplied (keeps older call sites and tests unaffected)."""
+    if not coverage:
+        return ""
+    counts = coverage.get("counts", {})
+    tiles = [
+        ("ran",       counts.get("ran", 0),       "cov-ran",     "Ran"),
+        ("skipped",   counts.get("skipped", 0),   "cov-skipped", "Skipped"),
+        ("errored",   counts.get("errored", 0),   "cov-errored", "Errored"),
+        ("timed_out", counts.get("timed_out", 0), "cov-timeout", "Timed out"),
+        ("not_run",   counts.get("not_run", 0),   "cov-notrun",  "Not run"),
+    ]
+    grid = "".join(
+        f'<div class="cov-tile"><div class="cov-num {cls}">{n}</div>'
+        f'<div class="cov-label">{label}</div></div>'
+        for _key, n, cls, label in tiles
+    )
+
+    surface = coverage.get("surface", {})
+    if surface.get("crawled"):
+        probed = surface.get("probed_by", [])
+        probe_txt = (f'probed by <b>{_e(", ".join(probed))}</b>' if probed
+                     else '<b>no</b> input-probing module ran — the discovered surface was not tested')
+        surface_html = (
+            '<div class="cov-surface">Attack surface discovered: '
+            f'<b>{surface.get("pages", 0)}</b> page(s) crawled · '
+            f'<b>{surface.get("parametrised_urls", 0)}</b> parametrised URL(s) · '
+            f'<b>{surface.get("forms", 0)}</b> form(s) · '
+            f'<b>{surface.get("params", 0)}</b> parameter(s) — {probe_txt}.</div>'
+        )
+    else:
+        surface_html = '<div class="cov-surface">No crawl surface recorded for this run.</div>'
+
+    rows = coverage.get("module_rows", [])
+
+    def _row(r: dict) -> str:
+        status = r.get("status", "ran")
+        label = _COV_STATUS_LABEL.get(status, status)
+        return (
+            f'<tr><td>{_e(r.get("name", ""))}</td>'
+            f'<td style="color:var(--muted);">{_e(r.get("category", ""))}</td>'
+            f'<td><span class="cov-status cs-{status}">{_e(label)}</span></td>'
+            f'<td>{r.get("findings", 0)}</td>'
+            f'<td style="color:var(--muted);">{r.get("seconds", 0)}s</td></tr>'
+        )
+
+    # Lead with modules that need attention (skipped/errored/timed out); full list in a <details>.
+    attention = [r for r in rows if r.get("status") != "ran"]
+    att_table = ""
+    if attention:
+        att_table = (
+            '<table class="cov-table"><thead><tr>'
+            '<th>Module</th><th>Category</th><th>Status</th><th>Findings</th><th>Time</th>'
+            '</tr></thead><tbody>' + "".join(_row(r) for r in attention) + '</tbody></table>'
+        )
+    all_table = (
+        '<table class="cov-table"><thead><tr>'
+        '<th>Module</th><th>Category</th><th>Status</th><th>Findings</th><th>Time</th>'
+        '</tr></thead><tbody>' + "".join(_row(r) for r in rows) + '</tbody></table>'
+    )
+    details = (f'<details class="cov-all"><summary>All {len(rows)} module(s) run this scan</summary>'
+               f'{all_table}</details>') if rows else ""
+
+    return (
+        '<div class="section-title">Coverage</div>'
+        f'<div class="cov-grid">{grid}</div>'
+        f'{surface_html}'
+        f'{att_table}'
+        f'{details}'
+    )
+
+
 def _findings_table_html(findings: list[Finding]) -> str:
     if not findings:
         return "<p style='color:var(--muted);'>No findings recorded.</p>"
@@ -1057,6 +1159,7 @@ def generate_html(
     score: int,
     output_path: str = "reports",
     retest: dict | None = None,
+    coverage: dict | None = None,
 ) -> str | None:
     """
     Generate a self-contained dark-theme HTML report.
@@ -1123,6 +1226,9 @@ def generate_html(
   <!-- Vulnerabilities (CRITICAL…LOW; INFO/recon is shown separately below) -->
   <div class="section-title">Vulnerabilities</div>
   {vulns_html}
+
+  <!-- Coverage ledger: what was tested vs skipped/errored/untested -->
+  {_coverage_section_html(coverage)}
 
   <!-- Unified kill-chain attack path (web/recon/vuln modules) -->
   {_attack_path_html(findings, url)}
