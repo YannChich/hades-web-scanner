@@ -264,6 +264,96 @@ class TestVerificationStatus:
 
 
 # ---------------------------------------------------------------------------
+# Coverage ledger tests
+# ---------------------------------------------------------------------------
+
+class TestCoverageLedger:
+    def _stats(self):
+        return [
+            {"name": "headers_check", "status": "ok", "count": 2, "seconds": 0.3},
+            {"name": "sqli_detect", "status": "ok", "count": 1, "seconds": 1.2},
+            {"name": "xss_detect", "status": "error", "count": 0, "seconds": 0.1},
+            {"name": "dir_scan", "status": "timeout", "count": 0, "seconds": 30.0},
+        ]
+
+    def _paths(self):
+        return ["scanner.web.headers_check", "scanner.vulns.sqli_detect",
+                "scanner.vulns.xss_detect", "scanner.web.dir_scan"]
+
+    def test_buckets_by_status(self):
+        from scanner.output.coverage import build_coverage
+        cov = build_coverage(self._stats(), self._paths(), [], profile="full")
+        assert set(cov["modules"]["ran"]) == {"headers_check", "sqli_detect"}
+        assert cov["modules"]["errored"] == ["xss_detect"]
+        assert cov["modules"]["timed_out"] == ["dir_scan"]
+        assert cov["counts"]["attempted"] == 4
+
+    def test_safe_mode_marker_counts_as_skipped(self):
+        from scanner.output.coverage import build_coverage
+        stats = [{"name": "sqli_detect", "status": "ok", "count": 1, "seconds": 0.1}]
+        findings = [Finding("sqli_detect", "SQL Injection Scan Skipped (Safe Mode)", "",
+                            Severity.INFO)]
+        cov = build_coverage(stats, ["scanner.vulns.sqli_detect"], findings, profile="full")
+        assert cov["modules"]["skipped"] == ["sqli_detect"]
+        assert cov["modules"]["ran"] == []
+
+    def test_clean_none_detected_is_not_skipped(self):
+        # A module that ran and simply found nothing is 'ran', not 'skipped'.
+        from scanner.output.coverage import build_coverage
+        stats = [{"name": "sqli_detect", "status": "ok", "count": 1, "seconds": 0.1}]
+        findings = [Finding("sqli_detect", "SQL Injection: None Detected", "", Severity.INFO)]
+        cov = build_coverage(stats, ["scanner.vulns.sqli_detect"], findings, profile="full")
+        assert cov["modules"]["ran"] == ["sqli_detect"]
+
+    def test_not_run_lists_untested_catalog_modules(self):
+        from scanner.output.coverage import build_coverage
+        from config import ALL_MODULES
+        cov = build_coverage(self._stats(), self._paths(), [], profile="full")
+        attempted = {"headers_check", "sqli_detect", "xss_detect", "dir_scan"}
+        catalog = {m.split(".")[-1] for m in ALL_MODULES}
+        assert cov["counts"]["not_run"] == len(catalog - attempted)
+        assert "cors_check" in cov["modules"]["not_run"]    # a catalog module we did not attempt
+
+    def test_surface_counts_distinct_params(self):
+        from scanner.output.coverage import build_coverage
+
+        class _Crawl:
+            pages = {"http://t/": "<html>", "http://t/a": "<html>"}
+            parametrised_urls = ["http://t/?id=1&cat=2", "http://t/x?id=9"]
+
+            class _F:
+                fields = {"user": "x", "pass": "y"}
+            forms = [_F()]
+
+        cov = build_coverage([], [], [], crawl=_Crawl(), profile="full")
+        assert cov["surface"]["crawled"] is True
+        assert cov["surface"]["pages"] == 2
+        assert cov["surface"]["parametrised_urls"] == 2
+        assert cov["surface"]["params"] == 4       # id, cat, user, pass
+
+    def test_probed_by_lists_only_run_input_modules(self):
+        from scanner.output.coverage import build_coverage
+        cov = build_coverage(self._stats(), self._paths(), [], profile="full")
+        # sqli ran (probes), xss errored (does not count).
+        assert cov["surface"]["probed_by"] == ["sqli_detect"]
+
+    def test_html_section_renders_when_coverage_passed(self, tmp_path):
+        from scanner.output.coverage import build_coverage
+        from scanner.output.report_html import generate_html
+        cov = build_coverage(self._stats(), self._paths(), [], profile="full")
+        f = Finding("sqli_detect", "SQLi", "d", Severity.CRITICAL)
+        html = open(generate_html([f], "http://t", 40, output_path=str(tmp_path), coverage=cov)).read()
+        assert ">Coverage<" in html and "cov-grid" in html
+        assert "cs-errored" in html          # xss error surfaced in the attention table
+
+    def test_html_section_absent_without_coverage(self, tmp_path):
+        from scanner.output.report_html import generate_html
+        f = Finding("sqli_detect", "SQLi", "d", Severity.CRITICAL)
+        html = open(generate_html([f], "http://t", 40, output_path=str(tmp_path))).read()
+        assert ">Coverage<" not in html
+
+
+# ---------------------------------------------------------------------------
 # Skills-library enrichment tests (Axe 2)
 # ---------------------------------------------------------------------------
 
