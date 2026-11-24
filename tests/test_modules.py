@@ -267,6 +267,86 @@ class TestVerificationStatus:
 # Coverage ledger tests
 # ---------------------------------------------------------------------------
 
+class TestNoiseGovernor:
+    def test_backoff_grows_and_caps(self):
+        from scanner.engine import RateLimiter
+        from config import BACKOFF_FACTOR, MAX_BACKOFF_PENALTY
+        rl = RateLimiter(0.5, 5, jitter=0.0)
+        assert rl.penalty == 1.0
+        assert rl.back_off() == pytest.approx(BACKOFF_FACTOR)
+        for _ in range(30):
+            rl.back_off()
+        assert rl.penalty == MAX_BACKOFF_PENALTY
+
+    def test_recover_decays_toward_one(self):
+        from scanner.engine import RateLimiter
+        rl = RateLimiter(0.5, 5, jitter=0.0)
+        rl.back_off(); rl.back_off()
+        before = rl.penalty
+        rl.recover()
+        assert 1.0 <= rl.penalty < before
+        for _ in range(100):
+            rl.recover()
+        assert rl.penalty == 1.0
+
+    def test_retry_after_pauses_acquire(self):
+        import time
+        from scanner.engine import RateLimiter
+        rl = RateLimiter(0.01, 5, jitter=0.0)
+        rl.back_off(retry_after=0.25)
+        start = time.monotonic()
+        rl.acquire()
+        assert time.monotonic() - start >= 0.2
+
+    def test_parse_retry_after_forms(self):
+        import email.utils
+        from datetime import datetime, timedelta, timezone
+        from scanner.engine import _parse_retry_after
+        assert _parse_retry_after("7") == 7.0
+        assert _parse_retry_after(None) is None
+        assert _parse_retry_after("garbage") is None
+        future = email.utils.format_datetime(datetime.now(timezone.utc) + timedelta(seconds=30))
+        assert 20 <= _parse_retry_after(future) <= 31
+
+    def test_jitter_only_lengthens_wait(self):
+        # Jitter adds up to `jitter` fraction — never shortens the base wait.
+        from scanner.engine import RateLimiter
+        rl = RateLimiter(1.0, 1, jitter=1.0)
+        # Drain the single token so the next acquire must wait ~1s; time it loosely.
+        rl.acquire()
+        import time
+        start = time.monotonic()
+        rl.acquire()
+        waited = time.monotonic() - start
+        assert waited >= 0.9           # at least the base per-lane delay
+
+    def test_noise_profiles_tune_limiter(self):
+        from scanner.engine import ScanEngine
+        expected = {None: (0.5, 5, 0.25), "quiet": (2.0, 1, 0.5), "aggressive": (0.1, 5, 0.0)}
+        for noise, (delay, burst, jit) in expected.items():
+            eng = ScanEngine("http://127.0.0.1:1", noise=noise)
+            try:
+                rl = eng._rate_limiter
+                assert rl._delay == delay
+                assert rl._burst == burst
+                assert rl._jitter == jit
+            finally:
+                eng.close()
+
+    def test_request_backs_off_on_429(self):
+        from scanner.engine import ScanEngine
+        eng = ScanEngine("http://127.0.0.1:1", noise="aggressive")
+        try:
+            eng._client = MagicMock()
+            resp = httpx.Response(429, headers={"retry-after": "0"},
+                                  request=httpx.Request("GET", "http://127.0.0.1:1/"))
+            eng._client.request.return_value = resp
+            eng.request("GET", "http://127.0.0.1:1/")
+            assert eng._rate_limiter.penalty > 1.0      # 429 throttled the limiter
+        finally:
+            eng.close()
+
+
 class TestCoverageLedger:
     def _stats(self):
         return [
