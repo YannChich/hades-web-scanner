@@ -4,6 +4,7 @@ WebScan scan engine — module orchestration, threading, rate limiting, and resu
 
 import hashlib
 import importlib
+import random
 import re
 import time
 import threading
@@ -28,12 +29,16 @@ from rich.progress import (
 )
 
 from config import (
+    BACKOFF_FACTOR,
+    BACKOFF_RECOVER,
     CIRCUIT_BREAKER_COOLDOWN,
     CIRCUIT_BREAKER_FAILS,
     CRAWL_MAX_DEPTH,
     CRAWL_MAX_PAGES,
     DB_CATEGORY_REDTEAM_MAP,
     DEFAULT_RATE_DELAY,
+    MAX_BACKOFF_PENALTY,
+    MAX_RETRY_AFTER,
     DEFAULT_THREADS,
     DEFAULT_TIMEOUT,
     FINDING_TAXONOMY,
@@ -193,25 +198,62 @@ class RateLimiter:
     (used for safe/passive mode). ``_delay`` is kept for ``is_safe_mode()``.
     """
 
-    def __init__(self, delay: float, concurrency: int = 1) -> None:
+    def __init__(self, delay: float, concurrency: int = 1, jitter: float = 0.0) -> None:
         self._delay = delay
         self._burst = max(1, concurrency)
         self._rate = (self._burst / delay) if delay > 0 else float("inf")   # tokens per second
         self._tokens = float(self._burst)
         self._updated = time.monotonic()
         self._lock = threading.Lock()
+        # Noise governor state (see config.NOISE_PROFILES): jitter desynchronises request timing;
+        # the penalty throttles the effective rate after a 429/503; the pause honours Retry-After.
+        self._jitter = max(0.0, min(float(jitter), 1.0))
+        self._penalty = 1.0
+        self._pause_until = 0.0
 
     def acquire(self) -> None:
         while True:
             with self._lock:
                 now = time.monotonic()
-                self._tokens = min(self._burst, self._tokens + (now - self._updated) * self._rate)
-                self._updated = now
-                if self._tokens >= 1.0:
-                    self._tokens -= 1.0
-                    return
-                wait = (1.0 - self._tokens) / self._rate
-            time.sleep(max(wait, 0.0))                # sleep OUTSIDE the lock so others can refill
+                if now < self._pause_until:              # a Retry-After pause holds every lane
+                    wait = self._pause_until - now
+                else:
+                    rate = self._rate / self._penalty    # penalty throttles the effective rate
+                    self._tokens = min(self._burst, self._tokens + (now - self._updated) * rate)
+                    self._updated = now
+                    if self._tokens >= 1.0:
+                        self._tokens -= 1.0
+                        wait = 0.0
+                    else:
+                        wait = (1.0 - self._tokens) / rate
+            if wait <= 0.0:
+                return
+            if self._jitter:                             # desynchronise: spread the wait randomly
+                wait *= 1.0 + random.random() * self._jitter
+            time.sleep(wait)                             # sleep OUTSIDE the lock so others can refill
+
+    def back_off(self, retry_after: Optional[float] = None) -> float:
+        """Throttle after a rate-limit/overload signal (429/503). Returns the current penalty.
+
+        A positive ``retry_after`` pauses every lane for that long (capped); otherwise the effective
+        rate is divided by a growing penalty. Thread-safe and idempotent under concurrency."""
+        with self._lock:
+            if retry_after and retry_after > 0:
+                pause = min(float(retry_after), MAX_RETRY_AFTER)
+                self._pause_until = max(self._pause_until, time.monotonic() + pause)
+            self._penalty = min(self._penalty * BACKOFF_FACTOR, MAX_BACKOFF_PENALTY)
+            return self._penalty
+
+    def recover(self) -> None:
+        """Decay the penalty back toward 1.0 after a successful request (no-op when already clear)."""
+        if self._penalty <= 1.0:
+            return
+        with self._lock:
+            self._penalty = max(1.0, self._penalty * BACKOFF_RECOVER)
+
+    @property
+    def penalty(self) -> float:
+        return self._penalty
 
 
 # ---------------------------------------------------------------------------

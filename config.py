@@ -37,6 +37,26 @@ MODULE_TIMEOUT: float = 300.0       # seconds
 CIRCUIT_BREAKER_FAILS: int = 8
 CIRCUIT_BREAKER_COOLDOWN: float = 30.0   # seconds the breaker stays open before a half-open retry
 
+# Noise governor — adaptive pacing so a scan stays polite and backs off a struggling target.
+# Jitter randomises the gap between requests (as a fraction of the computed wait) so traffic is not
+# perfectly periodic and harder to fingerprint as an automated scan. On a 429/503 the limiter is
+# penalised (its effective rate is divided by the penalty); each success decays the penalty back
+# toward 1.0. A Retry-After header pauses every lane for the requested time (capped).
+RATE_JITTER: float = 0.25                # default jitter fraction (0 = perfectly periodic)
+BACKOFF_FACTOR: float = 2.0              # penalty multiplier applied on each 429/503
+BACKOFF_RECOVER: float = 0.85            # penalty decay applied on each success (toward 1.0)
+MAX_BACKOFF_PENALTY: float = 16.0        # cap on the penalty multiplier
+MAX_RETRY_AFTER: float = 60.0            # cap (seconds) honoured from a Retry-After header
+
+# Noise profiles — tune concurrency and the per-lane delay for how aggressive/quiet a scan is.
+# `--quiet` is slow and polite (single lane, long delay, more jitter); `--aggressive` is fast and
+# loud (max lanes, short delay, no jitter). Neither overrides an explicit --threads/safe mode.
+NOISE_PROFILES: dict[str, dict[str, float]] = {
+    "quiet":      {"rate_delay": 2.0, "concurrency": 1, "jitter": 0.5},
+    "normal":     {"rate_delay": DEFAULT_RATE_DELAY, "concurrency": MAX_CONCURRENCY, "jitter": RATE_JITTER},
+    "aggressive": {"rate_delay": 0.1, "concurrency": MAX_CONCURRENCY, "jitter": 0.0},
+}
+
 # ---------------------------------------------------------------------------
 # Shared crawler bounds (used by scanner/crawler.py via ScanEngine.get_crawl)
 # ---------------------------------------------------------------------------
