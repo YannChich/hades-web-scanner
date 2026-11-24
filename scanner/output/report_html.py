@@ -214,6 +214,15 @@ _CSS = web_theme.ROOT_VARS + web_theme.BASE_CSS + """
 .rt-new   { --rt-color: var(--red);   }
 .rt-still { --rt-color: var(--yellow);}
 .rt-fixed { --rt-color: var(--green); }
+
+/* ── Verified badge: finding backed by active proof ── */
+.v-badge {
+  font-family: var(--mono); display: inline-block; margin-left: 8px;
+  padding: 1px 7px; border-radius: 5px; font-size: 0.6rem; font-weight: bold;
+  letter-spacing: 1px; text-transform: uppercase; vertical-align: middle;
+  color: var(--green); background: transparent; border: 1px solid var(--green);
+}
+.ev-verified { color: var(--green); font-weight: bold; }
 .retest-panel {
   border: 1px solid var(--border); border-left: 3px solid var(--purple-line);
   background: var(--surface); border-radius: 8px; padding: 16px 20px; margin: 4px 0 22px;
@@ -525,12 +534,25 @@ def _refs_html(f: Finding, sev_color: str) -> str:
 
 
 def _evidence_html(f: Finding) -> str:
-    """A compact monospace box showing the exact request/response that proves the finding."""
+    """A compact monospace box showing the exact request/response that proves the finding.
+
+    When the finding is actively verified, the verification note is prepended so the proof and the
+    confirmation live together."""
     items = ev.as_list((f.raw or {}).get("evidence"))
-    if not items:
+    verification = getattr(f, "verification", "") if getattr(f, "verified", False) else ""
+    if not items and not verification:
         return ""
-    lines = "".join(f'<div class="ev-line">{_e(it)}</div>' for it in items[:4])
+    head = (f'<div class="ev-line ev-verified">✓ verified — {_e(verification)}</div>'
+            if verification else "")
+    lines = head + "".join(f'<div class="ev-line">{_e(it)}</div>' for it in items[:4])
     return f'<div class="evidence-box"><span class="ev-tag">⧉ evidence</span>{lines}</div>'
+
+
+def _verified_badge(f: Finding) -> str:
+    """Inline ✓ verified badge for a finding's title cell (empty unless the finding is verified)."""
+    if not getattr(f, "verified", False):
+        return ""
+    return '<span class="v-badge" title="Backed by active proof">✓ verified</span>'
 
 
 def _exploitation_html(f: Finding) -> str:
@@ -653,7 +675,7 @@ def _findings_table_html(findings: list[Finding]) -> str:
             f'<td><span class="sev-badge" style="--sev-color:{color};--sev-bg:{bg};">'
             f"{sev.upper()}</span></td>"
             f'<td class="module-tag">{_e(f.module)}</td>'
-            f'<td class="title-cell">{_e(f.title)}{_retest_badge(f)}{_refs_html(f, color)}</td>'
+            f'<td class="title-cell">{_e(f.title)}{_verified_badge(f)}{_retest_badge(f)}{_refs_html(f, color)}</td>'
             f'{desc}'
             f'<td class="rec-cell">{_e(f.recommendation[:160])}{"…" if len(f.recommendation) > 160 else ""}</td>'
             f"</tr>"
