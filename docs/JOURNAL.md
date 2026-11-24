@@ -26,6 +26,13 @@
   d'URL avec paramètres, de formulaires) et si un module d'attaque a bien testé cette surface.
 - Ce registre s'affiche dans le terminal (section « Coverage ») et dans le rapport HTML, et il est
   aussi dans le rapport JSON pour les outils automatiques. 11 tests de plus pour le fiabiliser.
+- Un « gouverneur de bruit ». Hades gère maintenant mieux son rythme d'envoi de requêtes : il ajoute
+  un petit décalage aléatoire entre chaque requête (pour ne pas ressembler à une machine trop
+  régulière) et, surtout, il ralentit tout seul quand le serveur dit « trop de requêtes » (erreurs
+  429/503) — en respectant le délai d'attente que le serveur demande. Dès que ça repart bien, il
+  réaccélère progressivement.
+- Deux nouvelles options en ligne de commande : `--quiet` (lent et discret) et `--aggressive` (rapide
+  et bruyant), pour choisir selon la cible autorisée. 7 tests de plus.
 
 **Les mots nouveaux**
 
@@ -45,6 +52,10 @@
   site. La couverture rend cette différence visible.
 - **Surface d'attaque** : l'ensemble des endroits où une attaque est possible (pages, paramètres
   d'URL, formulaires). Plus la surface explorée est grande, plus le scan est complet.
+- **429 / 503** : des codes d'erreur que renvoie un serveur quand il est débordé (« ralentis ! »).
+  Un bon outil les écoute et lève le pied, au lieu de continuer à cogner.
+- **Jitter (gigue)** : un petit délai aléatoire ajouté entre les requêtes pour que le trafic
+  paraisse moins « robotique » et déclenche moins les systèmes de défense.
 
 **Pourquoi ça compte**
 
@@ -56,5 +67,5 @@ marqueurs de sérieux qu'on retrouve dans les outils professionnels.
 
 **La suite**
 
-Un « gouverneur de bruit » (noise governor) : mieux régler la vitesse et l'agressivité du scan pour
-rester discret et ne pas surcharger la cible (ralentir automatiquement quand le serveur sature).
+Un « export SARIF » : produire les résultats dans un format standard que GitHub et les chaînes
+d'intégration continue (CI) savent lire, pour afficher les failles directement dans le code.

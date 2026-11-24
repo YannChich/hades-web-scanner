@@ -34,7 +34,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **Coverage ledger**: track which modules ran vs skipped vs errored per target, and
   which discovered endpoints/params were actually probed. Render a "Coverage" section in the
   HTML report (tested vs untested, DA-consistent).
-- [ ] **Noise governor**: extend the token-bucket limiter with adaptive pacing + jitter and a
+- [x] **Noise governor**: extend the token-bucket limiter with adaptive pacing + jitter and a
   `--quiet`/`--aggressive` profile that tunes concurrency and delays. Back off on 429/503.
 - [ ] **Scan resume / checkpoint**: persist engine progress so an interrupted scan can
   resume (`--resume`) instead of restarting from scratch.
@@ -57,6 +57,9 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-24 — Noise governor: the rate limiter now adds configurable timing jitter and adapts to
+  the target — a 429/503 throttles it (growing penalty, Retry-After honoured) and each success decays
+  the penalty back. New `--quiet` / `--aggressive` profiles tune lanes, delay and jitter.
 - 2026-11-24 — Coverage ledger: every scan now builds a coverage model (`scanner/output/coverage.py`)
   recording modules run / skipped / errored / timed-out / not-run plus the crawl-discovered surface
   (pages, parametrised URLs, forms, parameters) and which input-probing modules exercised it. Rendered

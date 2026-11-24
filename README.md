@@ -215,6 +215,10 @@ evidence**, and every piece of evidence comes with the next move.
   it is marked **✓ verified** with a one-line note on how it was confirmed. The marker shows as a
   green tick in the console and a badge in the HTML report, and the JSON report carries
   `verified` + `verification` fields so downstream tools can filter proven findings from heuristic ones.
+- **Noise governor**: the concurrent rate limiter adds timing **jitter** (so traffic isn't perfectly
+  periodic) and **adapts** to the target — a `429`/`503` throttles it (honouring `Retry-After`) and
+  each success eases it back. `--quiet` and `--aggressive` profiles tune the lanes, delay and jitter
+  for how stealthy or fast a scan should be.
 - **Coverage ledger**: every scan records what it actually *tested* — which modules ran, which were
   skipped (e.g. safe mode), which errored or timed out, and which catalog modules were never
   attempted — plus the attack surface the crawl discovered (pages, parametrised URLs, forms,
@@ -430,6 +434,8 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--oob-port` | | `0` | OAST callback listener port (`0` = auto-pick) |
 | `--proxy` | | — | HTTP/HTTPS proxy URL |
 | `--threads` | `-t` | `10` | Concurrent thread count |
+| `--quiet` | | `false` | Noise profile: slow and polite — a single request lane, long delay and extra timing jitter to stay under the radar (authorised engagements) |
+| `--aggressive` | | `false` | Noise profile: fast and loud — maximum request lanes, minimal delay, no jitter (robust, authorised targets only) |
 | `--ignore-robots` | | `false` | Ignore robots.txt restrictions |
 | `--wordlist` | `-w` | built-in | Custom wordlist path |
 | `--cookies` | | — | Cookie header string |
