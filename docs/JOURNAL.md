@@ -38,9 +38,13 @@
   Concrètement : les failles trouvées peuvent s'afficher automatiquement dans l'onglet « Security »
   d'un projet GitHub, avec leur niveau de gravité et leurs étiquettes (CWE/OWASP). 6 tests de plus.
 - Une « CI » (vérification automatique). J'ai ajouté une configuration GitHub Actions qui relance
-  tout seul, à chaque modification envoyée sur GitHub, le contrôle des imports et les 435 tests —
+  tout seul, à chaque modification envoyée sur GitHub, le contrôle des imports et les tests —
   sur trois versions de Python (3.10, 3.11, 3.12). Si quelque chose casse, GitHub le signale tout de
   suite, ce qui protège la règle « ne jamais casser la branche principale ».
+- Bonus : dès sa première exécution, la CI a trouvé un vrai bug caché — un bout de code qui marchait
+  sur Python 3.12 mais plantait sur 3.10/3.11, alors que le projet promet de fonctionner à partir de
+  3.10. Je l'ai corrigé et ajouté un test pour qu'il ne revienne jamais. La CI justifie déjà son
+  existence.
 
 **Les mots nouveaux**
 
