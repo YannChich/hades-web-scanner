@@ -267,6 +267,66 @@ class TestVerificationStatus:
 # Coverage ledger tests
 # ---------------------------------------------------------------------------
 
+class TestSarifExport:
+    def _findings(self):
+        return [
+            Finding("sqli_detect", "SQLi", "Boolean-based injection", Severity.CRITICAL,
+                    recommendation="Use parameterised queries.",
+                    raw={"verified": True, "evidence": ["GET /?id=1 -> 200"],
+                         "proof_url": "http://t/?id=1", "confidence": "high"}),
+            Finding("headers_check", "Missing HSTS", "desc", Severity.MEDIUM),
+            Finding("basic_info", "IP Address", "desc", Severity.INFO),
+        ]
+
+    def test_schema_and_structure(self):
+        from scanner.output.report_sarif import build_sarif
+        doc = build_sarif(self._findings(), "http://t")
+        assert doc["version"] == "2.1.0"
+        assert doc["$schema"].endswith("sarif-2.1.0.json")
+        run = doc["runs"][0]
+        assert run["tool"]["driver"]["name"] == "Hades"
+        assert len(run["results"]) == 3
+        assert len(run["tool"]["driver"]["rules"]) == 3   # one rule per distinct finding
+
+    def test_level_mapping(self):
+        from scanner.output.report_sarif import build_sarif
+        run = build_sarif(self._findings(), "http://t")["runs"][0]
+        levels = [r["level"] for r in run["results"]]
+        assert levels == ["error", "warning", "note"]     # critical→error, medium→warning, info→note
+
+    def test_security_severity_and_tags(self):
+        from scanner.output.report_sarif import build_sarif
+        run = build_sarif(self._findings(), "http://t")["runs"][0]
+        sqli_rule = run["tool"]["driver"]["rules"][0]
+        assert sqli_rule["properties"]["security-severity"] == "9.8"
+        assert any(t.startswith("CWE-") for t in sqli_rule["properties"]["tags"])
+
+    def test_result_carries_evidence_and_fingerprint(self):
+        from scanner.output.report_sarif import build_sarif
+        run = build_sarif(self._findings(), "http://t")["runs"][0]
+        sqli = run["results"][0]
+        assert "Evidence:" in sqli["message"]["text"]
+        assert sqli["partialFingerprints"]["hadesFindingId"]
+        assert sqli["properties"]["verified"] is True
+        assert sqli["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "http://t/?id=1"
+
+    def test_rules_deduped_by_finding_type(self):
+        from scanner.output.report_sarif import build_sarif
+        two = [
+            Finding("headers_check", "Missing HSTS", "d", Severity.MEDIUM),
+            Finding("headers_check", "Missing HSTS", "d", Severity.MEDIUM),
+        ]
+        run = build_sarif(two, "http://t")["runs"][0]
+        assert len(run["results"]) == 2 and len(run["tool"]["driver"]["rules"]) == 1
+
+    def test_generate_writes_valid_json(self, tmp_path):
+        import json
+        from scanner.output.report_sarif import generate_sarif
+        path = generate_sarif(self._findings(), "http://t", output_path=str(tmp_path))
+        assert path and path.endswith(".sarif")
+        json.loads(open(path).read())   # must be valid JSON
+
+
 class TestNoiseGovernor:
     def test_backoff_grows_and_caps(self):
         from scanner.engine import RateLimiter
