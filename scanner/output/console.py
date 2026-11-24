@@ -588,8 +588,8 @@ def print_summary(findings: list[Finding], score: int) -> None:
 # ---------------------------------------------------------------------------
 
 def print_report_paths(html_path: "str | None", json_path: "str | None",
-                       log_path: str = "") -> None:
-    """Show where the HTML/JSON reports and the log file were written."""
+                       log_path: str = "", sarif_path: "str | None" = None) -> None:
+    """Show where the HTML/JSON/SARIF reports and the log file were written."""
     import os
 
     rows: list[str] = []
@@ -598,6 +598,9 @@ def print_report_paths(html_path: "str | None", json_path: "str | None",
                     "[dim](opens in your browser)[/dim]")
     if json_path:
         rows.append(f"[bold]JSON report[/bold]  [cyan]{os.path.abspath(json_path)}[/cyan]")
+    if sarif_path:
+        rows.append(f"[bold]SARIF      [/bold]  [cyan]{os.path.abspath(sarif_path)}[/cyan]  "
+                    "[dim](GitHub code scanning / CI)[/dim]")
     if log_path:
         rows.append(f"[bold]Scan log   [/bold]  [dim]{os.path.abspath(log_path)}[/dim]")
     if not rows:

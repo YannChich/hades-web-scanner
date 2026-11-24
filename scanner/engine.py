@@ -868,7 +868,14 @@ def run_scan(
     # and a machine-readable JSON report (for tooling / records).
     html_path = generate_html(findings, url, score, retest=retest_diff, coverage=coverage)
     json_path = generate_json(findings, url, score, retest=retest_diff, coverage=coverage)
-    print_report_paths(html_path, json_path, log_path=str(get_log_path()))
+    # SARIF 2.1.0 for GitHub code scanning / CI dashboards (alongside the HTML + JSON reports).
+    try:
+        from scanner.output.report_sarif import generate_sarif  # local import avoids a cycle
+        sarif_path = generate_sarif(findings, url)
+    except Exception as exc:  # noqa: BLE001 — reporting must never abort a scan
+        logger.debug(f"SARIF export skipped: {exc}")
+        sarif_path = None
+    print_report_paths(html_path, json_path, log_path=str(get_log_path()), sarif_path=sarif_path)
 
     # Record this run to the per-target history so the next --retest can diff against it.
     if retest:
