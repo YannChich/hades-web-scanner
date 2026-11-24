@@ -188,6 +188,29 @@ class Finding:
 # Rate limiter
 # ---------------------------------------------------------------------------
 
+def _parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse a ``Retry-After`` header into seconds (supports both the delta-seconds and HTTP-date
+    forms). Returns None when absent or unparseable, and clamps negatives to 0."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))                       # delta-seconds form
+    except ValueError:
+        pass
+    try:                                                    # HTTP-date form
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+        when = parsedate_to_datetime(value)
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 class RateLimiter:
     """Thread-safe concurrent token-bucket rate limiter.
 
@@ -345,6 +368,7 @@ class ScanEngine:
         self._fail_streak = 0
         self._breaker_open_until = 0.0
         self._breaker_announced = False
+        self._governor_announced = False      # one-time note when the noise governor first backs off
 
         # Establish an authenticated session before any module runs (best-effort).
         if self.login_url and self.login_data:
@@ -407,6 +431,20 @@ class ScanEngine:
             with self._breaker_lock:
                 self._fail_streak = 0
                 self._breaker_open_until = 0.0
+
+        # Noise governor: a 429 (rate-limited) or 503 (overloaded) means we are pushing too hard.
+        # Honour Retry-After when present and throttle the limiter; a plain 2xx/3xx decays it back.
+        if resp.status_code in (429, 503):
+            retry_after = _parse_retry_after(resp.headers.get("retry-after"))
+            penalty = self._rate_limiter.back_off(retry_after)
+            if not self._governor_announced:
+                self._governor_announced = True
+                detail = (f"pausing ~{retry_after:.0f}s (Retry-After)" if retry_after
+                          else f"slowing to 1/{penalty:g} rate")
+                console.print(f"[yellow]  ⚠ {self.url} returned {resp.status_code} — "
+                              f"backing off to stay polite ({detail}).[/yellow]")
+        else:
+            self._rate_limiter.recover()
         return resp
 
     def get(self, path: str = "", **kwargs) -> httpx.Response:
