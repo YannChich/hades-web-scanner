@@ -215,6 +215,10 @@ evidence**, and every piece of evidence comes with the next move.
   it is marked **✓ verified** with a one-line note on how it was confirmed. The marker shows as a
   green tick in the console and a badge in the HTML report, and the JSON report carries
   `verified` + `verification` fields so downstream tools can filter proven findings from heuristic ones.
+- **SARIF export**: every scan also writes a SARIF 2.1.0 report (`reports/*.sarif`) that **GitHub
+  code scanning**, Azure DevOps and most CI dashboards ingest natively — findings show up in a PR's
+  Security tab with CWE/OWASP tags and a CVSS-derived severity, and stable fingerprints so re-scans
+  dedupe. Sits alongside the HTML and JSON reports.
 - **Noise governor**: the concurrent rate limiter adds timing **jitter** (so traffic isn't perfectly
   periodic) and **adapts** to the target — a `429`/`503` throttles it (honouring `Retry-After`) and
   each success eases it back. `--quiet` and `--aggressive` profiles tune the lanes, delay and jitter

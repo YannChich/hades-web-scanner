@@ -36,10 +36,12 @@ natively for Hades' Python CLI architecture — no code is copied.
   HTML report (tested vs untested, DA-consistent).
 - [x] **Noise governor**: extend the token-bucket limiter with adaptive pacing + jitter and a
   `--quiet`/`--aggressive` profile that tunes concurrency and delays. Back off on 429/503.
-- [ ] **Scan resume / checkpoint**: persist engine progress so an interrupted scan can
-  resume (`--resume`) instead of restarting from scratch.
-- [ ] **SARIF export** (`report_sarif.py`): emit findings in SARIF 2.1.0 so results load into
+- [x] **SARIF export** (`report_sarif.py`): emit findings in SARIF 2.1.0 so results load into
   GitHub code scanning / CI dashboards.
+- [ ] **Scan resume / checkpoint**: persist engine progress so an interrupted scan can
+  resume (`--resume`) instead of restarting from scratch. *(Taken out of strict priority order this
+  session: it touches the threaded scan loop and mid-scan persistence, so it was deferred in favour
+  of the self-contained SARIF export rather than risk a half-done checkpoint on `main`.)*
 
 ## Backlog (unordered ideas)
 
@@ -57,6 +59,10 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-24 — SARIF export (`scanner/output/report_sarif.py`): every scan now also writes a
+  SARIF 2.1.0 report (`reports/*.sarif`) with one rule per finding type (CWE/OWASP tags +
+  CVSS-derived `security-severity`), results located at the target, and stable fingerprints — ready
+  for GitHub code scanning / CI dashboards.
 - 2026-11-24 — Noise governor: the rate limiter now adds configurable timing jitter and adapts to
   the target — a 429/503 throttles it (growing penalty, Retry-After honoured) and each success decays
   the penalty back. New `--quiet` / `--aggressive` profiles tune lanes, delay and jitter.

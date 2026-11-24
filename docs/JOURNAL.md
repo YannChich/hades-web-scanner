@@ -33,6 +33,10 @@
   réaccélère progressivement.
 - Deux nouvelles options en ligne de commande : `--quiet` (lent et discret) et `--aggressive` (rapide
   et bruyant), pour choisir selon la cible autorisée. 7 tests de plus.
+- Un export « SARIF ». En plus des rapports HTML et JSON, Hades écrit maintenant un fichier dans un
+  format standard (SARIF) que GitHub et les outils d'intégration continue savent lire directement.
+  Concrètement : les failles trouvées peuvent s'afficher automatiquement dans l'onglet « Security »
+  d'un projet GitHub, avec leur niveau de gravité et leurs étiquettes (CWE/OWASP). 6 tests de plus.
 
 **Les mots nouveaux**
 
@@ -56,6 +60,11 @@
   Un bon outil les écoute et lève le pied, au lieu de continuer à cogner.
 - **Jitter (gigue)** : un petit délai aléatoire ajouté entre les requêtes pour que le trafic
   paraisse moins « robotique » et déclenche moins les systèmes de défense.
+- **SARIF** : un format de fichier standard pour partager des résultats d'analyse de sécurité.
+  Beaucoup d'outils (dont GitHub) le comprennent, donc produire du SARIF rend Hades compatible avec
+  eux sans effort supplémentaire.
+- **CI (intégration continue)** : un système qui vérifie automatiquement le code à chaque
+  modification. Lui donner du SARIF permet de bloquer ou signaler les failles au bon moment.
 
 **Pourquoi ça compte**
 
@@ -67,5 +76,6 @@ marqueurs de sérieux qu'on retrouve dans les outils professionnels.
 
 **La suite**
 
-Un « export SARIF » : produire les résultats dans un format standard que GitHub et les chaînes
-d'intégration continue (CI) savent lire, pour afficher les failles directement dans le code.
+Deux pistes possibles : une **intégration continue (GitHub Actions)** pour que les tests tournent
+automatiquement à chaque modification du code, et la **reprise de scan** (`--resume`) pour qu'un
+scan interrompu reparte là où il s'était arrêté au lieu de tout recommencer.
