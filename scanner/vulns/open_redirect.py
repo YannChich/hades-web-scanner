@@ -61,6 +61,8 @@ def _finding(inj: Injector, payload: str, mechanism: str,
                         "map an opaque token to a fixed destination server-side."),
         raw={"location": inj.label, "parameter": inj.param, "payload": payload,
              "mechanism": mechanism, "proof_url": proof_url, "confidence": "high",
+             "verified": True,
+             "verification": f"server redirected to the attacker-controlled host via {mechanism}",
              "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
              "exploitation": _exploitation_steps(inj)},
     )

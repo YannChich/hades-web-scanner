@@ -65,6 +65,10 @@ def _finding(inj: Injector, payload: str, technique: str, signal: str,
                         "array (no shell), validate against an allowlist, and strip shell metacharacters."),
         raw={"location": inj.label, "parameter": inj.param, "technique": technique,
              "payload": payload, "proof_url": proof_url, "commix": commix, "confidence": "high",
+             "verified": True,
+             "verification": ("command output returned in the response"
+                              if technique == "output-based"
+                              else "injected sleep delayed the response proportionally"),
              "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
              "exploitation": _exploitation_steps(inj, payload)},
     )

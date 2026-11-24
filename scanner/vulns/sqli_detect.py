@@ -140,6 +140,14 @@ def _exploitation_steps(url: str, param: str, flag: str) -> list[dict]:
     ]
 
 
+# Why each technique counts as actively verified (ties the ✓ verified badge to the proof).
+_VERIFY_NOTE = {
+    "error-based":          "DBMS error signature introduced by our payload (absent in baseline)",
+    "boolean-based blind":  "TRUE payload matched baseline while FALSE diverged — blind boolean split",
+    "time-based blind":     "injected SLEEP delayed the response proportionally to the requested time",
+}
+
+
 def _finding(url: str, param: str, technique: str, payload: str, db: str,
              evidence: list[str] | None = None) -> Finding:
     proof_url = _inject(url, param, payload)
@@ -160,6 +168,8 @@ def _finding(url: str, param: str, technique: str, payload: str, db: str,
         raw={"url": url, "parameter": param, "technique": technique, "payload": payload,
              "database": db, "proof_url": proof_url, "sqlmap": sqlmap,
              "sqlmap_args": sqlmap_args, "confidence": "high",
+             "verified": True,
+             "verification": _VERIFY_NOTE.get(technique, "active SQL injection confirmed"),
              "evidence": evidence or _evidence(param, payload), "exploitation": steps},
     )
 

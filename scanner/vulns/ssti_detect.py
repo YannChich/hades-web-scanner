@@ -62,6 +62,9 @@ def _finding(inj: Injector, payload: str, engine_name: str,
                         "and pass user data only as bound variables — never concatenated into the template."),
         raw={"location": inj.label, "parameter": inj.param, "engine": engine_name,
              "payload": payload, "proof_url": proof_url, "tplmap": tplmap, "confidence": "high",
+             "verified": True,
+             "verification": (f"template engine evaluated the injected expression → {_PRODUCT} "
+                              "in the response"),
              "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
              "exploitation": _exploitation_steps(inj, payload)},
     )

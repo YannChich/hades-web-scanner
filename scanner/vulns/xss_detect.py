@@ -150,6 +150,9 @@ def _finding(where: str, ctx: str, payload: str, severity: Severity, confidence:
         raw["proof_url"] = proof_url
     # Only a confirmed (breakout) reflected XSS is exploitable — the encoded LOW case is not.
     if severity != Severity.LOW:
+        raw["verified"] = True
+        raw["verification"] = (f"breakout payload survived unencoded in a "
+                               f"{_CTX_LABEL.get(ctx, ctx)} context")
         target = proof_url or "<the injected request>"
         raw["exploitation"] = [
             {"step": 1, "description": "Confirm execution and auto-discover working payloads.",

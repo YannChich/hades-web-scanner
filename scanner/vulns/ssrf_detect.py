@@ -79,6 +79,8 @@ def _finding(inj: Injector, payload: str, signal: str,
                         "out-of-band (OOB) interaction test."),
         raw={"location": inj.label, "parameter": inj.param, "payload": payload,
              "signal": signal, "proof_url": proof_url, "confidence": "medium",
+             "verified": True,
+             "verification": f"server-fetched content returned in the response ({signal})",
              "evidence": proof_lines or [f"injected into {inj.label}: {payload}"],
              "exploitation": _exploitation_steps(inj, payload)},
     )
