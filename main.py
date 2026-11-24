@@ -488,6 +488,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Number of concurrent threads (default: 10)",
     )
+    noise_group = parser.add_mutually_exclusive_group()
+    noise_group.add_argument(
+        "--quiet",
+        action="store_const", const="quiet", dest="noise",
+        help="Noise profile: slow and polite — a single request lane, long delay and extra timing "
+             "jitter to stay under the radar on authorised engagements",
+    )
+    noise_group.add_argument(
+        "--aggressive",
+        action="store_const", const="aggressive", dest="noise",
+        help="Noise profile: fast and loud — maximum request lanes, minimal delay and no jitter "
+             "(use only on robust, authorised targets)",
+    )
     parser.add_argument(
         "--ignore-robots",
         action="store_true",
@@ -676,6 +689,7 @@ def main() -> None:
         retest=args.retest,
         scope_allow=scope_allow,
         scope_deny=scope_deny,
+        noise=getattr(args, "noise", None),
     )
 
 

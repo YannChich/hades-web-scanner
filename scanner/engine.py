@@ -39,6 +39,8 @@ from config import (
     DEFAULT_RATE_DELAY,
     MAX_BACKOFF_PENALTY,
     MAX_RETRY_AFTER,
+    NOISE_PROFILES,
+    RATE_JITTER,
     DEFAULT_THREADS,
     DEFAULT_TIMEOUT,
     FINDING_TAXONOMY,
@@ -309,6 +311,7 @@ class ScanEngine:
         oob_host: Optional[str] = None,
         oob_port: int = 0,
         scope: "Optional[ScopeRules]" = None,
+        noise: Optional[str] = None,
     ) -> None:
         self.url          = url.rstrip("/")
         # Optional engagement scope: when set, every outbound request is checked against the
@@ -338,10 +341,21 @@ class ScanEngine:
         self.oob_host     = oob_host
         self.oob_port     = oob_port
 
+        # Noise governor profile (--quiet / --aggressive) tunes the per-lane delay, how many request
+        # lanes run, and the timing jitter. It does not touch the module-execution pool (self.threads).
+        jitter = RATE_JITTER
+        lane_target = threads
+        prof = NOISE_PROFILES.get(noise or "")
+        if prof:
+            rate_delay = float(prof["rate_delay"])
+            lane_target = int(prof["concurrency"])
+            jitter = float(prof["jitter"])
+        self.noise = noise if prof else "normal"
+
         # Safe/passive mode stays strictly serial (one polite lane); otherwise allow the thread pool
         # to parallelise up to MAX_CONCURRENCY lanes so the scan isn't capped at one request/delay.
-        concurrency = 1 if rate_delay >= SAFE_MODE_RATE_DELAY else max(1, min(threads, MAX_CONCURRENCY))
-        self._rate_limiter = RateLimiter(rate_delay, concurrency)
+        concurrency = 1 if rate_delay >= SAFE_MODE_RATE_DELAY else max(1, min(lane_target, MAX_CONCURRENCY))
+        self._rate_limiter = RateLimiter(rate_delay, concurrency, jitter=jitter)
         self._client       = self._build_client()
         self._anon_client: Optional[httpx.Client] = None   # lazy, for access-control checks
         self.findings: list[Finding] = []
@@ -742,6 +756,7 @@ def run_scan(
     retest: bool = False,
     scope_allow: Optional[list[str]] = None,
     scope_deny: Optional[list[str]] = None,
+    noise: Optional[str] = None,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested.
 
@@ -771,6 +786,7 @@ def run_scan(
         oob_host=oob_host,
         oob_port=oob_port,
         scope=scope,
+        noise=noise,
     ) as engine:
         if engine.authenticated:
             console.print("[dim]  🔓 Authenticated session established — scanning the logged-in surface.[/dim]")
