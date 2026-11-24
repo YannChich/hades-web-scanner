@@ -352,6 +352,35 @@ class TestCoverageLedger:
         html = open(generate_html([f], "http://t", 40, output_path=str(tmp_path))).read()
         assert ">Coverage<" not in html
 
+    def test_console_coverage_line(self):
+        import io
+        from rich.console import Console
+        from scanner.output import console as con
+        from scanner.output.coverage import build_coverage
+        saved = con.console
+        con.console = Console(file=io.StringIO(), width=120, force_terminal=False)
+        try:
+            cov = build_coverage(self._stats(), self._paths(), [], profile="full")
+            con.print_coverage(cov)
+            out = con.console.file.getvalue()
+        finally:
+            con.console = saved
+        assert "Coverage" in out and "ran" in out and "errored" in out
+
+    def test_from_engine_adapter(self):
+        from scanner.output.coverage import from_engine
+
+        class _Eng:
+            _run_stats = [{"name": "headers_check", "status": "ok", "count": 1, "seconds": 0.2}]
+            _module_paths = ["scanner.web.headers_check"]
+            findings = []
+            _crawl_result = None
+            profile = "full"
+
+        cov = from_engine(_Eng())
+        assert cov["counts"]["ran"] == 1
+        assert cov["profile"] == "full"
+
 
 # ---------------------------------------------------------------------------
 # Skills-library enrichment tests (Axe 2)

@@ -726,11 +726,23 @@ def run_scan(
             logger.debug(f"retest diff skipped: {exc}")
             retest_diff = None
 
+    # Coverage ledger: what this run actually tested (modules run/skipped/errored/untested + the
+    # discovered surface), read off the finished engine so console + reports can be honest about scope.
+    try:
+        from scanner.output.coverage import from_engine as _coverage_from_engine  # local import
+        coverage = _coverage_from_engine(engine)
+    except Exception as exc:  # noqa: BLE001 — coverage must never abort a scan
+        logger.debug(f"coverage ledger skipped: {exc}")
+        coverage = None
+
     print_findings(findings, url)
     print_verification_links(findings, url)
     score = score_findings(findings)
     _, grade = calculate_score(findings)
     print_summary(findings, score)
+    if coverage is not None:
+        from scanner.output.console import print_coverage  # local import avoids a cycle
+        print_coverage(coverage)
     if retest_diff is not None:
         from scanner.output.console import print_retest_diff  # local import avoids a cycle
         print_retest_diff(retest_diff, score, grade)
@@ -758,15 +770,6 @@ def run_scan(
 
     # Every scan always produces both reports: a rich, auto-opened HTML report (the detailed view)
     # and a machine-readable JSON report (for tooling / records).
-    # Coverage ledger: what this run actually tested (modules run/skipped/errored/untested + the
-    # discovered surface), read off the finished engine so the reports can be honest about scope.
-    try:
-        from scanner.output.coverage import from_engine as _coverage_from_engine  # local import
-        coverage = _coverage_from_engine(engine)
-    except Exception as exc:  # noqa: BLE001 — coverage must never abort a scan
-        logger.debug(f"coverage ledger skipped: {exc}")
-        coverage = None
-
     html_path = generate_html(findings, url, score, retest=retest_diff, coverage=coverage)
     json_path = generate_json(findings, url, score, retest=retest_diff, coverage=coverage)
     print_report_paths(html_path, json_path, log_path=str(get_log_path()))

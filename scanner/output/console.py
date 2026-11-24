@@ -434,6 +434,48 @@ def print_retest_diff(diff: dict, score: int, grade: str) -> None:
 # Summary panel
 # ---------------------------------------------------------------------------
 
+def print_coverage(coverage: dict | None) -> None:
+    """A compact coverage line: what this scan tested vs skipped/errored/untested, and the surface.
+
+    Mirrors the HTML report's Coverage section so the terminal is equally honest about scope. No-op
+    when no ledger is supplied."""
+    if not coverage:
+        return
+    c = coverage.get("counts", {})
+    s = coverage.get("surface", {})
+
+    console.print()
+    console.print(Rule("[bold white]Coverage[/bold white]", style="dim"))
+    console.print()
+    parts = [
+        f"[green]{c.get('ran', 0)} ran[/green]",
+        f"[yellow]{c.get('skipped', 0)} skipped[/yellow]",
+        f"[red]{c.get('errored', 0)} errored[/red]",
+        f"[yellow]{c.get('timed_out', 0)} timed out[/yellow]",
+        f"[dim]{c.get('not_run', 0)} not run[/dim]",
+    ]
+    console.print("  Modules: " + "  ·  ".join(parts))
+
+    if s.get("crawled"):
+        probed = s.get("probed_by", [])
+        probe_txt = (f"probed by [cyan]{', '.join(probed)}[/cyan]" if probed
+                     else "[red]no input-probing module ran[/red]")
+        console.print(
+            f"  Surface: [bold]{s.get('pages', 0)}[/bold] page(s) · "
+            f"[bold]{s.get('parametrised_urls', 0)}[/bold] parametrised URL(s) · "
+            f"[bold]{s.get('forms', 0)}[/bold] form(s) · "
+            f"[bold]{s.get('params', 0)}[/bold] parameter(s) — {probe_txt}"
+        )
+
+    attention = [r for r in coverage.get("module_rows", []) if r.get("status") != "ran"]
+    for r in attention:
+        colour = {"errored": "red", "timed_out": "yellow", "skipped": "dim"}.get(r["status"], "white")
+        label = {"errored": "errored", "timed_out": "timed out", "skipped": "skipped"}.get(
+            r["status"], r["status"])
+        console.print(f"    [{colour}]• {r['name']:<24} {label}[/{colour}]")
+    console.print()
+
+
 def print_summary(findings: list[Finding], score: int) -> None:
     """
     Print the final summary: severity counts, score/grade panel,
