@@ -183,6 +183,8 @@ def print_findings(findings: list[Finding], url: str) -> None:
         evidence = ev.as_list((f.raw or {}).get("evidence"))
         if evidence:
             description.append(f"\n⧉ evidence → {' · '.join(evidence[:2])}", style="dim green")
+        if getattr(f, "verified", False) and getattr(f, "verification", ""):
+            description.append(f"\n✓ verified → {f.verification}", style="bold green")
         exploitation = (f.raw or {}).get("exploitation")
         if isinstance(exploitation, list) and exploitation:
             description.append("\n⛓ exploit chain →", style="bold red")
@@ -206,8 +208,12 @@ def print_findings(findings: list[Finding], url: str) -> None:
             description.append("\n🔗 verify → ", style="bold cyan")
             description.append(verify, style=f"link {verify} underline cyan")
 
-        # Retest marker (only present when --retest tagged the findings).
+        # Verified marker — a green tick when Hades holds active proof for this finding.
         title_cell = Text(f.title, style="bold white")
+        if getattr(f, "verified", False):
+            title_cell.append("  ✓ verified", style="bold green")
+
+        # Retest marker (only present when --retest tagged the findings).
         _status = (f.raw or {}).get("retest")
         if _status == "new":
             title_cell.append("  ● NEW", style="bold red")
