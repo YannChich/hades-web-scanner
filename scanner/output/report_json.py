@@ -52,6 +52,7 @@ def generate_json(
     score: int,
     output_path: str = "reports",
     retest: dict | None = None,
+    coverage: dict | None = None,
 ) -> str | None:
     """
     Serialise findings to JSON and write to output_path/webscan_report_TIMESTAMP.json.
@@ -70,6 +71,7 @@ def generate_json(
         "grade":           grade,
         "findings_count":  counts,
         "retest":          _retest_block(retest),
+        "coverage":        coverage,
         "attack_path":     build_attack_path(findings, url),
         "findings": [
             {

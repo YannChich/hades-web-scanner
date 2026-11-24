@@ -758,8 +758,17 @@ def run_scan(
 
     # Every scan always produces both reports: a rich, auto-opened HTML report (the detailed view)
     # and a machine-readable JSON report (for tooling / records).
-    html_path = generate_html(findings, url, score, retest=retest_diff)
-    json_path = generate_json(findings, url, score, retest=retest_diff)
+    # Coverage ledger: what this run actually tested (modules run/skipped/errored/untested + the
+    # discovered surface), read off the finished engine so the reports can be honest about scope.
+    try:
+        from scanner.output.coverage import from_engine as _coverage_from_engine  # local import
+        coverage = _coverage_from_engine(engine)
+    except Exception as exc:  # noqa: BLE001 — coverage must never abort a scan
+        logger.debug(f"coverage ledger skipped: {exc}")
+        coverage = None
+
+    html_path = generate_html(findings, url, score, retest=retest_diff, coverage=coverage)
+    json_path = generate_json(findings, url, score, retest=retest_diff, coverage=coverage)
     print_report_paths(html_path, json_path, log_path=str(get_log_path()))
 
     # Record this run to the per-target history so the next --retest can diff against it.
