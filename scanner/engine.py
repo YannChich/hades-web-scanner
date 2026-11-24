@@ -281,6 +281,11 @@ class ScanEngine:
         self._anon_client: Optional[httpx.Client] = None   # lazy, for access-control checks
         self.findings: list[Finding] = []
 
+        # Per-module run statistics + the exact module set attempted (filled by run_scan). Kept on the
+        # engine so the coverage ledger can report run/skipped/errored/timed-out after the scan.
+        self._run_stats: list[dict] = []
+        self._module_paths: list[str] = []
+
         # Shared crawl cache — populated lazily on first get_crawl() call and
         # reused by every module so parallel scans share a single crawl.
         self._crawl_result = None
@@ -490,6 +495,7 @@ class ScanEngine:
             if self.modules
             else PROFILE_MODULES.get(self.profile, PROFILE_MODULES["full"])
         )
+        self._module_paths = list(module_paths)
 
         # Pre-flight: for a web-centric profile run, confirm the HTTP root is reachable before
         # launching dozens of modules (and seed the shared GET cache with the homepage). A returned
