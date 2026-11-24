@@ -267,6 +267,33 @@ class TestVerificationStatus:
 # Coverage ledger tests
 # ---------------------------------------------------------------------------
 
+class TestPythonCompat:
+    def test_no_backslash_in_fstring_expressions(self):
+        # A backslash inside an f-string *expression* is a SyntaxError on Python 3.10/3.11 (only
+        # PEP 701 / 3.12 relaxed it). The project targets 3.10+, so guard against it here — it is
+        # invisible to a 3.12-only parse. Mirrors the CI matrix.
+        import ast
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        offenders = []
+        for p in root.rglob("*.py"):
+            if ".git" in p.parts:
+                continue
+            src = p.read_text(encoding="utf-8")
+            try:
+                tree = ast.parse(src)
+            except SyntaxError as exc:            # pragma: no cover - reported as an offender
+                offenders.append(f"{p}: {exc}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FormattedValue):
+                    seg = ast.get_source_segment(src, node.value)
+                    if seg and "\\" in seg:
+                        offenders.append(f"{p}:{node.value.lineno}: {seg[:60]}")
+        assert not offenders, "backslash in f-string expression (breaks Python 3.10/3.11): " + \
+            "; ".join(offenders)
+
+
 class TestSarifExport:
     def _findings(self):
         return [

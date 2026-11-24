@@ -988,10 +988,14 @@ def _playbooks_html(findings: list[Finding]) -> str:
         mitre = " · ".join(s.get("mitre", [])[:4])
         tags = " · ".join(s.get("tags", [])[:5])
         meta = " &nbsp;|&nbsp; ".join(p for p in (mitre, tags) if p)
+        # Build the optional meta div separately — a nested f-string with escaped quotes in the
+        # expression part is a SyntaxError on Python 3.10/3.11 (only PEP 701 / 3.12 allows it).
+        meta_div = f'<div class="play-meta">{_e(meta)}</div>' if meta else ""
+        desc_text = _e((s.get("description") or "").strip())
         items += (
             f'<li><a class="play-name" href="{_e(href)}">📘 {_e(s["name"])}</a>'
-            f'{f"<div class=\"play-meta\">{_e(meta)}</div>" if meta else ""}'
-            f'<div class="play-desc">{_e((s.get("description") or "").strip())}</div></li>'
+            f'{meta_div}'
+            f'<div class="play-desc">{desc_text}</div></li>'
         )
     return f"""
   <div class="section-title">Recommended Playbooks</div>
