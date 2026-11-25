@@ -166,6 +166,54 @@ def _check_samesite(cookie: _Cookie) -> Finding | None:
     return None
 
 
+def _check_prefix(cookie: _Cookie) -> Finding | None:
+    """A `__Host-`/`__Secure-` cookie prefix is a browser-enforced contract: if the cookie does not
+    meet the prefix's requirements the browser silently REJECTS it, so the protection the developer
+    thought they had is simply absent. Flag cookies that use a prefix but violate its rules."""
+    low = cookie.name.lower()
+    if low.startswith("__host-"):
+        problems: list[str] = []
+        if not cookie.has_flag("secure"):
+            problems.append("missing Secure")
+        if cookie.attr_value("path") != "/":
+            problems.append("Path is not '/'")
+        if cookie.attr_value("domain"):
+            problems.append("Domain attribute present (must be absent)")
+        if problems:
+            return Finding(
+                module=MODULE,
+                title=f"__Host- Cookie Prefix Requirements Violated: {cookie.name}",
+                description=(
+                    f"Cookie '{cookie.name}' uses the '__Host-' prefix but violates its rules "
+                    f"({', '.join(problems)}). Browsers REJECT a '__Host-' cookie unless it is Secure, "
+                    "has Path=/, and has NO Domain attribute — so this cookie is silently dropped and "
+                    "the intended protection is absent."),
+                severity=Severity.MEDIUM,
+                recommendation=(f"Serve '{cookie.name}' with Secure, Path=/ and no Domain attribute, "
+                                "or drop the '__Host-' prefix if those constraints are not intended."),
+                raw={"cookie": cookie.name, "issue": "host_prefix_violated", "problems": problems,
+                     "raw": cookie.raw,
+                     "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}",
+                                  f"__Host- prefix rules violated: {', '.join(problems)}"]},
+            )
+    elif low.startswith("__secure-"):
+        if not cookie.has_flag("secure"):
+            return Finding(
+                module=MODULE,
+                title=f"__Secure- Cookie Prefix Requirements Violated: {cookie.name}",
+                description=(
+                    f"Cookie '{cookie.name}' uses the '__Secure-' prefix but has no Secure flag. "
+                    "Browsers REJECT a '__Secure-' cookie that is not marked Secure, so it is silently "
+                    "dropped and provides no protection."),
+                severity=Severity.MEDIUM,
+                recommendation=f"Add the Secure flag to '{cookie.name}', or drop the '__Secure-' prefix.",
+                raw={"cookie": cookie.name, "issue": "secure_prefix_violated", "raw": cookie.raw,
+                     "evidence": [f"Set-Cookie: {ev.note(cookie.raw)[:160]}",
+                                  "__Secure- prefix without the required 'Secure' flag"]},
+            )
+    return None
+
+
 def run(engine: ScanEngine) -> list[Finding]:
     findings: list[Finding] = []
 
@@ -190,8 +238,8 @@ def run(engine: ScanEngine) -> list[Finding]:
         return findings
 
     for cookie in cookies:
-        for check in (_check_secure, _check_httponly, _check_samesite):
-            finding = check(cookie) if check is not _check_secure else check(cookie, is_https)
+        for finding in (_check_secure(cookie, is_https), _check_httponly(cookie),
+                        _check_samesite(cookie), _check_prefix(cookie)):
             if finding:
                 findings.append(finding)
 
