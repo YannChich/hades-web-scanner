@@ -48,6 +48,20 @@ def _subdomain_bypass_origin(target_url: str) -> str:
     return f"{parsed.scheme}://evil.{parsed.netloc}"
 
 
+def _suffix_bypass_origin(target_url: str) -> str:
+    """Attacker domain that CONTAINS the target host as a prefix (e.g. example.com.evil.example).
+    Catches an allowlist that naively does `origin.startswith(host)` or `host in origin`."""
+    parsed = urlparse(target_url)
+    return f"{parsed.scheme}://{parsed.netloc}.evil.example"
+
+
+def _prefix_bypass_origin(target_url: str) -> str:
+    """Attacker domain that ENDS WITH the target host without a dot boundary
+    (e.g. notexample.com). Catches an allowlist that does `origin.endswith(host)`."""
+    parsed = urlparse(target_url)
+    return f"{parsed.scheme}://not{parsed.netloc}"
+
+
 def run(engine: ScanEngine) -> list[Finding]:
     findings: list[Finding] = []
     reported: set[str] = set()   # deduplicate findings across probes
@@ -62,6 +76,8 @@ def run(engine: ScanEngine) -> list[Finding]:
         _EVIL_ORIGIN,
         "null",
         _subdomain_bypass_origin(engine.url),
+        _suffix_bypass_origin(engine.url),
+        _prefix_bypass_origin(engine.url),
     ]
 
     for origin in origins_to_test:
