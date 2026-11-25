@@ -42,6 +42,30 @@ _SERVICES: list[_Service] = [
     _Service("RabbitMQ",        "/",                  "rabbitmq",          "guest/guest", "/"),
     _Service("PgAdmin",         "/pgadmin4",          "pgadmin",           "(set at install)", "/pgadmin4"),
     _Service("Portainer",       "/",                  "portainer",         "admin/(set on first run)", "/"),
+    # Monitoring / dashboards
+    _Service("Zabbix",          "/zabbix/",           "zabbix",            "Admin/zabbix", "/zabbix/"),
+    _Service("Cacti",           "/cacti/",            "cacti",             "admin/admin", "/cacti/"),
+    _Service("Nagios",          "/nagios/",           "nagios",            "nagiosadmin/(set at install)", "/nagios/"),
+    _Service("Netdata",         "/",                  "netdata",           "(no authentication by default)", "/"),
+    _Service("Prometheus",      "/graph",             "prometheus",        "(no authentication by default)", "/graph"),
+    # CI/CD, code & quality
+    _Service("SonarQube",       "/",                  "sonarqube",         "admin/admin", "/sessions/new"),
+    _Service("Harbor",          "/account/sign-in",   "harbor",            "admin/Harbor12345", "/account/sign-in"),
+    _Service("Keycloak",        "/admin/",            "keycloak",          "admin/admin (set at bootstrap)", "/admin/"),
+    # Data platforms & object stores
+    _Service("MinIO Console",   "/minio",             "minio",             "minioadmin/minioadmin", "/minio"),
+    _Service("Mongo Express",   "/",                  "mongo express",     "admin/pass", "/"),
+    _Service("Apache Solr",     "/solr/",             "solr",              "(no authentication by default)", "/solr/"),
+    _Service("Couchbase",       "/ui/index.html",     "couchbase",         "Administrator/(set at setup)", "/ui/index.html"),
+    _Service("phpPgAdmin",      "/phppgadmin/",       "phppgadmin",        "(PostgreSQL role credentials)", "/phppgadmin/"),
+    # Data/workflow tooling
+    _Service("Jupyter",         "/tree",              "jupyter",           "(token-based; no password by default)", "/login"),
+    _Service("Apache Airflow",  "/home",              "airflow",           "airflow/airflow", "/login/"),
+    # App servers & appliances
+    _Service("Oracle WebLogic", "/console",           "weblogic",          "weblogic/(set at install)", "/console"),
+    _Service("Webmin",          "/",                  "webmin",            "root/(system root password)", "/"),
+    _Service("pfSense",         "/",                  "pfsense",           "admin/pfsense", "/"),
+    _Service("Splunk",          "/en-US/account/login", "splunk",          "admin/changeme", "/en-US/account/login"),
 ]
 
 
