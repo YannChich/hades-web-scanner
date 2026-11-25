@@ -5242,6 +5242,18 @@ class TestWafDetect:
         eng, waf = self._eng(200, probe_status=406)        # clean 200, malicious 406
         assert any("Generic WAF" in f.title for f in waf.run(eng))
 
+    def test_cookie_fingerprint_incapsula(self):
+        eng, waf = self._eng(200, headers={"set-cookie": "incap_ses_123=abc; path=/"})
+        assert any("Imperva" in f.title for f in waf.run(eng))
+
+    def test_azure_front_door_fingerprint(self):
+        eng, waf = self._eng(200, headers={"x-azure-ref": "0abc"})
+        assert any("Azure" in f.title for f in waf.run(eng))
+
+    def test_via_cloudfront_fingerprint(self):
+        eng, waf = self._eng(200, headers={"via": "1.1 abc.cloudfront.net (CloudFront)"})
+        assert any("CloudFront" in f.title for f in waf.run(eng))
+
 
 # ---------------------------------------------------------------------------
 # Playbook HTML rendering (clickable badge -> readable page, not raw Markdown)
