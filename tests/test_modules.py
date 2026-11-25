@@ -4897,6 +4897,30 @@ class TestJwtAttacks:
         assert len(crit) == 2
         assert all(f.raw.get("evidence") for f in crit)
 
+    def test_framework_default_secret_cracked(self):
+        """A framework-default secret added to the wordlist must now be cracked."""
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        tok = _make_jwt({"user": "bob"}, secret="django-insecure")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'"{tok}"'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        findings = jwt_attacks.run(eng)
+        assert any(f.raw.get("secret") == "django-insecure" for f in findings)
+
+    def test_sensitive_claim_leak_is_medium(self):
+        """A password/api_key claim in the (unencrypted) payload is reported as Medium."""
+        from scanner.vulns import jwt_attacks
+        from scanner.crawler import CrawlResult
+        # Strong secret so the crack does not fire — isolate the sensitive-claim check.
+        tok = _make_jwt({"user": "bob", "password": "hunter2"},
+                        secret="b7f3c1a9e6d4f8821094aa55cc77ee33longrandom")
+        eng = ScanEngine("http://jwt.test", rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'"{tok}"'}))
+        eng._client = httpx.Client(transport=_All404(), follow_redirects=True, verify=False)
+        f = [x for x in jwt_attacks.run(eng) if x.raw.get("sensitive_claims")]
+        assert f and f[0].severity == Severity.MEDIUM and "password" in f[0].raw["sensitive_claims"]
+
 
 # ---------------------------------------------------------------------------
 # auth_bypass tests
