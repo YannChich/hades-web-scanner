@@ -37,10 +37,16 @@ def _is_protected(headers: httpx.Headers) -> tuple[bool, str]:
 
     fa = _frame_ancestors(headers.get("content-security-policy", ""))
     if fa is not None:
-        # 'none' or a restrictive (self / explicit hosts, no wildcard) list protects.
+        # 'none' blocks all framing.
         if "'none'" in fa:
             return True, "CSP frame-ancestors 'none'"
-        if "*" not in fa and fa:
+        # A concrete allowlist ('self' / explicit hosts) protects — but a scheme-wide ('https:'),
+        # wildcard ('*', '*.x'), or empty source lets arbitrary origins frame the page, which is NOT
+        # protection. (Previously 'frame-ancestors https:' was wrongly treated as protected.)
+        def _permissive(tok: str) -> bool:
+            return (not tok) or tok == "*" or tok.endswith(":") or "*" in tok
+        concrete = [t for t in fa if t]
+        if concrete and not any(_permissive(t) for t in concrete):
             return True, f"CSP frame-ancestors {' '.join(fa)}"
     return False, ""
 
