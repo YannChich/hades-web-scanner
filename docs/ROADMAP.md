@@ -127,7 +127,11 @@ natively for Hades' Python CLI architecture — no code is copied.
   **ssl_check** flags MD5/SHA-1 cert signatures and sub-2048-bit RSA/DSA keys;
   **jwt_attacks** gains a larger weak-secret wordlist and flags sensitive claims leaked in the
   (unencrypted) payload;
-  **waf_detect** recognises ~20 more WAF/CDN fingerprints (headers + cookies).
+  **waf_detect** recognises ~20 more WAF/CDN fingerprints (headers + cookies);
+  **redirect_chain** flags credentials/tokens carried in a redirect URL (Medium cross-domain, Low
+  same-domain);
+  **dns_check** fixes a `www.`-stripping bug (`lstrip` mangled hosts like `web.x.com`) and grades
+  policy strength — SPF `+all` (any sender) High / `?all` Low, DMARC `p=none` (not enforcing) Medium.
 - 2026-11-25 — Test-coverage pass on `scanner/output/*`: a JSON-report contract suite
   (`TestReportJsonContract`) locking the top-level shape (score/grade/target), severity counts, the
   `coverage` object passthrough, and the `verified`/`verification` proof fields — a stable contract for

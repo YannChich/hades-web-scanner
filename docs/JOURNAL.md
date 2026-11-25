@@ -27,6 +27,13 @@
   clé d'API…) — car un JWT n'est PAS chiffré, juste signé : tout le monde peut le lire.
 - **Détection de pare-feu (WAF/CDN)** : une vingtaine de nouvelles signatures (AWS WAF, Azure, Google,
   Fastly, Citrix, Fortinet, Imperva par cookie, etc.).
+- **Chaîne de redirections** : Hades alerte maintenant si une redirection transporte un jeton ou un
+  secret dans l'URL (code OAuth, identifiant de session…) — surtout grave quand c'est envoyé vers un
+  autre domaine, car l'URL fuit dans l'historique, les journaux et l'en-tête « Referer ».
+- **DNS / e-mail** : correction d'un bug qui déformait certains noms de domaine (ceux commençant par
+  « w »), et nouvelles alertes sur les réglages anti-usurpation faibles : SPF « +all » (laisse
+  n'importe qui envoyer des mails au nom du domaine) et DMARC « p=none » (surveille mais ne bloque
+  rien).
 
 **Les mots nouveaux**
 
