@@ -57,7 +57,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **XXE detection** (`scanner/vulns/xxe_detect.py`): probe XML-accepting endpoints for external-
   entity processing. In-band first (entity expansion reflected / error signatures); blind via the
   existing OOB listener. Evidence + `verified` from the proof. Wire into the `full` vuln profile.
-- [ ] **NoSQL injection detection** (`scanner/vulns/nosqli_detect.py`): operator-injection payloads
+- [x] **NoSQL injection detection** (`scanner/vulns/nosqli_detect.py`): operator-injection payloads
   (`$ne`, `$gt`, `$regex`, auth-bypass `[$ne]=`) against JSON and form params; confirm by response
   divergence like the boolean SQLi logic. Detection-only; set `verified` on a confirmed split.
 - [ ] **GraphQL recon** (`scanner/web/graphql_detect.py`): find `/graphql`-style endpoints, test
@@ -109,6 +109,12 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — NoSQL injection detection (`scanner/vulns/nosqli_detect.py`): MongoDB-style operator
+  injection on URL parameters via two techniques — error-based (NoSQL driver error signatures the
+  payload introduced, absent in baseline) and an operator boolean split (`param[$ne]=garbage`
+  match-all vs `param[$eq]=garbage` match-none; divergence proves the value is parsed as a query
+  operator, so a parser that ignores the bracket key yields no false positive). HIGH / verified,
+  CWE-943 / A03:2021, mapped to the NoSQL playbook + nuclei; 6 mocked tests.
 - 2026-11-25 — XXE detection (`scanner/vulns/xxe_detect.py`): probes XML-accepting endpoints (form
   actions, parametrised URLs, API/SOAP paths, site root) with three in-band techniques — external-entity
   file disclosure (`/etc/passwd`, `win.ini`) → HIGH/verified, a benign custom-entity expansion canary
