@@ -6,6 +6,7 @@ Checks MX, SPF (TXT), DMARC (_dmarc.<domain> TXT), and DKIM
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 import dns.resolver
@@ -82,11 +83,33 @@ def _check_spf(domain: str) -> Finding:
     txts = _resolve_txt(domain)
     spf = [t for t in txts if t.lower().startswith("v=spf1")]
     if spf:
+        record = spf[0]
+        low = record.lower()
+        # The trailing "all" qualifier is what matters: +all authorises ANY host to send as the
+        # domain (spoofing wide open), ?all is neutral (no protection). -all/~all are the safe forms.
+        if "+all" in low:
+            return _finding(
+                "SPF Record — Allows Any Sender (+all)",
+                f"The SPF record ends with '+all', which authorises ANY server to send mail as "
+                f"{domain}: {record}. This is worse than having no SPF — spoofing is explicitly allowed.",
+                Severity.HIGH,
+                recommendation="Replace '+all' with '-all' (hard fail) or '~all' (soft fail).",
+                raw={"spf": record, "all_qualifier": "+all"},
+            )
+        if "?all" in low:
+            return _finding(
+                "SPF Record — Neutral (?all)",
+                f"The SPF record ends with '?all' (neutral): {record}. Receivers are told to accept "
+                "mail from unlisted senders anyway, so it provides little anti-spoofing value.",
+                Severity.LOW,
+                recommendation="Use '-all' (hard fail) or '~all' (soft fail) instead of '?all'.",
+                raw={"spf": record, "all_qualifier": "?all"},
+            )
         return _finding(
             "SPF Record",
-            f"SPF policy present: {spf[0]}",
+            f"SPF policy present: {record}",
             Severity.INFO,
-            raw={"spf": spf[0]},
+            raw={"spf": record},
         )
     return _finding(
         "SPF Record — Missing",
@@ -102,11 +125,24 @@ def _check_dmarc(domain: str) -> Finding:
     txts = _resolve_txt(dmarc_name)
     dmarc = [t for t in txts if t.lower().startswith("v=dmarc1")]
     if dmarc:
+        record = dmarc[0]
+        m = re.search(r"\bp\s*=\s*(none|quarantine|reject)", record, re.IGNORECASE)
+        policy = (m.group(1).lower() if m else "")
+        if policy == "none":
+            # p=none is monitoring-only: reports are collected but spoofed mail is NOT rejected.
+            return _finding(
+                "DMARC Policy Not Enforced (p=none)",
+                f"A DMARC record exists but its policy is 'p=none' (monitor only): {record}. "
+                "Receiving servers will still deliver spoofed mail — DMARC is not actually enforcing.",
+                Severity.MEDIUM,
+                recommendation="Once DMARC reports look clean, move to 'p=quarantine' and then 'p=reject'.",
+                raw={"dmarc": record, "policy": "none"},
+            )
         return _finding(
             "DMARC Record",
-            f"DMARC policy present: {dmarc[0]}",
+            f"DMARC policy present (p={policy or '?'}): {record}",
             Severity.INFO,
-            raw={"dmarc": dmarc[0]},
+            raw={"dmarc": record, "policy": policy},
         )
     return _finding(
         "DMARC Record — Missing",
@@ -142,9 +178,14 @@ def _check_dkim(domain: str) -> Finding:
     )
 
 
+def _base_domain(hostname: str) -> str:
+    """Strip a leading 'www.' label (string prefix, not characters) to get the mail domain."""
+    return hostname[4:] if hostname.startswith("www.") else hostname
+
+
 def run(engine: ScanEngine) -> list[Finding]:
     hostname = urlparse(engine.url).hostname or ""
-    domain = hostname.lstrip("www.") if hostname.startswith("www.") else hostname
+    domain = _base_domain(hostname)
 
     if not domain:
         logger.warning("dns_check: could not extract domain from URL")
