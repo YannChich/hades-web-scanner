@@ -971,6 +971,113 @@ class TestSSRFAccuracy:
 
 
 # ---------------------------------------------------------------------------
+# xxe_detect tests (in-band XML External Entity detection)
+# ---------------------------------------------------------------------------
+
+class TestXxeDetect:
+    def _eng(self, base_url, transport, parametrised=None, forms=None):
+        from scanner.crawler import CrawlResult
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            parametrised_urls=parametrised or [],
+            forms=forms or [],
+        ))
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    def test_file_disclosure_is_high_and_verified(self, base_url):
+        """An external entity that returns /etc/passwd content is confirmed XXE (HIGH, verified)."""
+        from scanner.vulns.xxe_detect import run
+        passwd = "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                body = req.content.decode(errors="ignore")
+                if "file:///etc/passwd" in body:
+                    return httpx.Response(200, text=f"<hades>{passwd}</hades>")
+                return httpx.Response(200, text="<ok/>")
+
+        findings = run(self._eng(base_url, _T()))
+        high = [f for f in findings if f.severity == Severity.HIGH]
+        assert high, "Expected HIGH finding for file disclosure via XXE"
+        assert high[0].raw["verified"] is True
+        assert "passwd" in high[0].raw["signal"].lower()
+
+    def test_entity_expansion_canary_is_verified_medium(self, base_url):
+        """A parser that expands our benign internal entity proves entity processing (MEDIUM, verified)."""
+        import re as _re
+        from scanner.vulns.xxe_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                body = req.content.decode(errors="ignore")
+                # Simulate real expansion: return ONLY the expanded value as element text,
+                # never the raw <!ENTITY ...> declaration (which would be mere reflection).
+                m = _re.search(r"HADES-XXE-[0-9a-f]+", body)
+                if m and "ENTITY probe" in body:
+                    return httpx.Response(200, text=f"<hades>{m.group(0)}</hades>")
+                return httpx.Response(200, text="<ok/>")
+
+        findings = run(self._eng(base_url, _T()))
+        med = [f for f in findings if f.severity == Severity.MEDIUM and f.raw.get("verified")]
+        assert med and "expansion" in med[0].title.lower()
+
+    def test_reflected_request_body_is_not_flagged(self, base_url):
+        """A server that echoes the raw XML body verbatim (no parsing) must NOT be flagged."""
+        from scanner.vulns.xxe_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text=req.content.decode(errors="ignore"))
+
+        findings = run(self._eng(base_url, _T()))
+        assert all(f.severity == Severity.INFO for f in findings)
+
+    def test_parser_error_signature_is_unverified_medium(self, base_url):
+        """A leaked external-entity parser error is reported as an unverified MEDIUM indicator."""
+        from scanner.vulns.xxe_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(
+                    500, text="Warning: simplexml_load_string(): failed to load external entity")
+
+        findings = run(self._eng(base_url, _T()))
+        med = [f for f in findings if f.severity == Severity.MEDIUM]
+        assert med and med[0].raw["verified"] is False
+
+    def test_clean_target_reports_none(self, base_url):
+        from scanner.vulns.xxe_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<response>ok</response>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "none detected" in findings[0].title.lower()
+
+    def test_safe_mode_skips_scan(self):
+        from scanner.vulns.xxe_detect import run
+        from config import SAFE_MODE_RATE_DELAY
+
+        eng = ScanEngine("https://example.com", rate_delay=SAFE_MODE_RATE_DELAY)
+        findings = run(eng)
+        assert len(findings) == 1 and findings[0].severity == Severity.INFO
+        assert "safe mode" in findings[0].title.lower()
+
+    def test_candidates_prefer_xml_looking_paths(self, base_url):
+        from scanner.vulns.xxe_detect import _candidates
+        from scanner.crawler import CrawlResult
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            parametrised_urls=[f"{base_url}/page?id=1", f"{base_url}/api/soap?wsdl=1"]))
+        cands = _candidates(eng)
+        assert cands[0].endswith("/api/soap")   # XML/SOAP-looking endpoint probed first
+
+
+# ---------------------------------------------------------------------------
 # CVE Vulnerability Intelligence tests (menu option 8 / cve_scan)
 # ---------------------------------------------------------------------------
 
