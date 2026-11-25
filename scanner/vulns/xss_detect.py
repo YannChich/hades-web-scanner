@@ -81,7 +81,14 @@ def _classify_context(html: str, canary: str) -> set[str]:
             seg = before[before.rfind("<script"):]
             # strip the opening tag so its quotes don't skew the count
             seg = seg.split(">", 1)[1] if ">" in seg else seg
-            contexts.add("js_string" if _enclosing_quote(seg) else "js")
+            # A backtick-delimited template literal is a distinct context: `;x();` is inert text
+            # there (so the plain-js breakout would false-positive), but ${...} is live substitution.
+            if seg.count("`") % 2 == 1:
+                contexts.add("js_template")
+            elif _enclosing_quote(seg):
+                contexts.add("js_string")
+            else:
+                contexts.add("js")
         elif before.rfind("<") > before.rfind(">"):
             q = _enclosing_quote(before[before.rfind("<"):])
             contexts.add("attr_double" if q == '"' else "attr_single" if q == "'" else "attr_unquoted")
@@ -90,36 +97,61 @@ def _classify_context(html: str, canary: str) -> set[str]:
     return contexts
 
 
-def _breakout(ctx: str, nonce: str) -> tuple[str, Callable[[str], bool]]:
-    """Return (payload, success_check) that proves a breakout from *ctx*."""
+def _in_script(payload_re: str, nonce: str) -> "Callable[[str], bool]":
+    """A success check requiring the breakout to land INSIDE a <script> block (not merely reflected
+    on an HTML/error/WAF page, which would not execute)."""
+    pat = re.compile(r"<script\b[^>]*>(?:(?!</script>).)*?" + payload_re, re.I | re.S)
+    return lambda t: pat.search(t) is not None
+
+
+def _breakouts(ctx: str, nonce: str) -> list[tuple[str, Callable[[str], bool]]]:
+    """Return ordered (payload, success_check) candidates that each prove a breakout from *ctx*.
+
+    Several payload shapes per context broadens coverage against naive filters (a blacklist that strips
+    ``<script`` but not ``<svg``, one that drops ``>`` but not a space-separated attribute, …) while
+    every check still demands the exact breakout survive unencoded — so the verified-proof logic is
+    unchanged, just harder to evade.
+    """
     tag = f"<q{nonce}>"
+    # SVG tag with a slash separator: fires where a filter requires whitespace after '<tagname' or
+    # blacklists '<script'/'<img' by name but misses the SVG namespace.
+    svg = f"<svg/onlq{nonce}>"
     if ctx in ("html_text", "html"):
-        return tag, lambda t: tag in t
+        return [(tag, lambda t: tag in t), (svg, lambda t: svg in t)]
     if ctx == "comment":
-        return "-->" + tag, lambda t: ("-->" + tag) in t
+        return [("-->" + tag, lambda t: ("-->" + tag) in t)]
     if ctx == "attr_double":
-        return '">' + tag, lambda t: ('">' + tag) in t
+        attr = f'" onq{nonce}=1 z="'   # inject an event-handler attribute WITHOUT closing the tag
+        return [('">' + tag, lambda t: ('">' + tag) in t), (attr, lambda t: attr in t)]
     if ctx == "attr_single":
-        return "'>" + tag, lambda t: ("'>" + tag) in t
+        attr = f"' onq{nonce}=1 z='"
+        return [("'>" + tag, lambda t: ("'>" + tag) in t), (attr, lambda t: attr in t)]
     if ctx == "attr_unquoted":
-        return f" onq{nonce}=1>{tag}", lambda t: tag in t
+        return [(f" onq{nonce}=1>{tag}", lambda t: tag in t),
+                (f" onq{nonce}=1 ", lambda t: f"onq{nonce}=1" in t)]
     if ctx == "js":
         payload = f";q{nonce}();"
-        pat = re.compile(r"<script\b[^>]*>(?:(?!</script>).)*?" + re.escape(payload), re.I | re.S)
-        return payload, lambda t: pat.search(t) is not None
+        return [(payload, _in_script(re.escape(payload), nonce))]
     if ctx == "js_string":
         # The breakout must land INSIDE a <script> block with the quote unescaped — a bare reflection
         # of "';q{nonce}" elsewhere on the page (HTML text, an error/WAF page) is not code execution.
         payload = f"';q{nonce}='"
-        pat = re.compile(r"<script\b[^>]*>(?:(?!</script>).)*?(?<!\\)';q" + re.escape(nonce), re.I | re.S)
-        return payload, lambda t: pat.search(t) is not None
-    return tag, lambda t: tag in t
+        return [(payload, _in_script(r"(?<!\\)';q" + re.escape(nonce), nonce))]
+    if ctx == "js_template":
+        # Inside a template literal, ${...} is live substitution: an unescaped ${q<nonce>} proves an
+        # attacker could run ${alert(1)}. A backtick breakout also closes the literal outright.
+        sub = f"${{q{nonce}}}"
+        btick = f"`;q{nonce}();`"
+        return [(sub, _in_script(r"\$\{q" + re.escape(nonce) + r"\}", nonce)),
+                (btick, _in_script(r"`;q" + re.escape(nonce) + r"\(\);", nonce))]
+    return [(tag, lambda t: tag in t)]
 
 
 _CTX_LABEL = {
     "html_text": "HTML text", "html": "HTML", "comment": "HTML comment",
     "attr_double": 'double-quoted attribute', "attr_single": "single-quoted attribute",
     "attr_unquoted": "unquoted attribute", "js": "inline <script>", "js_string": "JS string",
+    "js_template": "JS template literal",
 }
 
 
@@ -183,15 +215,15 @@ def _probe(inject: InjectFn, where: str,
         return None
 
     for ctx in _classify_context(resp.text, canary):
-        payload, success = _breakout(ctx, nonce)
-        r2 = inject(payload)
-        # The breakout must succeed on a real application response — not a WAF/CDN block page that
-        # merely reflects the payload (e.g. a CloudFront "Request blocked" 403).
-        if r2 is not None and not _looks_blocked(r2) and success(r2.text):
-            proof_url = proof(payload) if proof else None
-            evidence = [f"injected into {where}: {ev.note(payload)[:80]}"] + ev.from_response(
-                r2, indicator=f"breakout survived unencoded in {_CTX_LABEL.get(ctx, ctx)} context")
-            return _finding(where, ctx, payload, Severity.HIGH, "high", proof_url, evidence)
+        for payload, success in _breakouts(ctx, nonce):
+            r2 = inject(payload)
+            # The breakout must succeed on a real application response — not a WAF/CDN block page that
+            # merely reflects the payload (e.g. a CloudFront "Request blocked" 403).
+            if r2 is not None and not _looks_blocked(r2) and success(r2.text):
+                proof_url = proof(payload) if proof else None
+                evidence = [f"injected into {where}: {ev.note(payload)[:80]}"] + ev.from_response(
+                    r2, indicator=f"breakout survived unencoded in {_CTX_LABEL.get(ctx, ctx)} context")
+                return _finding(where, ctx, payload, Severity.HIGH, "high", proof_url, evidence)
 
     # Reflected but no breakout achieved → likely encoded/sanitised.
     return _finding(where, "reflected", canary, Severity.LOW, "low",
@@ -234,14 +266,14 @@ def _probe_stored(engine: ScanEngine, form: Form, field: str) -> Finding | None:
 
     where = f"form field '{field}' ({form.method.upper()} {form.action}) → stored, rendered on {target_url}"
     for ctx in _classify_context(base.text, canary):
-        payload, success = _breakout(ctx, nonce)
-        inject(payload)
-        r2 = _get(engine, target_url)
-        if r2 is not None and not _looks_blocked(r2) and success(r2.text):
-            evidence = [f"submitted to '{field}': {ev.note(payload)[:80]}",
-                        f"breakout resurfaced unencoded on {target_url}"] + ev.from_response(
-                r2, indicator=f"stored breakout survived in {_CTX_LABEL.get(ctx, ctx)} context")
-            return _finding(where, ctx, payload, Severity.HIGH, "high", evidence=evidence, kind="Stored")
+        for payload, success in _breakouts(ctx, nonce):
+            inject(payload)
+            r2 = _get(engine, target_url)
+            if r2 is not None and not _looks_blocked(r2) and success(r2.text):
+                evidence = [f"submitted to '{field}': {ev.note(payload)[:80]}",
+                            f"breakout resurfaced unencoded on {target_url}"] + ev.from_response(
+                    r2, indicator=f"stored breakout survived in {_CTX_LABEL.get(ctx, ctx)} context")
+                return _finding(where, ctx, payload, Severity.HIGH, "high", evidence=evidence, kind="Stored")
 
     # Stored and echoed, but special characters were encoded → not exploitable as-is.
     return _finding(where, "reflected", canary, Severity.LOW, "low", kind="Stored",
