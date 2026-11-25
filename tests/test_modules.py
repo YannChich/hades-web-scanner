@@ -3947,6 +3947,27 @@ class TestDefaultCreds:
         findings = run(eng)
         assert len(findings) == 1 and findings[0].severity == Severity.INFO
 
+    def test_newly_added_service_detected(self, engine_factory, base_url):
+        """A newly-catalogued interface (Zabbix) is fingerprinted and reports its documented defaults."""
+        from scanner.vulns.default_creds import run
+        eng = engine_factory({
+            f"{base_url}/zabbix/": httpx.Response(200, text="<html><title>Zabbix</title></html>"),
+        })
+        findings = run(eng)
+        zbx = [f for f in findings if "zabbix" in f.title.lower()]
+        assert zbx and zbx[0].severity == Severity.MEDIUM
+        assert "Admin/zabbix" in zbx[0].raw["default_credentials"]
+
+    def test_detection_via_www_authenticate_realm(self, engine_factory, base_url):
+        """A service identified only by its WWW-Authenticate realm (401) is still detected."""
+        from scanner.vulns.default_creds import run
+        eng = engine_factory({
+            f"{base_url}/manager/html": httpx.Response(
+                401, text="", headers={"www-authenticate": 'Basic realm="Tomcat Manager Application"'}),
+        })
+        findings = run(eng)
+        assert any("tomcat" in f.title.lower() and f.severity == Severity.MEDIUM for f in findings)
+
 
 # ---------------------------------------------------------------------------
 # blacklist_check tests
