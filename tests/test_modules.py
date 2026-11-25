@@ -2889,6 +2889,41 @@ class TestSensitiveFiles:
         env = [f for f in findings if f.raw.get("path") == "/.env"]
         assert env and env[0].severity == Severity.CRITICAL
 
+    def test_terraform_state_exposed_is_critical(self, base_url):
+        """An exposed terraform.tfstate (secrets in cleartext) is a confirmed CRITICAL leak."""
+        from scanner.web.sensitive_files import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/terraform.tfstate":
+                    return httpx.Response(
+                        200,
+                        text='{"version":4,"terraform_version":"1.6.0","serial":3,"resources":[]}',
+                        headers={"content-type": "application/json"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        tf = [f for f in run(eng) if f.raw.get("path") == "/terraform.tfstate"]
+        assert tf and tf[0].severity == Severity.CRITICAL and tf[0].raw["validation"] == "CONFIRMED"
+
+    def test_vscode_sftp_credentials_exposed_is_critical(self, base_url):
+        from scanner.web.sensitive_files import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/.vscode/sftp.json":
+                    return httpx.Response(
+                        200,
+                        text='{"host":"1.2.3.4","username":"deploy","password":"p","remotePath":"/"}',
+                        headers={"content-type": "application/json"})
+                return httpx.Response(404, text="Not Found")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        f = [x for x in run(eng) if x.raw.get("path") == "/.vscode/sftp.json"]
+        assert f and f[0].severity == Severity.CRITICAL
+
     def test_low_value_disclosure_is_not_critical(self, base_url):
         """An exposed package.json is dependency disclosure (LOW), not a CRITICAL secret leak."""
         from scanner.web.sensitive_files import run
