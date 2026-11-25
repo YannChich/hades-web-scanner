@@ -4,6 +4,52 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25 (midi — amélioration de 7 modules existants)
+
+**Ce que j'ai amélioré aujourd'hui** (sur des modules qui existaient déjà, pas seulement les miens)
+
+- **En-têtes de sécurité** : Hades repère maintenant une protection « CSP » envoyée seulement en mode
+  « rapport » — elle a l'air présente mais ne bloque RIEN (piège classique). Il signale aussi des
+  réglages CSP trop larges (scripts autorisés depuis n'importe quel site, styles en ligne, formulaires
+  sans restriction).
+- **Cookies** : détection des préfixes `__Host-` / `__Secure-` mal configurés. Ces préfixes sont une
+  promesse de sécurité ; si les règles ne sont pas respectées, le navigateur **jette le cookie en
+  silence** — on croit être protégé alors qu'on ne l'est pas. Hades le dit maintenant.
+- **Clickjacking** : correction d'un faux « tout va bien ». Avant, si un site autorisait l'affichage
+  dans un cadre « depuis n'importe quel site HTTPS », Hades le considérait à tort comme protégé.
+  Corrigé : seule une vraie liste de sites de confiance compte comme une protection.
+- **CORS** (partage entre domaines) : ajout des contournements classiques de liste blanche
+  (`monsite.com.attaquant.com`, `pasmonsite.com`) — ça attrape les serveurs qui vérifient mal l'origine.
+- **Certificats TLS** : Hades signale maintenant les certificats signés avec de vieux algorithmes
+  cassés (MD5, SHA-1) et les clés trop petites (RSA/DSA de moins de 2048 bits).
+- **JWT (jetons de connexion)** : liste de « mots de passe faibles » élargie (plus de secrets par défaut
+  de frameworks testés), et nouvelle alerte quand un jeton contient des données sensibles (mot de passe,
+  clé d'API…) — car un JWT n'est PAS chiffré, juste signé : tout le monde peut le lire.
+- **Détection de pare-feu (WAF/CDN)** : une vingtaine de nouvelles signatures (AWS WAF, Azure, Google,
+  Fastly, Citrix, Fortinet, Imperva par cookie, etc.).
+
+**Les mots nouveaux**
+
+- **CSP (Content-Security-Policy)** : une règle qui dit au navigateur quelles ressources il a le droit
+  de charger — une défense clé contre le XSS.
+- **Préfixe de cookie `__Host-`** : un préfixe spécial qui force le navigateur à n'accepter le cookie
+  que s'il est bien sécurisé ; sinon il le refuse.
+- **CORS** : le mécanisme qui autorise (ou non) un site A à lire les données d'un site B depuis le
+  navigateur. Mal configuré, il laisse fuiter des données entre domaines.
+- **WAF** : un pare-feu applicatif web, qui filtre les requêtes malveillantes devant un site.
+
+**Pourquoi ça compte**
+
+Un scanner crédible ne se juge pas qu'au nombre de types de failles, mais à la **justesse** de chaque
+module. Ces 7 améliorations corrigent des angles morts (protections qui n'en sont pas) et élargissent
+la détection sur des réglages très courants — le tout avec ~30 nouveaux tests pour éviter les
+régressions.
+
+**La suite**
+
+Deux idées ajoutées au backlog : la détection de « confusion d'algorithme » JWT (RS256→HS256) et un
+contrôle `security.txt` / `.well-known`. Sinon, continuer à durcir les modules restants.
+
 ## 2026-11-25 (soir — nouveau tour de renforcement)
 
 **Ce que j'ai ajouté aujourd'hui**

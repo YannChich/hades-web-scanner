@@ -101,6 +101,11 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [ ] `--diff-only` flag to report just the delta vs the previous scan.
 - [ ] Per-finding "false-positive" suppression file (`.hadesignore`).
 - [ ] Markdown report exporter for quick GitHub/issue pasting.
+- [ ] JWT algorithm-confusion check (RS256→HS256): when the server's RSA public key is retrievable
+  (JWKS/`/.well-known`), try verifying/forging with HS256 using the public key as the HMAC secret —
+  detection by default, active forge behind `--exploit`.
+- [ ] `security.txt` / `.well-known` posture check (RFC 9116): report presence/absence and parse
+  contact/expiry — a quick credibility + recon win.
 - [ ] Config file support (`hades.toml`) for default flags per project.
 - [ ] More unit tests: raise coverage on `scanner/vulns/*` and `scanner/output/*`.
 - [x] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
@@ -111,6 +116,18 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — Hardening pass across existing (non-new) modules, each with tests:
+  **headers_check** now flags a Report-Only CSP (looks present, enforces nothing), scheme-wide
+  `script-src`, `style-src 'unsafe-inline'` and a missing `form-action`;
+  **cookie_analysis** flags `__Host-`/`__Secure-` cookie-prefix requirement violations (browser
+  silently rejects the cookie);
+  **clickjacking** no longer treats a scheme-wide/wildcard `frame-ancestors` (e.g. `https:`) as
+  protection (fixed false-negative);
+  **cors_check** probes suffix/prefix substring-match origin bypasses (`host.evil.example`, `nothost`);
+  **ssl_check** flags MD5/SHA-1 cert signatures and sub-2048-bit RSA/DSA keys;
+  **jwt_attacks** gains a larger weak-secret wordlist and flags sensitive claims leaked in the
+  (unencrypted) payload;
+  **waf_detect** recognises ~20 more WAF/CDN fingerprints (headers + cookies).
 - 2026-11-25 — Test-coverage pass on `scanner/output/*`: a JSON-report contract suite
   (`TestReportJsonContract`) locking the top-level shape (score/grade/target), severity counts, the
   `coverage` object passthrough, and the `verified`/`verification` proof fields — a stable contract for
