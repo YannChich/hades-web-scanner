@@ -1931,6 +1931,92 @@ class TestSqliDetect:
 
 
 # ---------------------------------------------------------------------------
+# nosqli_detect tests (MongoDB-style operator injection)
+# ---------------------------------------------------------------------------
+
+class TestNosqliDetect:
+    def _eng(self, base_url, transport):
+        from scanner.crawler import CrawlResult
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(parametrised_urls=[f"{base_url}/u?id=1"]))
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    def test_operator_split_detected_high(self, base_url):
+        """$ne (match-all) diverging from $eq (match-none) is operator injection → HIGH, verified."""
+        from scanner.vulns.nosqli_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                keys = parse_qs(urlparse(str(req.url)).query).keys()
+                if any("$ne" in k for k in keys):
+                    return httpx.Response(200, text="<html>" + "A" * 600 + " all users</html>")
+                if any("$eq" in k for k in keys):
+                    return httpx.Response(200, text="<html>no results</html>")
+                return httpx.Response(200, text="<html>one user: alice</html>")   # baseline
+
+        findings = run(self._eng(base_url, _T()))
+        high = [f for f in findings if f.severity == Severity.HIGH]
+        assert high and high[0].raw["technique"] == "operator split"
+        assert high[0].raw["verified"] is True
+
+    def test_error_signature_detected(self, base_url):
+        """A Mongo driver error introduced by a quote payload is error-based NoSQLi."""
+        from scanner.vulns.nosqli_detect import run
+        from urllib.parse import unquote_plus
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                raw = unquote_plus(str(req.url))
+                if "'" in raw or '"' in raw or "$gt" in raw:
+                    return httpx.Response(200, text="MongoServerError: unterminated string literal")
+                return httpx.Response(200, text="<html>ok</html>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert any(f.raw.get("technique") == "error-based" for f in findings)
+
+    def test_preexisting_mongo_text_not_false_positive(self, base_url):
+        """A page that always prints a Mongo-error-like string (baseline included) is not NoSQLi."""
+        from scanner.vulns.nosqli_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="MongoError appears on every page")   # identical always
+
+        findings = run(self._eng(base_url, _T()))
+        assert not any(f.raw.get("technique") == "error-based" for f in findings)
+
+    def test_normal_param_not_flagged(self, base_url):
+        """A parser that ignores the bracketed operator key leaves all responses at baseline → no FP."""
+        from scanner.vulns.nosqli_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<html>same stable page</html>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert all(f.severity == Severity.INFO for f in findings)
+
+    def test_no_params_returns_info(self, base_url):
+        from scanner.vulns.nosqli_detect import run
+        from scanner.crawler import CrawlResult
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult())
+        findings = run(eng)
+        assert all(f.severity == Severity.INFO for f in findings)
+
+    def test_safe_mode_skips_scan(self):
+        from scanner.vulns.nosqli_detect import run
+        from config import SAFE_MODE_RATE_DELAY
+
+        eng = ScanEngine("https://example.com", rate_delay=SAFE_MODE_RATE_DELAY)
+        findings = run(eng)
+        assert len(findings) == 1 and findings[0].severity == Severity.INFO
+        assert "safe mode" in findings[0].title.lower()
+
+
+# ---------------------------------------------------------------------------
 # xss_detect tests (context-aware)
 # ---------------------------------------------------------------------------
 
