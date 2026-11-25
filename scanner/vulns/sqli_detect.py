@@ -200,7 +200,10 @@ def _test_param(engine: ScanEngine, url: str, param: str, allow_time: bool) -> F
         for true_t, false_t in _BOOL_PAIRS:
             rt = _get(engine, _inject(url, param, true_t.format(v=orig)))
             rf = _get(engine, _inject(url, param, false_t.format(v=orig)))
-            if rt is not None and rf is not None:
+            # A WAF that blocks the FALSE payload (403 interstitial) while the TRUE one passes fakes a
+            # boolean split — ignore divergence when either response is a block page.
+            if rt is not None and rf is not None \
+                    and not ev.is_block_page(rt) and not ev.is_block_page(rf):
                 if _similar(rt.text, base.text) and not _similar(rf.text, base.text) \
                         and not _similar(rt.text, rf.text):
                     return _finding(

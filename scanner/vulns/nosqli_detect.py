@@ -161,7 +161,11 @@ def _test_param(engine: ScanEngine, url: str, param: str) -> Finding | None:
     if base is not None:
         r_ne = _get(engine, _inject_op(url, param, "$ne", _GARBAGE))
         r_eq = _get(engine, _inject_op(url, param, "$eq", _GARBAGE))
-        if r_ne is not None and r_eq is not None:
+        # A WAF that blocks one operator payload but not the other fakes a divergence — require both
+        # (and the baseline) to be real application responses before trusting the split.
+        if r_ne is not None and r_eq is not None \
+                and not ev.is_block_page(r_ne) and not ev.is_block_page(r_eq) \
+                and not ev.is_block_page(base):
             diverge = not _similar(r_ne.text, r_eq.text)
             moved = (not _similar(r_ne.text, base.text)) or (not _similar(r_eq.text, base.text))
             if diverge and moved:
