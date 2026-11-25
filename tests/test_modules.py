@@ -1931,6 +1931,94 @@ class TestSqliDetect:
 
 
 # ---------------------------------------------------------------------------
+# graphql_detect tests (endpoint discovery + introspection)
+# ---------------------------------------------------------------------------
+
+class TestGraphqlDetect:
+    def _eng(self, base_url, transport):
+        from scanner.crawler import CrawlResult
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult())
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    @staticmethod
+    def _query_of(req) -> str:
+        import json as _j
+        try:
+            return _j.loads(req.content.decode()).get("query", "")
+        except Exception:
+            return ""
+
+    def test_endpoint_and_introspection_detected(self, base_url):
+        from scanner.web.graphql_detect import run
+
+        schema = {"data": {"__schema": {"queryType": {"name": "Query"},
+                                        "types": [{"name": "User", "kind": "OBJECT"},
+                                                  {"name": "Query", "kind": "OBJECT"}]}}}
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if not req.url.path.rstrip("/").endswith("/graphql"):
+                    return httpx.Response(404, text="not found")
+                q = TestGraphqlDetect._query_of(req)
+                if "__schema" in q:
+                    return httpx.Response(200, json=schema)
+                if "__typenamee" in q:
+                    return httpx.Response(200, json={"errors": [{"message": "Cannot query field"}]})
+                return httpx.Response(200, json={"data": {"__typename": "Query"}})
+
+        findings = run(self._eng(base_url, _T()))
+        assert any(f.severity == Severity.INFO and "Endpoint Found" in f.title for f in findings)
+        med = [f for f in findings if f.severity == Severity.MEDIUM]
+        assert med and "Introspection Enabled" in med[0].title and med[0].raw["verified"] is True
+
+    def test_introspection_disabled_only_reports_endpoint(self, base_url):
+        from scanner.web.graphql_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if not req.url.path.rstrip("/").endswith("/graphql"):
+                    return httpx.Response(404, text="not found")
+                q = TestGraphqlDetect._query_of(req)
+                if "__schema" in q:
+                    return httpx.Response(200, json={"errors": [{"message": "introspection is disabled"}]})
+                return httpx.Response(200, json={"data": {"__typename": "Query"}})
+
+        findings = run(self._eng(base_url, _T()))
+        assert any("Endpoint Found" in f.title for f in findings)
+        assert not any(f.severity == Severity.MEDIUM for f in findings)
+
+    def test_field_suggestions_flagged_low(self, base_url):
+        from scanner.web.graphql_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if not req.url.path.rstrip("/").endswith("/graphql"):
+                    return httpx.Response(404, text="not found")
+                q = TestGraphqlDetect._query_of(req)
+                if "__typenamee" in q:
+                    return httpx.Response(200, json={"errors": [{"message": "Did you mean \"__typename\"?"}]})
+                if "__schema" in q:
+                    return httpx.Response(200, json={"errors": [{"message": "disabled"}]})
+                return httpx.Response(200, json={"data": {"__typename": "Query"}})
+
+        findings = run(self._eng(base_url, _T()))
+        assert any(f.severity == Severity.LOW and "Field Suggestions" in f.title for f in findings)
+
+    def test_no_graphql_endpoint_returns_info(self, base_url):
+        from scanner.web.graphql_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(404, text="<html>nope</html>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "No Endpoint" in findings[0].title
+
+
+# ---------------------------------------------------------------------------
 # nosqli_detect tests (MongoDB-style operator injection)
 # ---------------------------------------------------------------------------
 
