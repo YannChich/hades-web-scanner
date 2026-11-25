@@ -29,15 +29,31 @@ MODULE = "jwt_attacks"
 # header.payload.signature — signature may be empty (alg:none).
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.eyJ[A-Za-z0-9_\-]{4,}\.[A-Za-z0-9_\-]{0,}")
 
-# Common weak signing secrets to try (offline HMAC crack).
+# Common weak signing secrets to try (offline HMAC crack). Drawn from framework defaults,
+# tutorials and common leaked wordlists — the kind of secret that ships unchanged to production.
 _SECRET_WORDLIST = [
     "secret", "password", "123456", "jwt", "changeme", "key", "admin", "test", "secretkey",
     "your-256-bit-secret", "your_jwt_secret", "jwtsecret", "supersecret", "s3cr3t", "private",
     "token", "mysecret", "qwerty", "letmein", "default", "passw0rd", "jwt_secret", "shhhh",
     "secret123", "0", "1234567890", "HS256", "JWTSecretKey",
+    # framework / tutorial defaults and other common values
+    "secretKey", "my-secret", "my_secret", "mysecretkey", "supersecretkey", "oursecret",
+    "secretpassword", "ThisIsASecret", "thisisasecret", "jwtKey", "jwt-key", "signing-key",
+    "signingkey", "app_secret", "appsecret", "SECRET_KEY", "secret_key", "django-insecure",
+    "flask", "express", "nodejs", "node", "root", "toor", "P@ssw0rd", "welcome", "welcome1",
+    "iloveyou", "secret!", "Secret1", "Password1", "pass", "pass123", "hello", "foobar",
+    "aaaaaa", "abc123", "access", "refresh", "bearer", "api", "backend", "production",
 ]
 
 _HASHES = {"HS256": hashlib.sha256, "HS384": hashlib.sha384, "HS512": hashlib.sha512}
+
+# Claim names that should never live in a JWT payload — JWTs are signed, NOT encrypted, so anyone
+# holding the token can base64-decode and read these.
+_SENSITIVE_CLAIM_KEYS = (
+    "password", "passwd", "pwd", "secret", "api_key", "apikey", "api-key", "private_key",
+    "privatekey", "ssn", "social_security", "credit_card", "creditcard", "card_number", "cardnumber",
+    "cvv", "access_key", "aws_secret", "client_secret", "refresh_token", "session_secret",
+)
 
 
 def _b64url_decode(seg: str) -> bytes:
@@ -158,6 +174,25 @@ def _analyse(token: str) -> list[Finding]:
                          {"step": 2, "description": "Or brute-force/confirm the secret with a wordlist.",
                           "command": "jwt_tool <token> -C -d rockyou.txt"}]},
             ))
+
+    # Sensitive data baked into the (unencrypted) payload — readable by anyone holding the token.
+    leaked = sorted({str(k) for k in payload if str(k).lower() in _SENSITIVE_CLAIM_KEYS})
+    if leaked:
+        findings.append(Finding(
+            module=MODULE, title="JWT Leaks Sensitive Data in Claims",
+            description=(
+                f"A JWT payload ({_redact(token)}) contains sensitive claim(s): {', '.join(leaked)}. "
+                "JWTs are signed but NOT encrypted — anyone who holds the token can base64-decode and "
+                "read these values."
+            ),
+            severity=Severity.MEDIUM,
+            recommendation=("Never put secrets (passwords, API keys, card/SSN data) in a JWT payload; "
+                            "keep them server-side and reference them by an opaque id."),
+            raw={"token": _redact(token), "alg": alg, "sensitive_claims": leaked, "confidence": "high",
+                 "attack": "T1552 Unsecured Credentials",
+                 "evidence": [f"JWT payload exposes sensitive claim(s): {', '.join(leaked)}",
+                              "payload is base64url, not encrypted — readable by any token holder"]},
+        ))
 
     # Informational: claims & expiry posture.
     notes = []
