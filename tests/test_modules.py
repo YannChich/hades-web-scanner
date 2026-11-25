@@ -5088,6 +5088,27 @@ class TestCorsCheck:
     def test_reflected_with_creds_is_critical(self, base_url):
         assert any(x.severity == Severity.CRITICAL for x in self._run(base_url, "reflect", True))
 
+    def test_prefix_match_allowlist_bypass_detected(self, base_url):
+        """A naive `origin.startswith('https://'+host)` allowlist is bypassed by host.evil.example."""
+        import scanner.web.cors_check as cors
+        from urllib.parse import urlparse
+        host = urlparse(base_url).netloc
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                origin = request.headers.get("Origin", "")
+                headers = {"content-type": "text/html"}
+                if origin.startswith(f"https://{host}"):     # vulnerable prefix check
+                    headers["access-control-allow-origin"] = origin
+                    headers["access-control-allow-credentials"] = "true"
+                return httpx.Response(200, text="<html></html>", headers=headers)
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        out = cors.run(eng)
+        crit = [x for x in out if x.severity == Severity.CRITICAL]
+        assert crit and crit[0].raw["probe_origin"].endswith(".evil.example")
+
 
 class TestCveMapping:
     _NVD = {"vulnerabilities": [{"cve": {
