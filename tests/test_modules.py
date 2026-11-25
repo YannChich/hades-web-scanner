@@ -3152,6 +3152,39 @@ class TestSitemap:
 # redirect_chain tests
 # ---------------------------------------------------------------------------
 
+class TestDnsCheck:
+    def test_base_domain_strips_www_prefix_not_characters(self):
+        from scanner.recon.dns_check import _base_domain
+        assert _base_domain("www.example.com") == "example.com"
+        # Regression: lstrip('www.') used to mangle any host starting with w/./… .
+        assert _base_domain("web.example.com") == "web.example.com"
+        assert _base_domain("west.foo.com") == "west.foo.com"
+
+    def test_spf_plus_all_is_high(self, monkeypatch):
+        from scanner.recon import dns_check
+        monkeypatch.setattr(dns_check, "_resolve_txt", lambda name: ["v=spf1 include:_spf.x.com +all"])
+        f = dns_check._check_spf("example.com")
+        assert f.severity == Severity.HIGH and f.raw["all_qualifier"] == "+all"
+
+    def test_spf_soft_fail_is_info(self, monkeypatch):
+        from scanner.recon import dns_check
+        monkeypatch.setattr(dns_check, "_resolve_txt", lambda name: ["v=spf1 include:_spf.x.com ~all"])
+        assert dns_check._check_spf("example.com").severity == Severity.INFO
+
+    def test_dmarc_p_none_is_medium(self, monkeypatch):
+        from scanner.recon import dns_check
+        monkeypatch.setattr(dns_check, "_resolve_txt",
+                            lambda name: ["v=DMARC1; p=none; rua=mailto:x@example.com"])
+        f = dns_check._check_dmarc("example.com")
+        assert f.severity == Severity.MEDIUM and f.raw["policy"] == "none"
+
+    def test_dmarc_p_reject_is_info(self, monkeypatch):
+        from scanner.recon import dns_check
+        monkeypatch.setattr(dns_check, "_resolve_txt", lambda name: ["v=DMARC1; p=reject"])
+        f = dns_check._check_dmarc("example.com")
+        assert f.severity == Severity.INFO and f.raw["policy"] == "reject"
+
+
 class TestRedirectChain:
     def _eng(self, start, transport):
         eng = ScanEngine(start, rate_delay=0)
