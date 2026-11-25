@@ -3737,6 +3737,34 @@ class TestClickjacking:
         })
         assert run(eng)[0].raw.get("evidence")
 
+    def test_scheme_wide_frame_ancestors_is_not_protected(self, engine_factory, base_url):
+        """frame-ancestors with a scheme-wide source (https:) lets any HTTPS origin frame → framable."""
+        from scanner.web.clickjacking import run
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html><form><input type=password></form></html>",
+                                     headers={"content-security-policy": "frame-ancestors https:"}),
+        })
+        findings = run(eng)
+        assert findings[0].raw["protected"] is False and findings[0].severity == Severity.HIGH
+
+    def test_concrete_frame_ancestors_allowlist_is_protected(self, engine_factory, base_url):
+        """A concrete host allowlist (no wildcard/scheme) genuinely protects."""
+        from scanner.web.clickjacking import run
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html></html>",
+                                     headers={"content-security-policy":
+                                              "frame-ancestors 'self' https://trusted.example"}),
+        })
+        assert run(eng)[0].raw["protected"] is True
+
+    def test_wildcard_subdomain_frame_ancestors_not_protected(self, engine_factory, base_url):
+        from scanner.web.clickjacking import run
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html></html>",
+                                     headers={"content-security-policy": "frame-ancestors *.example.com"}),
+        })
+        assert run(eng)[0].raw["protected"] is False
+
 
 # ---------------------------------------------------------------------------
 # backup_files tests
