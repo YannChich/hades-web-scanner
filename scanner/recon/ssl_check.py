@@ -156,6 +156,46 @@ def _check_hostname(cert: x509.Certificate, hostname: str) -> Finding | None:
     return None
 
 
+_WEAK_SIG = {"md5", "sha1"}
+
+
+def _check_signature_algorithm(cert: x509.Certificate) -> Finding | None:
+    """Flag a certificate signed with a broken hash (MD5/SHA-1) — vulnerable to collision forgery
+    and distrusted by modern browsers."""
+    algo = cert.signature_hash_algorithm
+    name = (getattr(algo, "name", "") or "").lower()
+    if name in _WEAK_SIG:
+        return _finding(
+            f"Weak Certificate Signature Algorithm: {name.upper()}",
+            f"The certificate is signed with {name.upper()}, which is cryptographically broken "
+            "(practical collision attacks) and distrusted by modern browsers.",
+            Severity.MEDIUM,
+            recommendation="Reissue the certificate with a SHA-256 (or stronger) signature.",
+            raw={"signature_algorithm": name},
+        )
+    return None
+
+
+def _check_key_strength(cert: x509.Certificate) -> Finding | None:
+    """Flag an undersized RSA/DSA public key (< 2048 bits)."""
+    from cryptography.hazmat.primitives.asymmetric import dsa, rsa
+
+    pub = cert.public_key()
+    size = getattr(pub, "key_size", None)
+    if isinstance(pub, (rsa.RSAPublicKey, dsa.DSAPublicKey)) and size and size < 2048:
+        kind = "RSA" if isinstance(pub, rsa.RSAPublicKey) else "DSA"
+        return _finding(
+            f"Weak Certificate Key Size: {size}-bit {kind}",
+            f"The certificate uses a {size}-bit {kind} public key. Keys below 2048 bits are "
+            "considered weak and are no longer accepted by CAs or browsers.",
+            Severity.HIGH,
+            recommendation="Reissue the certificate with at least a 2048-bit RSA key, or a 256-bit "
+                           "ECDSA key.",
+            raw={"key_size": size, "key_type": kind},
+        )
+    return None
+
+
 def _check_protocol(protocol: str) -> Finding | None:
     # Normalise: ssl.version() returns e.g. "TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"
     normalised = protocol.replace(".", "").replace(" ", "")  # "TLSv11", "TLSv12" …
@@ -235,5 +275,13 @@ def run(engine: ScanEngine) -> list[Finding]:
     proto_finding = _check_protocol(protocol)
     if proto_finding:
         findings.append(proto_finding)
+
+    sig_finding = _check_signature_algorithm(cert)
+    if sig_finding:
+        findings.append(sig_finding)
+
+    key_finding = _check_key_strength(cert)
+    if key_finding:
+        findings.append(key_finding)
 
     return findings
