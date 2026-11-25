@@ -116,6 +116,7 @@ _WEB_ACTIVE: list[str] = [
 
 _VULNS: list[str] = [
     "scanner.vulns.sqli_detect",
+    "scanner.vulns.nosqli_detect",
     "scanner.vulns.xss_detect",
     "scanner.vulns.command_injection",
     "scanner.vulns.ssti_detect",
@@ -235,6 +236,7 @@ SEVERITY_CVSS: dict[str, float] = {
 FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     # ── Injection / active vulns ──
     "sqli_detect":       {"cwe": "CWE-89",  "owasp": "A03:2021 Injection",                          "mitre": ["T1190"]},
+    "nosqli_detect":     {"cwe": "CWE-943", "owasp": "A03:2021 Injection",                          "mitre": ["T1190"]},
     "xss_detect":        {"cwe": "CWE-79",  "owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
     "command_injection": {"cwe": "CWE-78",  "owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
     "ssti_detect":       {"cwe": "CWE-1336","owasp": "A03:2021 Injection",                          "mitre": ["T1059"]},
@@ -293,6 +295,7 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
     "sqli_detect":      ["exploiting-sql-injection-vulnerabilities",
                          "exploiting-sql-injection-with-sqlmap",
                          "performing-second-order-sql-injection"],
+    "nosqli_detect":    ["exploiting-nosql-injection-vulnerabilities"],
     "xss_detect":       ["testing-for-xss-vulnerabilities",
                          "testing-for-xss-vulnerabilities-with-burpsuite"],
     "ssti_detect":      ["exploiting-template-injection-vulnerabilities"],
@@ -339,6 +342,7 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 MODULE_REMEDIATION_MAP: dict[str, list[str]] = {
     "sqli_detect":       ["implementing-web-application-logging-with-modsecurity"],
+    "nosqli_detect":     ["implementing-web-application-logging-with-modsecurity"],
     "xss_detect":        ["implementing-web-application-logging-with-modsecurity"],
     "command_injection": ["implementing-web-application-logging-with-modsecurity"],
     "ssti_detect":       ["implementing-web-application-logging-with-modsecurity"],
@@ -395,6 +399,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     # ── Web vulnerabilities (nuclei = templated webapp scanning) ──
     "sqli_detect":       ["nuclei"],
     "xss_detect":        ["nuclei"],
+    "nosqli_detect":     ["nuclei"],
     "command_injection": ["nuclei"],
     "ssti_detect":       ["nuclei"],
     "lfi_detect":        ["nuclei"],
