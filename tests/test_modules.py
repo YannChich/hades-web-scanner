@@ -3646,6 +3646,23 @@ class TestCookieAnalysis:
         sev = {x.raw["cookie"]: x.severity for x in out if x.raw.get("issue") == "missing_samesite"}
         assert sev.get("sessionid") == Severity.MEDIUM and sev.get("_ga") == Severity.LOW
 
+    def test_host_prefix_violation_flagged(self):
+        """A __Host- cookie with a Domain / non-root Path is silently rejected by the browser."""
+        out = self._run(["__Host-sid=abc; Secure; Path=/accounts; Domain=t.test"])
+        f = [x for x in out if x.raw.get("issue") == "host_prefix_violated"]
+        assert f and f[0].severity == Severity.MEDIUM
+        assert "Path is not '/'" in f[0].raw["problems"]
+        assert "Domain attribute present (must be absent)" in f[0].raw["problems"]
+
+    def test_host_prefix_compliant_not_flagged(self):
+        out = self._run(["__Host-sid=abc; Secure; Path=/"])
+        assert not [x for x in out if x.raw.get("issue") == "host_prefix_violated"]
+
+    def test_secure_prefix_without_secure_flagged(self):
+        out = self._run(["__Secure-sid=abc; Path=/"])
+        f = [x for x in out if x.raw.get("issue") == "secure_prefix_violated"]
+        assert f and f[0].severity == Severity.MEDIUM
+
 
 # ---------------------------------------------------------------------------
 # dir_listing tests
