@@ -1694,6 +1694,47 @@ class TestHeadersCheck:
         titles = " ".join(f.title.lower() for f in run(eng))
         assert "includesubdomains" in titles and "preload" in titles
 
+    def test_csp_report_only_is_not_enforced(self, engine_factory, base_url):
+        """A Report-Only CSP is not enforced → Medium, and must not also be reported as 'Missing'."""
+        from scanner.web.headers_check import run
+
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html></html>", headers={
+                "content-security-policy-report-only": "default-src 'self'",
+                "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+                "x-frame-options": "DENY",
+                "x-content-type-options": "nosniff",
+            }),
+        })
+        findings = run(eng)
+        ro = [f for f in findings if "report-only" in f.title.lower()]
+        assert ro and ro[0].severity == Severity.MEDIUM
+        assert not any("content-security-policy: missing" in f.title.lower() for f in findings)
+
+    def test_csp_scheme_wide_script_src_is_flagged(self, engine_factory, base_url):
+        """script-src with a scheme-wide source (https:) is a Medium CSP weakness."""
+        from scanner.web.headers_check import run
+
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html></html>", headers={
+                "content-security-policy": "default-src 'self'; script-src https:",
+            }),
+        })
+        titles = " ".join(f.title.lower() for f in run(eng))
+        assert "scheme-wide" in titles
+
+    def test_csp_missing_form_action_flagged(self, engine_factory, base_url):
+        from scanner.web.headers_check import run
+
+        eng = engine_factory({
+            base_url: httpx.Response(200, text="<html></html>", headers={
+                "content-security-policy": "default-src 'self'; object-src 'none'; "
+                                           "base-uri 'none'; frame-ancestors 'none'",
+            }),
+        })
+        titles = " ".join(f.title.lower() for f in run(eng))
+        assert "form-action" in titles
+
     def test_server_version_disclosure_is_low(self, engine_factory, base_url):
         from scanner.web.headers_check import run
 
