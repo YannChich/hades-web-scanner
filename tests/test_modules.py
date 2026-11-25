@@ -2527,6 +2527,32 @@ class TestSSTI:
         eng = _inj_engine(base_url, _T(), f"{base_url}/t?q=1")
         assert not [f for f in run(eng) if f.severity == Severity.CRITICAL]
 
+    def test_preexisting_product_not_false_positive(self, base_url):
+        """A page that always contains the product number (e.g. a real order id) is not SSTI."""
+        from scanner.vulns.ssti_detect import run, _PRODUCT
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text=f"<html>order {_PRODUCT} confirmed</html>")
+
+        eng = _inj_engine(base_url, _T(), f"{base_url}/t?q=1")
+        assert not [f for f in run(eng) if f.severity == Severity.CRITICAL]
+
+    def test_smarty_bare_brace_evaluated_is_critical(self, base_url):
+        """The bare-brace {a*b} (Smarty/Velocity) syntax is evaluated → Critical SSTI."""
+        from scanner.vulns.ssti_detect import run, _PRODUCT, _EXPR
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = parse_qs(urlparse(str(req.url)).query).get("q", [""])[0].strip()
+                # Evaluate ONLY the bare single-brace form, not {{…}}/${…}/#{…}.
+                if val.startswith("{") and not val.startswith("{{") and _EXPR in val:
+                    return httpx.Response(200, text=f"<html>{_PRODUCT}</html>")
+                return httpx.Response(200, text="<html>x</html>")
+
+        eng = _inj_engine(base_url, _T(), f"{base_url}/t?q=1")
+        assert any(f.severity == Severity.CRITICAL for f in run(eng))
+
 
 class TestLFI:
     def test_passwd_read_is_high(self, base_url):
@@ -2613,6 +2639,22 @@ class TestOpenRedirect:
 
         eng = _inj_engine(base_url, _T(), f"{base_url}/r?u=1")
         assert not [f for f in run(eng) if f.severity in (Severity.MEDIUM, Severity.HIGH)]
+
+    def test_scheme_relative_bypass_detected(self, base_url):
+        """An app that blocks https:// but still follows a scheme-relative //host is an open redirect."""
+        from scanner.vulns.open_redirect import run
+        from urllib.parse import unquote
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = unquote(parse_qs(urlparse(str(req.url)).query).get("u", [""])[0])
+                if val.startswith("//hades-"):            # only the scheme-relative form is followed
+                    return httpx.Response(302, headers={"location": val})
+                return httpx.Response(200, text="ok")
+
+        eng = _inj_engine(base_url, _T(), f"{base_url}/r?u=1")
+        med = [f for f in run(eng) if f.severity in (Severity.MEDIUM, Severity.HIGH)]
+        assert med and med[0].raw["payload"].startswith("//hades-")
 
 
 class TestSSRF:
