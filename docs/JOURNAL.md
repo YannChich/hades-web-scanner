@@ -4,6 +4,52 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Détection des failles XXE** (XML External Entity). Quand un site accepte du XML (formulaires,
+  API, services SOAP…), Hades lui envoie désormais un XML piégé pour voir si le serveur se laisse
+  manipuler. S'il arrive à lire un fichier interne du serveur (comme la liste des comptes `/etc/passwd`),
+  c'est une preuve solide marquée en gravité « HAUTE ». Il y a aussi un test « canari » totalement
+  inoffensif qui vérifie juste si le serveur traite les entités XML (le signe avant-coureur d'une XXE).
+- **Détection des injections NoSQL** (bases de données type MongoDB). Certaines applis modernes
+  n'utilisent pas du SQL classique mais des bases « NoSQL ». Hades sait maintenant repérer quand on
+  peut glisser des « opérateurs » dans une requête (par exemple « différent de » au lieu de « égal à »)
+  pour contourner une page de connexion ou lire des données qu'on ne devrait pas voir. Il confirme la
+  faille en comparant deux réponses du serveur, donc il ne crie pas « faille ! » à tort.
+- **Reconnaissance des API GraphQL**. GraphQL est une façon moderne de construire des API. Hades
+  cherche maintenant les points d'entrée GraphQL (`/graphql`, etc.) et vérifie trois mauvais réglages
+  fréquents : si le plan complet de l'API est téléchargeable par n'importe qui (« introspection »), si
+  les messages d'erreur soufflent des noms de champs (« Did you mean… »), et il rappelle de limiter la
+  profondeur des requêtes.
+- Pour chacun de ces trois modules : branchement dans le profil de scan `full`, étiquettes
+  professionnelles (CWE / OWASP) pour que les rapports soient crédibles, lien vers les « playbooks »
+  d'exploitation correspondants, et des tests automatiques (17 au total) pour que ça reste fiable.
+
+**Les mots nouveaux**
+
+- **XXE (XML External Entity)** : une faille où un serveur qui lit du XML peut être forcé à ouvrir des
+  fichiers internes ou à contacter d'autres machines à la place de l'attaquant.
+- **Injection NoSQL** : comme l'injection SQL, mais pour les bases de données modernes (MongoDB…) ;
+  on injecte des « opérateurs » plutôt que du texte pour tromper la requête.
+- **GraphQL / introspection** : GraphQL est un langage de requêtes pour API ; l'« introspection » est
+  une fonction pratique pour les développeurs qui, laissée active en production, livre tout le plan de
+  l'API à un attaquant.
+
+**Pourquoi ça compte**
+
+Ces trois ajouts élargissent nettement la couverture de Hades vers des technologies très présentes
+dans les applis web d'aujourd'hui (API JSON/XML, bases NoSQL, GraphQL). Un pentester qui lance Hades
+sur une cible autorisée verra maintenant des catégories de failles que l'outil ignorait hier — le tout
+en mode détection, sans rien casser côté serveur.
+
+**La suite**
+
+Continuer la feuille de route Track 1 (nouveaux modules de détection) avec l'injection d'en-tête Host
+/ indices de cache-poisoning, puis les indices de désérialisation non sécurisée — en gardant l'équilibre
+avec le Track 3 (améliorer la précision des modules existants).
+
 ## 2026-11-24
 
 **Ce que j'ai ajouté aujourd'hui**

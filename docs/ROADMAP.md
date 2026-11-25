@@ -60,7 +60,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **NoSQL injection detection** (`scanner/vulns/nosqli_detect.py`): operator-injection payloads
   (`$ne`, `$gt`, `$regex`, auth-bypass `[$ne]=`) against JSON and form params; confirm by response
   divergence like the boolean SQLi logic. Detection-only; set `verified` on a confirmed split.
-- [ ] **GraphQL recon** (`scanner/web/graphql_detect.py`): find `/graphql`-style endpoints, test
+- [x] **GraphQL recon** (`scanner/web/graphql_detect.py`): find `/graphql`-style endpoints, test
   whether **introspection** is enabled, and flag verbose errors / suggestion leaks and missing depth
   limiting. INFO→MEDIUM depending on exposure; evidence from the introspection response.
 - [ ] **Host-header injection / cache-poisoning indicators** (`scanner/web/host_header.py`): detect
@@ -109,6 +109,11 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — GraphQL recon (`scanner/web/graphql_detect.py`): probes conventional GraphQL paths
+  (and graphql-looking crawl URLs), confirms a real engine via a `__typename` query or GraphQL-shaped
+  error, then reports an exposed endpoint (INFO), enabled schema introspection (MEDIUM, verified) and
+  "Did you mean" field suggestions (LOW). Read-only recon (benign minimal queries only); in the active
+  web profile, CWE-200 / A05:2021, mapped to the GraphQL playbooks + nuclei; 4 mocked tests.
 - 2026-11-25 — NoSQL injection detection (`scanner/vulns/nosqli_detect.py`): MongoDB-style operator
   injection on URL parameters via two techniques — error-based (NoSQL driver error signatures the
   payload introduced, absent in baseline) and an operator boolean split (`param[$ne]=garbage`
