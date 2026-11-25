@@ -9,7 +9,7 @@ HTTP→HTTPS upgrade when starting from http:// (Low).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -19,6 +19,14 @@ from scanner.engine import Finding, Severity, ScanEngine
 MODULE = "redirect_chain"
 _MAX_HOPS = 10
 _LONG_CHAIN = 4
+
+# Query-parameter names that carry credentials/secrets and must not travel in a redirect URL
+# (they leak via browser history, proxy/server logs, and the Referer header — worse cross-domain).
+_SENSITIVE_QS = {
+    "token", "access_token", "id_token", "refresh_token", "code", "jwt", "session", "sessionid",
+    "sid", "auth", "authorization", "apikey", "api_key", "password", "passwd", "secret", "key",
+    "otp", "ticket", "assertion", "saml", "samlresponse",
+}
 
 
 @dataclass
@@ -104,6 +112,33 @@ def run(engine: ScanEngine) -> list[Finding]:
                                       *hop_evidence]},
                 ))
                 break
+
+    # Sensitive data carried in a redirect URL (credential/token leakage).
+    for h in hops:
+        if not h.location:
+            continue
+        dest = urljoin(h.url, h.location)
+        leaked = sorted(k for k in parse_qs(urlparse(dest).query) if k.lower() in _SENSITIVE_QS)
+        if not leaked:
+            continue
+        dest_root = _registrable(urlparse(dest).netloc)
+        cross = bool(dest_root) and dest_root != start_root
+        findings.append(Finding(
+            module=MODULE,
+            title="Sensitive Data in Redirect URL" + (" (cross-domain)" if cross else ""),
+            description=(f"A redirect carries sensitive parameter(s) {leaked} in the URL "
+                         f"({h.url} → {dest}). URL parameters leak through browser history, server and "
+                         "proxy logs, and the Referer header"
+                         + (f" — and here the token is sent to a different domain ({dest_root})."
+                            if cross else ".")),
+            severity=Severity.MEDIUM if cross else Severity.LOW,
+            recommendation=("Do not pass tokens/credentials as URL query parameters; use a POST body, "
+                            "a secure cookie, or the OAuth authorization-code flow with PKCE."),
+            raw={"params": leaked, "cross_domain": cross, "to": dest, "confidence": "high",
+                 "evidence": [f"redirect URL carries {leaked}" + (f" cross-domain → {dest_root}" if cross else ""),
+                              *hop_evidence]},
+        ))
+        break
 
     # Off-domain redirect
     final = hops[-1]
