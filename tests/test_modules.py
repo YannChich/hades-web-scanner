@@ -3192,6 +3192,35 @@ class TestRedirectChain:
         findings = run(self._eng("https://example.com", _T()))
         assert len(findings) == 1 and findings[0].severity == Severity.INFO
 
+    def test_token_in_cross_domain_redirect_is_medium(self):
+        """A redirect carrying an OAuth code/token to another domain is a Medium leak."""
+        from scanner.web.redirect_chain import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.host == "example.com":
+                    return httpx.Response(302, headers={
+                        "location": "https://partner.org/cb?code=abc123&access_token=zzz"})
+                return httpx.Response(200, text="ok")
+
+        findings = run(self._eng("https://example.com", _T()))
+        leak = [f for f in findings if "sensitive data in redirect" in f.title.lower()]
+        assert leak and leak[0].severity == Severity.MEDIUM
+        assert leak[0].raw["cross_domain"] is True and "code" in leak[0].raw["params"]
+
+    def test_token_in_same_domain_redirect_is_low(self):
+        from scanner.web.redirect_chain import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                if req.url.path in ("", "/"):
+                    return httpx.Response(302, headers={"location": "https://example.com/app?session=sek"})
+                return httpx.Response(200, text="ok")
+
+        findings = run(self._eng("https://example.com", _T()))
+        leak = [f for f in findings if "sensitive data in redirect" in f.title.lower()]
+        assert leak and leak[0].severity == Severity.LOW and leak[0].raw["cross_domain"] is False
+
 
 # ---------------------------------------------------------------------------
 # favicon_hash tests
