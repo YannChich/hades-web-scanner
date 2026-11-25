@@ -30,7 +30,12 @@ _PROBES: list[tuple[str, str]] = [
     (f"<%= {_EXPR} %>",    "ERB / EJS"),                   # <%= a*b %>
     (f"@({_EXPR})",        "Razor (.NET)"),                # @(a*b)
     (f"*{{{_EXPR}}}",      "Thymeleaf"),                   # *{a*b}
+    (f"{{{_EXPR}}}",       "Smarty / Velocity"),           # {a*b}
+    (f"{{={_EXPR}=}}",     "Mako / Cheetah"),              # {=a*b=}
 ]
+
+# A benign value no template engine evaluates — used to confirm the product isn't already on the page.
+_BASELINE_VALUE = "hades_ssti_probe"
 
 
 def _exploitation_steps(inj: Injector, payload: str) -> list[dict]:
@@ -71,6 +76,12 @@ def _finding(inj: Injector, payload: str, engine_name: str,
 
 
 def _test(inj: Injector) -> Finding | None:
+    # Baseline guard: if the distinctive product already appears for a benign value, the page carries
+    # it independently of our payload (e.g. it is a real product ID) → not SSTI, avoid a false positive.
+    base = inj.inject(_BASELINE_VALUE)
+    if base is not None and _PRODUCT in base.text:
+        return None
+
     for payload, engine_name in _PROBES:
         resp = inj.inject(payload)
         # Evaluated if the product is present but the literal expression is not echoed back.
