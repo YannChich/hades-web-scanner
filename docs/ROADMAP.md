@@ -90,8 +90,10 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **Broaden payload sets** for `xss_detect` (more contexts: SVG, event handlers, template
   literals) and `lfi_detect` (wrappers, Windows paths), each with tests — keep the `verified` proof
   logic intact.
-- [ ] **Raise unit-test coverage** on `scanner/vulns/*` and `scanner/output/*` toward parity with the
-  newer modules (every new behaviour mocked, no live traffic).
+- [x] **Raise unit-test coverage** on `scanner/vulns/*` and `scanner/output/*` toward parity with the
+  newer modules (every new behaviour mocked, no live traffic). *(Ongoing: dedicated pass done
+  2026-11-25 — SSTI/open_redirect regressions + a JSON-report contract suite. Keep topping up as
+  modules change.)*
 
 ## Backlog (unordered ideas)
 
@@ -109,6 +111,17 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — Test-coverage pass on `scanner/output/*`: a JSON-report contract suite
+  (`TestReportJsonContract`) locking the top-level shape (score/grade/target), severity counts, the
+  `coverage` object passthrough, and the `verified`/`verification` proof fields — a stable contract for
+  downstream tooling. Suite now 466 tests.
+- 2026-11-25 — SSTI hardening + breadth: baseline guard (require the distinctive product a*b to be
+  ABSENT for a benign value before flagging, so a real order-id number can't false-positive) and two
+  new template syntaxes — bare-brace `{a*b}` (Smarty/Velocity) and `{=a*b=}` (Mako/Cheetah).
+- 2026-11-25 — Open-redirect breadth: each parameter is now probed with scheme-relative (`//host`),
+  missing-slash (`https:/host`), no-slash (`https:host`), backslash (`/\host`) and userinfo
+  (`trusted@host`) payloads against a unique sentinel host, catching allowlists that block `https://`
+  but still follow `//host`.
 - 2026-11-25 — False-positive hardening: new `evidence.is_block_page()` centralises WAF/CDN block-page
   detection (one canonical sign list). Boolean-based SQLi and the NoSQL operator split now reject a
   fake "divergence" when a WAF blocks one payload but not the other; `xss_detect` delegates to the same

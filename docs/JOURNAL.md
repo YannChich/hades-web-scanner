@@ -4,6 +4,47 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25 (soir — nouveau tour de renforcement)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **SSTI plus fiable (injection de template).** Ce module vérifie si le serveur *calcule* une
+  multiplication qu'on lui glisse (par ex. `9787 × 7919 = 77523853`) : si le résultat apparaît, c'est
+  qu'il exécute notre code. J'ai ajouté un garde-fou : avant de crier « faille », Hades vérifie que ce
+  nombre n'était pas *déjà* présent sur la page (ça pourrait être un vrai numéro de commande). Résultat :
+  moins de fausses alertes. J'ai aussi ajouté deux nouvelles syntaxes de template reconnues (Smarty et
+  Mako), donc Hades détecte plus de moteurs.
+- **Redirections ouvertes mieux détectées.** Une « redirection ouverte », c'est quand un site peut être
+  forcé à renvoyer le visiteur vers n'importe quel autre site (utile pour le phishing). Avant, Hades ne
+  testait qu'une seule forme d'attaque ; maintenant il en essaie plusieurs (`//site`, `https:/site`,
+  antislash, `utilisateur@site`…), car beaucoup de sites bloquent la forme évidente mais oublient les
+  variantes. Il détecte donc des cas qu'il ratait avant.
+- **Filet de sécurité sur les rapports.** J'ai écrit une série de tests qui « verrouillent » le format
+  du rapport JSON (le fichier de résultats lisible par d'autres outils) : score, note, nombre de failles
+  par gravité, données de couverture, et le statut « vérifié » de chaque faille. Si un jour une
+  modification casse ce format par accident, un test échouera tout de suite.
+- **Tests.** 6 nouveaux tests. La suite passe de 460 à **466 tests**, tous au vert.
+
+**Les mots nouveaux**
+
+- **SSTI (Server-Side Template Injection)** : une faille où une donnée de l'utilisateur est traitée
+  comme du code de « gabarit » côté serveur, ce qui mène souvent à l'exécution de commandes.
+- **Redirection ouverte** : un paramètre d'URL qui permet d'envoyer le visiteur vers un site externe
+  arbitraire — classique pour le hameçonnage (le lien commence sur un site de confiance).
+- **Garde-fou / baseline** : une mesure de référence « avant attaque » à laquelle on compare, pour être
+  sûr que c'est bien notre test qui a provoqué le changement — et pas un hasard.
+
+**Pourquoi ça compte**
+
+Toujours la même logique : un bon scanner détecte plus de vraies failles **et** signale moins de
+fausses. Ce tour améliore les deux côtés (SSTI et redirections) et ajoute un filet de sécurité pour que
+le format des rapports reste stable dans le temps.
+
+**La suite**
+
+Finir le durcissement anti-faux-positifs sur les derniers modules, puis repartir sur le Track 1
+(nouveaux modules : injection d'en-tête Host / cache-poisoning, indices de désérialisation).
+
 ## 2026-11-25 (après-midi — renforcement des modules existants)
 
 **Ce que j'ai ajouté aujourd'hui**
