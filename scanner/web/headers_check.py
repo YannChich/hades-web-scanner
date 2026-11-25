@@ -87,9 +87,20 @@ def _check_csp(value: str) -> list[Finding]:
     if "*" in script_src:
         add(Severity.MEDIUM, "script-src is wildcard (*)",
             "Replace '*' with an explicit allowlist of trusted script origins.")
+    if "https:" in script_src or "http:" in script_src:
+        add(Severity.MEDIUM, "script-src allows a scheme-wide source (https:/http:)",
+            "A scheme source like 'https:' lets ANY host over that scheme serve scripts — replace it "
+            "with an explicit host allowlist.")
     if "data:" in script_src:
         add(Severity.MEDIUM, "script-src allows data: URIs",
             "Remove data: from script-src — it enables trivial XSS payloads.")
+    style_src = d.get("style-src", d.get("default-src", []))
+    if "'unsafe-inline'" in style_src:
+        add(Severity.LOW, "style-src allows 'unsafe-inline'",
+            "Avoid 'unsafe-inline' in style-src; prefer nonces/hashes for inline styles.")
+    if "form-action" not in d:
+        add(Severity.LOW, "no form-action directive",
+            "Add form-action 'self' so forms cannot be made to submit to an attacker-controlled endpoint.")
     if "object-src" not in d or "'none'" not in d.get("object-src", []):
         add(Severity.LOW, "object-src is not 'none'",
             "Set object-src 'none' to block plugins (Flash/Java) used in some XSS vectors.")
@@ -244,9 +255,21 @@ def run(engine: ScanEngine) -> list[Finding]:
 
     findings: list[Finding] = []
 
-    # Content-Security-Policy
+    # Content-Security-Policy. A policy sent ONLY as Report-Only is not enforced by the browser —
+    # it reports violations but blocks nothing, a frequently-missed "looks protected but isn't" gap.
+    csp_report_only = headers.get("content-security-policy-report-only", "")
     if csp_value:
         findings += _check_csp(csp_value)
+    elif csp_report_only:
+        findings.append(_f(
+            "Content-Security-Policy: Report-Only (not enforced)",
+            "A Content-Security-Policy is present only as 'Content-Security-Policy-Report-Only'. "
+            "Browsers do NOT enforce a report-only policy — it reports violations but blocks nothing, "
+            "so it provides no XSS or clickjacking protection.",
+            Severity.MEDIUM,
+            "Once violation reports are clean, deploy the same policy as an enforcing "
+            "'Content-Security-Policy' header.",
+            "content-security-policy-report-only", csp_report_only))
     else:
         findings.append(_missing("Content-Security-Policy", "content-security-policy",
                                  Severity.MEDIUM,
