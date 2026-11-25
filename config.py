@@ -112,6 +112,7 @@ _WEB_ACTIVE: list[str] = [
     "scanner.web.subdomain_scan",
     "scanner.web.backup_files",
     "scanner.web.sensitive_files",
+    "scanner.web.graphql_detect",
 ]
 
 _VULNS: list[str] = [
@@ -259,6 +260,7 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "http_methods":      {"cwe": "CWE-650", "owasp": "A05:2021 Security Misconfiguration",          "mitre": []},
     "dir_scan":          {"cwe": "CWE-538", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1083"]},
     "admin_panel":       {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
+    "graphql_detect":    {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
     # ── Information disclosure / secrets ──
     "sensitive_files":   {"cwe": "CWE-538", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1552.001"]},
     "backup_files":      {"cwe": "CWE-530", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
@@ -309,6 +311,8 @@ MODULE_SKILL_MAP: dict[str, list[str]] = {
                          "exploiting-jwt-algorithm-confusion-attack",
                          "performing-jwt-none-algorithm-attack"],
     "cors_check":       ["testing-cors-misconfiguration"],
+    "graphql_detect":   ["performing-graphql-security-assessment",
+                         "performing-graphql-introspection-attack"],
     "clickjacking":     ["performing-clickjacking-attack-test"],
     "headers_check":    ["performing-security-headers-audit"],
     "llm_recon":        ["detecting-ai-model-prompt-injection-attacks"],
@@ -406,6 +410,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "open_redirect":     ["nuclei"],
     "ssrf_detect":       ["nuclei"],
     "xxe_detect":        ["nuclei"],
+    "graphql_detect":    ["nuclei"],
     "cors_check":        ["nuclei"],
     "clickjacking":      ["nuclei"],
     "headers_check":     ["nuclei"],
