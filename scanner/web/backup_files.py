@@ -28,8 +28,9 @@ MODULE = "backup_files"
 _MAX_SOURCE_FILES = 15
 
 _ARCHIVE_EXT = (".zip", ".tar.gz", ".tar", ".tgz", ".gz", ".rar", ".7z", ".bak", ".sql",
-                ".sql.gz", ".old", ".backup", ".dump")
-_SOURCE_BAK_SUFFIX = ("~", ".bak", ".old", ".save", ".orig", ".swp", ".copy", ".tmp", ".1")
+                ".sql.gz", ".old", ".backup", ".dump", ".war", ".tar.xz", ".sqlite3", ".db")
+_SOURCE_BAK_SUFFIX = ("~", ".bak", ".old", ".save", ".orig", ".swp", ".copy", ".tmp", ".1",
+                      ".txt", ".inc")
 _COMMON_BASES = ("backup", "www", "site", "web", "html", "public_html", "db", "database",
                  "dump", "data", "old", "new", "app", "release")
 
@@ -37,6 +38,7 @@ _COMMON_BASES = ("backup", "www", "site", "web", "html", "public_html", "db", "d
 _MAGIC: dict[bytes, str] = {
     b"PK\x03\x04": "ZIP archive", b"\x1f\x8b": "gzip archive", b"Rar!": "RAR archive",
     b"7z\xbc\xaf": "7-Zip archive", b"BZh": "bzip2 archive", b"SQLite format 3": "SQLite database",
+    b"\xfd7zXZ\x00": "XZ archive",
 }
 
 
