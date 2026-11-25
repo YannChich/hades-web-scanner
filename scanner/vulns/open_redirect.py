@@ -27,9 +27,22 @@ MODULE = "open_redirect"
 _AUTH_HINTS = ("return", "next", "redirect", "redir", "callback", "continue", "back", "go")
 
 
-def _sentinel() -> tuple[str, str]:
-    host = f"hades-{uuid.uuid4().hex[:10]}.example"
-    return host, f"https://{host}/"
+def _sentinel_host() -> str:
+    return f"hades-{uuid.uuid4().hex[:10]}.example"
+
+
+def _payloads(host: str) -> list[str]:
+    """Redirect payloads that all point at the same unique sentinel host, in bypass variants: a naive
+    allowlist may block ``https://evil`` yet still follow a scheme-relative ``//evil`` or a
+    backslash/missing-slash form. Confirmation still requires landing on the exact sentinel host."""
+    return [
+        f"https://{host}/",        # absolute
+        f"//{host}/",              # scheme-relative (very common bypass)
+        f"https:/{host}/",         # missing-slash
+        f"https:{host}",           # scheme + host, no slashes
+        f"/\\{host}/",             # backslash trick (browsers treat \ as /)
+        f"https://trusted.example@{host}/",   # userinfo confusion (host is after the @)
+    ]
 
 
 def _redirects_to(resp: httpx.Response, sentinel_host: str) -> str | None:
@@ -82,22 +95,23 @@ def _exploitation_steps(inj: Injector) -> list[dict]:
 
 
 def _test(engine: ScanEngine, inj: Injector) -> Finding | None:
-    # Needs a timeable/buildable URL and no auto-redirect — URL parameters only.
+    # Needs a buildable URL and no auto-redirect — URL parameters only.
     if inj.proof is None:
         return None
-    host, payload = _sentinel()
-    url = inj.proof(payload)
-    try:
-        resp = engine.request("GET", url, follow_redirects=False)
-    except httpx.HTTPError as exc:
-        logger.debug(f"open_redirect: {url} → {exc}")
-        return None
-    mechanism = _redirects_to(resp, host)
-    if not mechanism:
-        return None
-    proof_lines = evidence(inj, payload, resp,
-                           indicator=f"redirects to attacker host via {mechanism} → {host}")
-    return _finding(inj, payload, mechanism, proof_lines)
+    host = _sentinel_host()
+    for payload in _payloads(host):
+        url = inj.proof(payload)
+        try:
+            resp = engine.request("GET", url, follow_redirects=False)
+        except httpx.HTTPError as exc:
+            logger.debug(f"open_redirect: {url} → {exc}")
+            continue
+        mechanism = _redirects_to(resp, host)
+        if mechanism:
+            proof_lines = evidence(inj, payload, resp,
+                                   indicator=f"redirects to attacker host via {mechanism} → {host}")
+            return _finding(inj, payload, mechanism, proof_lines)
+    return None
 
 
 def run(engine: ScanEngine) -> list[Finding]:
