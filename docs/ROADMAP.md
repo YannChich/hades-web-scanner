@@ -84,10 +84,10 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 ### Track 3 — Improve existing modules (accuracy / coverage / hardening)
 
-- [ ] **False-positive hardening pass** on the active injection modules: calibrate against the
+- [x] **False-positive hardening pass** on the active injection modules: calibrate against the
   soft-404 / WAF-block baselines already in `evidence.py`, and add regression tests for known
   false-positive shapes (WAF 403 that echoes payloads, error pages that always contain "SQL").
-- [ ] **Broaden payload sets** for `xss_detect` (more contexts: SVG, event handlers, template
+- [x] **Broaden payload sets** for `xss_detect` (more contexts: SVG, event handlers, template
   literals) and `lfi_detect` (wrappers, Windows paths), each with tests — keep the `verified` proof
   logic intact.
 - [ ] **Raise unit-test coverage** on `scanner/vulns/*` and `scanner/output/*` toward parity with the
@@ -109,6 +109,16 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — False-positive hardening: new `evidence.is_block_page()` centralises WAF/CDN block-page
+  detection (one canonical sign list). Boolean-based SQLi and the NoSQL operator split now reject a
+  fake "divergence" when a WAF blocks one payload but not the other; `xss_detect` delegates to the same
+  helper instead of its own copy. Regression tests added for both WAF-faked-divergence shapes.
+- 2026-11-25 — Broadened payload sets. `xss_detect` gains a JS template-literal context (fixes a latent
+  false positive where `;x();` is inert inside backticks; proven via `${…}`/backtick breakout) plus
+  alternate breakouts per context (SVG slash-tag, event-handler attribute injection). `lfi_detect`
+  gains double-URL-encoded and `\/` traversal, encoded-backslash/absolute Windows win.ini paths, and
+  more `php://filter` targets (`read=` syntax, config.php/wp-config.php). Proof-by-content/breakout
+  kept intact; 5 new tests.
 - 2026-11-25 — GraphQL recon (`scanner/web/graphql_detect.py`): probes conventional GraphQL paths
   (and graphql-looking crawl URLs), confirms a real engine via a `__typename` query or GraphQL-shaped
   error, then reports an exposed endpoint (INFO), enabled schema introspection (MEDIUM, verified) and

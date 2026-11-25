@@ -4,6 +4,49 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25 (après-midi — renforcement des modules existants)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Moins de fausses alertes (très important).** J'ai créé un détecteur central de « pages de blocage »
+  — ces pages d'erreur qu'un pare-feu applicatif (WAF) renvoie quand il bloque une requête. Problème :
+  certains tests de Hades concluent « faille ! » juste parce que deux requêtes donnent des réponses
+  *différentes*. Or si le WAF bloque l'une et laisse passer l'autre, la différence est factice.
+  Maintenant, l'injection SQL « à l'aveugle » et l'injection NoSQL ignorent ces cas → beaucoup moins
+  de fausses alertes, donc des rapports plus crédibles.
+- **Détection XSS plus fine.** J'ai appris à Hades un nouveau cas : quand une donnée est reflétée dans
+  un « gabarit de texte » JavaScript (entre accents graves `` ` ``). Avant, Hades risquait de crier à
+  tort à la faille dans ce cas ; maintenant il vérifie le vrai motif dangereux (`${...}`). J'ai aussi
+  ajouté des variantes d'attaque par contexte (balise SVG, injection d'un gestionnaire d'événement)
+  pour contourner les filtres naïfs — sans jamais baisser le niveau de preuve exigé.
+- **Détection LFI élargie.** Le module qui repère la lecture de fichiers interdits sait maintenant
+  essayer plus de variantes : traversées de dossier doublement encodées, chemins Windows absolus et à
+  antislash encodé (`win.ini`), et plus de « wrappers PHP » pour récupérer le code source (dont
+  `config.php` et `wp-config.php`). La confirmation reste basée sur le *contenu réel du fichier*, donc
+  on élargit la couverture sans ajouter de fausses alertes.
+- **Tests.** 10 nouveaux tests automatiques, dont des tests « anti-régression » qui garantissent que
+  les fausses alertes de WAF ne reviendront pas.
+
+**Les mots nouveaux**
+
+- **WAF (Web Application Firewall)** : un pare-feu qui filtre les requêtes vers un site et bloque
+  celles qui ressemblent à une attaque, souvent en renvoyant une page « accès refusé ».
+- **Faux positif** : quand un outil signale une faille qui n'existe pas en réalité. On cherche à en
+  avoir le moins possible.
+- **Gabarit de texte JS (template literal)** : une chaîne de caractères en JavaScript écrite entre
+  accents graves `` `…` ``, dans laquelle `${expression}` exécute du code — d'où le risque XSS.
+
+**Pourquoi ça compte**
+
+Un scanner qui crie « faille ! » à tort fait perdre du temps et perd la confiance de celui qui l'utilise.
+En réduisant les fausses alertes et en élargissant les vraies détections (XSS et LFI), Hades devient à
+la fois plus fiable et plus complet — exactement ce qu'on attend d'un outil sérieux.
+
+**La suite**
+
+Continuer le Track 3 : augmenter encore la couverture de tests sur les modules de rapport
+(`scanner/output/*`), puis reprendre le Track 1 (en-tête Host / cache-poisoning, désérialisation).
+
 ## 2026-11-25
 
 **Ce que j'ai ajouté aujourd'hui**
