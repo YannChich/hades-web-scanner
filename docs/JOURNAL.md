@@ -4,6 +4,54 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25 (soir — deux nouveaux modules de détection)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Injection d'en-tête Host** (`host_header`) : beaucoup de sites fabriquent leurs liens (lien de
+  réinitialisation de mot de passe, redirections, balise canonique) à partir de l'en-tête « Host » de
+  la requête. Si on peut y mettre n'importe quel domaine et qu'il revient dans la réponse, c'est un
+  problème. Hades envoie un faux domaine unique (un « témoin ») dans l'en-tête Host, puis dans les
+  en-têtes `X-Forwarded-Host` et consorts, et regarde s'il réapparaît : dans une redirection
+  (`Location`) → risque moyen (empoisonnement du lien de reset / redirection ouverte), dans le corps
+  de la page → risque faible (candidat à l'empoisonnement de cache). **Détection seulement** : Hades
+  signale le reflet, il n'essaie pas vraiment d'empoisonner un cache (ça resterait derrière `--exploit`).
+  Le témoin étant unique et bidon, aucune fausse alerte possible.
+- **Indicateurs de désérialisation** (`deser_detect`) : quand une appli « désérialise » (reconstruit
+  un objet depuis) des données venues du client sans précaution, un attaquant peut parfois exécuter du
+  code (RCE). Le signe révélateur : un paramètre, un cookie ou un champ caché qui contient un objet
+  sérialisé reconnaissable. Hades inspecte ces entrées et reconnaît les formats Java, PHP, pickle
+  Python, Marshal Ruby et ViewState .NET. **Heuristique seulement** : il reconnaît le format, il ne
+  fabrique aucun exploit et ne désérialise rien. La preuve n'affiche que le format et un court début de
+  valeur — jamais la valeur complète (elle pourrait contenir des données sensibles).
+
+**Les mots nouveaux**
+
+- **En-tête Host** : la ligne de la requête qui dit « quel site je veux » ; si le serveur lui fait
+  trop confiance pour construire des liens, on peut le tromper.
+- **Empoisonnement de cache (cache poisoning)** : forcer le cache d'un site à garder une page piégée,
+  qui est ensuite servie à tous les visiteurs suivants.
+- **Sérialisation / désérialisation** : transformer un objet en texte pour le transmettre, puis le
+  reconstruire. Reconstruire du texte venu d'un inconnu est dangereux.
+- **Gadget chain** : l'enchaînement d'objets qu'un attaquant assemble pour qu'une désérialisation
+  exécute son code. Hades ne fabrique jamais ça — il repère seulement le blob sérialisé.
+
+**Pourquoi ça compte**
+
+On garde l'équilibre voulu dans la ROADMAP : deux modules de la Track 1 (détection d'abord, sans
+option). Ils élargissent la couverture vers deux classes de failles web classiques et à fort impact,
+tout en restant strictement du côté « détection » — pas d'exploitation. Les deux arrivent avec leurs
+tests, sont câblés dans le profil `full` et la taxonomie (CWE/OWASP/MITRE). La suite de tests passe à
+507 au vert.
+
+**La suite**
+
+Il reste des idées en Track 1 (par ex. l'en-tête `security.txt`) et des améliorations de précision en
+Track 3. Les capacités actives (Track 2) restent derrière `--exploit`, sur cibles autorisées
+uniquement.
+
+---
+
 ## 2026-11-25 (après-midi 2 — élargir la couverture de 3 modules d'exposition)
 
 **Ce que j'ai amélioré aujourd'hui**

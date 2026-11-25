@@ -63,10 +63,10 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] **GraphQL recon** (`scanner/web/graphql_detect.py`): find `/graphql`-style endpoints, test
   whether **introspection** is enabled, and flag verbose errors / suggestion leaks and missing depth
   limiting. INFO→MEDIUM depending on exposure; evidence from the introspection response.
-- [ ] **Host-header injection / cache-poisoning indicators** (`scanner/web/host_header.py`): detect
+- [x] **Host-header injection / cache-poisoning indicators** (`scanner/web/host_header.py`): detect
   reflected/absolute-URL Host handling and unkeyed inputs that hint at web-cache poisoning. Report as
   an indicator (detection), with the active cache-poisoning confirmation left behind `--exploit`.
-- [ ] **Insecure-deserialization indicators** (`scanner/vulns/deser_detect.py`): spot serialized
+- [x] **Insecure-deserialization indicators** (`scanner/vulns/deser_detect.py`): spot serialized
   blobs in params/cookies (Java `rO0`, PHP `O:`, .NET viewstate, Python pickle) and flag them with
   the matching risk; detection/heuristic only — no gadget execution.
 
@@ -115,6 +115,15 @@ natively for Hades' Python CLI architecture — no code is copied.
 ## Done
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
+
+- 2026-11-25 — Two new Track-1 detection modules (detection-first, no flag), each with unit tests and
+  wired into the `full` profile + taxonomy (CWE/OWASP/MITRE):
+  **host_header** (`scanner/web/host_header.py`, CWE-644) injects a unique sentinel host via the Host
+  header and common `X-Forwarded-*` headers and reports *reflection* (body → LOW cache-poisoning
+  candidate; redirect `Location` → MEDIUM) as an indicator — active poisoning stays behind `--exploit`;
+  **deser_detect** (`scanner/vulns/deser_detect.py`, CWE-502) recognises serialized blobs (Java,
+  PHP, Python pickle, Ruby Marshal, .NET ViewState) in params/cookies/form fields, heuristic only,
+  evidence shows only the format + a short prefix (never the full value). Suite now 507 green.
 
 - 2026-11-25 — Coverage-breadth pass on exposure modules, each with tests:
   **default_creds** catalog grew by ~18 management interfaces (Zabbix, Cacti, Nagios, Netdata,

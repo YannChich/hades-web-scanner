@@ -7005,3 +7005,135 @@ class TestScopeEnforcement:
         allow, deny = main._collect_scope(args)
         assert "*.target.com" in allow
         assert "logout.target.com" in deny and "ads.com" in deny
+
+
+# ---------------------------------------------------------------------------
+# host_header tests (Host-header injection / cache-poisoning indicators)
+# ---------------------------------------------------------------------------
+
+class TestHostHeader:
+    def _eng(self, base_url, transport):
+        from scanner.crawler import CrawlResult
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult())
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    def test_host_reflected_in_body_low(self, base_url):
+        """The injected Host sentinel echoed into the body → LOW cache-poisoning indicator."""
+        from scanner.web.host_header import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                host = req.headers.get("host", "")
+                return httpx.Response(200, text=f"<link rel=canonical href=https://{host}/>")
+
+        findings = run(self._eng(base_url, _T()))
+        hits = [f for f in findings if f.raw.get("vector") == "Host"]
+        assert hits and hits[0].severity == Severity.LOW
+        assert hits[0].raw["reflected_in"] == "response body" and hits[0].raw["verified"] is True
+
+    def test_xforwarded_host_in_location_medium(self, base_url):
+        """X-Forwarded-Host steering a redirect Location → MEDIUM indicator."""
+        from scanner.web.host_header import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                xfh = req.headers.get("x-forwarded-host")
+                if xfh:
+                    return httpx.Response(302, headers={"location": f"https://{xfh}/reset"}, text="")
+                return httpx.Response(200, text="<html>plain</html>")   # Host-override req: no reflection
+
+        findings = run(self._eng(base_url, _T()))
+        hits = [f for f in findings if f.raw.get("vector") == "X-Forwarded-Host"]
+        assert hits and hits[0].severity == Severity.MEDIUM
+        assert hits[0].raw["reflected_in"] == "redirect Location"
+
+    def test_no_reflection_returns_info(self, base_url):
+        from scanner.web.host_header import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<html>static, no host echo</html>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "No Reflection" in findings[0].title
+
+    def test_block_page_echo_not_flagged(self, base_url):
+        """A WAF 403 that echoes the sentinel must not be read as a reflection (anti-FP)."""
+        from scanner.web.host_header import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                host = req.headers.get("host", "")
+                return httpx.Response(403, text=f"Access denied for {host} — request blocked")
+
+        findings = run(self._eng(base_url, _T()))
+        assert all(f.severity == Severity.INFO for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# deser_detect tests (insecure-deserialization indicators, heuristic only)
+# ---------------------------------------------------------------------------
+
+class TestDeserDetect:
+    def _eng(self, base_url, parametrised=None, forms=None):
+        from scanner.crawler import CrawlResult
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(
+            parametrised_urls=list(parametrised or []), forms=list(forms or [])))
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="ok")
+
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        return eng
+
+    def test_php_serialized_param_high(self, base_url):
+        from scanner.vulns.deser_detect import run
+        eng = self._eng(base_url, parametrised=[f'{base_url}/p?data=O:8:"stdClass":0:{{}}'])
+        findings = run(eng)
+        hit = [f for f in findings if f.raw.get("format", "").startswith("PHP serialized")]
+        assert hit and hit[0].severity == Severity.HIGH and hit[0].raw["verified"] is False
+
+    def test_java_base64_cookie_high(self, base_url):
+        import base64
+        from scanner.vulns.deser_detect import run
+        eng = self._eng(base_url)
+        eng._client.cookies.set("session", base64.b64encode(b"\xac\xed\x00\x05sr\x00").decode())
+        findings = run(eng)
+        hit = [f for f in findings if "Java serialized" in f.raw.get("format", "")]
+        assert hit and hit[0].severity == Severity.HIGH and hit[0].raw["location"] == "cookie"
+        # Evidence must not leak the full value.
+        assert all("full value not stored" in line for line in hit[0].raw["evidence"])
+
+    def test_python_pickle_param_high(self, base_url):
+        import base64
+        from scanner.vulns.deser_detect import run
+        val = base64.b64encode(b"\x80\x04\x95\x10\x00\x00\x00").decode()
+        eng = self._eng(base_url, parametrised=[f"{base_url}/q?state={val}"])
+        findings = run(eng)
+        assert any("Python pickle" in f.raw.get("format", "") for f in findings)
+
+    def test_viewstate_name_medium(self, base_url):
+        from scanner.vulns.deser_detect import run
+        eng = self._eng(base_url, parametrised=[f"{base_url}/a?__VIEWSTATE=/wEPDwUKLTywfakeViewStateQ=="])
+        findings = run(eng)
+        hit = [f for f in findings if "ViewState" in f.raw.get("format", "")]
+        assert hit and hit[0].severity == Severity.MEDIUM
+
+    def test_benign_inputs_no_indicator(self, base_url):
+        from scanner.vulns.deser_detect import run
+        eng = self._eng(base_url, parametrised=[f"{base_url}/s?q=hello&page=2"])
+        eng._client.cookies.set("theme", "darkmode")
+        findings = run(eng)
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "No Indicators" in findings[0].title
+
+    def test_no_inputs_returns_info(self, base_url):
+        from scanner.vulns.deser_detect import run
+        findings = run(self._eng(base_url))
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "No Inspectable Inputs" in findings[0].title

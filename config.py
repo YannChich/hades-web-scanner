@@ -113,6 +113,7 @@ _WEB_ACTIVE: list[str] = [
     "scanner.web.backup_files",
     "scanner.web.sensitive_files",
     "scanner.web.graphql_detect",
+    "scanner.web.host_header",
 ]
 
 _VULNS: list[str] = [
@@ -125,6 +126,7 @@ _VULNS: list[str] = [
     "scanner.vulns.open_redirect",
     "scanner.vulns.ssrf_detect",
     "scanner.vulns.xxe_detect",
+    "scanner.vulns.deser_detect",
     "scanner.vulns.jwt_attacks",
     "scanner.vulns.auth_bypass",
     "scanner.vulns.idor_detect",
@@ -245,6 +247,7 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "open_redirect":     {"cwe": "CWE-601", "owasp": "A01:2021 Broken Access Control",              "mitre": []},
     "ssrf_detect":       {"cwe": "CWE-918", "owasp": "A10:2021 Server-Side Request Forgery",        "mitre": ["T1190"]},
     "xxe_detect":        {"cwe": "CWE-611", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
+    "deser_detect":      {"cwe": "CWE-502", "owasp": "A08:2021 Software and Data Integrity Failures","mitre": ["T1059"]},
     "jwt_attacks":       {"cwe": "CWE-347", "owasp": "A02:2021 Cryptographic Failures",             "mitre": ["T1212"]},
     "auth_bypass":       {"cwe": "CWE-287", "owasp": "A07:2021 Identification and Authentication Failures", "mitre": ["T1212"]},
     "idor_detect":       {"cwe": "CWE-639", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1190"]},
@@ -261,6 +264,7 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "dir_scan":          {"cwe": "CWE-538", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1083"]},
     "admin_panel":       {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
     "graphql_detect":    {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
+    "host_header":       {"cwe": "CWE-644", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
     # ── Information disclosure / secrets ──
     "sensitive_files":   {"cwe": "CWE-538", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1552.001"]},
     "backup_files":      {"cwe": "CWE-530", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
@@ -411,6 +415,8 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "ssrf_detect":       ["nuclei"],
     "xxe_detect":        ["nuclei"],
     "graphql_detect":    ["nuclei"],
+    "host_header":       ["nuclei"],
+    "deser_detect":      ["nuclei"],
     "cors_check":        ["nuclei"],
     "clickjacking":      ["nuclei"],
     "headers_check":     ["nuclei"],
