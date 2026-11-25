@@ -2508,6 +2508,41 @@ class TestLFI:
         high = [f for f in run(eng) if f.severity == Severity.HIGH]
         assert high and high[0].raw["signal"].startswith("root:")
 
+    def test_windows_winini_read_is_high(self, base_url):
+        """A Windows path payload that returns win.ini content is a confirmed HIGH read."""
+        from scanner.vulns.lfi_detect import run
+        from urllib.parse import unquote_plus
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                q = unquote_plus(parse_qs(urlparse(str(req.url)).query).get("file", [""])[0])
+                if "win.ini" in q:
+                    return httpx.Response(200, text="; for 16-bit app support\n[fonts]\n[extensions]\n")
+                return httpx.Response(200, text="<html>page</html>")
+
+        eng = _inj_engine(base_url, _T(), f"{base_url}/p?file=home")
+        high = [f for f in run(eng) if f.severity == Severity.HIGH]
+        assert high and "win.ini" in high[0].raw["signal"]
+
+    def test_php_filter_source_disclosure_is_high(self, base_url):
+        """A php://filter base64 blob that decodes to PHP source is a confirmed HIGH read."""
+        import base64 as _b64
+        from scanner.vulns.lfi_detect import run
+        from urllib.parse import unquote_plus
+
+        blob = _b64.b64encode(b"<?php $db_password = 'supersecret'; // config ?>").decode()
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                q = unquote_plus(parse_qs(urlparse(str(req.url)).query).get("file", [""])[0])
+                if "convert.base64-encode" in q:
+                    return httpx.Response(200, text=blob)
+                return httpx.Response(200, text="<html>page</html>")
+
+        eng = _inj_engine(base_url, _T(), f"{base_url}/p?file=index")
+        high = [f for f in run(eng) if f.severity == Severity.HIGH]
+        assert high and "PHP source" in high[0].raw["signal"]
+
     def test_no_lfi_is_info(self, base_url):
         from scanner.vulns.lfi_detect import run
 
