@@ -3929,6 +3929,24 @@ class TestBackupFiles:
         findings = backup_files.run(eng)
         assert any(f.severity == Severity.CRITICAL and f.raw["path"] == "/backup.zip" for f in findings)
 
+    def test_sqlite_db_backup_is_critical(self, base_url, monkeypatch):
+        """A downloadable .sqlite3 database (SQLite magic bytes) is a confirmed CRITICAL leak."""
+        from scanner.web import backup_files
+        monkeypatch.setattr(backup_files, "_candidates", lambda eng: ["/database.sqlite3"])
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, request):
+                if request.url.path == "/database.sqlite3":
+                    return httpx.Response(200, content=b"SQLite format 3\x00rest-of-db",
+                                          headers={"content-type": "application/octet-stream"})
+                return httpx.Response(404, text="nf")
+
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        findings = backup_files.run(eng)
+        f = [x for x in findings if x.raw.get("path") == "/database.sqlite3"]
+        assert f and f[0].severity == Severity.CRITICAL and "SQLite" in f[0].raw["type"]
+
     def test_html_soft404_not_flagged(self, base_url, monkeypatch):
         from scanner.web import backup_files
         monkeypatch.setattr(backup_files, "_candidates", lambda eng: ["/backup.zip"])
