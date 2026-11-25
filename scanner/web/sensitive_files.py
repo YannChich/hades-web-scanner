@@ -71,6 +71,12 @@ _TARGETS: list[_Target] = [
     _Target("/configuration.php",    "Joomla configuration (DB credentials)"),
     _Target("/settings.php",         "Drupal database credentials"),
     _Target("/config/config.php",    "Framework configuration file"),
+    _Target("/config.inc.php",       "phpMyAdmin configuration (DB credentials, blowfish secret)"),
+    _Target("/application.properties","Spring Boot config (DB credentials)"),
+    _Target("/application.yml",      "Spring Boot config (DB credentials)"),
+    _Target("/phpunit.xml",          "PHPUnit config (may embed DB credentials)"),
+    _Target("/wp-config.php.old",    "WordPress config backup"),
+    _Target("/.env.test",            "Test environment variables"),
     _Target("/settings.py",          "Django settings (SECRET_KEY, DB credentials)"),
     _Target("/local_settings.py",    "Django local settings override"),
     _Target("/web.config",           "IIS / ASP.NET configuration"),
@@ -85,9 +91,18 @@ _TARGETS: list[_Target] = [
     _Target("/app/config/config.yml","Symfony-style configuration"),
     _Target("/database.yml",         "Rails database credentials"),
     _Target("/database.yaml",        "Rails database credentials"),
+    # --- IDE / deploy-tool credentials --------------------------------------
+    _Target("/.vscode/sftp.json",    "VS Code SFTP deploy credentials"),
+    _Target("/sftp-config.json",     "Sublime SFTP credentials"),
+    _Target("/.ftpconfig",           "Atom FTP credentials"),
+    # --- Infrastructure-as-code / cluster state -----------------------------
+    _Target("/terraform.tfstate",    "Terraform state (may contain plaintext secrets)"),
+    _Target("/.terraform/terraform.tfstate", "Terraform state (may contain plaintext secrets)"),
+    _Target("/.kube/config",         "Kubernetes cluster credentials"),
     # --- VCS repositories ---------------------------------------------------
     _Target("/.git/config",          "Git repository configuration (remote URLs)"),
     _Target("/.git/HEAD",            "Git HEAD reference (confirms exposed .git dir)"),
+    _Target("/.git/logs/HEAD",       "Git reflog (branch and commit history)"),
     _Target("/.git/COMMIT_EDITMSG",  "Last commit message"),
     _Target("/.git/index",           "Git index (file listing)"),
     _Target("/.gitignore",           "Git ignore rules (reveals hidden paths)"),
@@ -153,9 +168,25 @@ _CONTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "/.env.production":       ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
     "/.env.backup":           ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
     "/.env.save":             ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
+    "/.env.test":             ("=", "db_", "app_key", "secret", "token", "password", "api_key"),
     # --- VCS metadata ----------------------------------------------------------
     "/.git/HEAD":             ("ref: refs/heads/", "ref:"),
     "/.git/config":           ("[core]", "[remote", "repositoryformatversion"),
+    "/.git/logs/HEAD":        ("commit", "clone", "checkout", "merge", "pull"),
+    # --- IDE / deploy-tool credentials -----------------------------------------
+    "/.vscode/sftp.json":     ("host", "username", "password", "remotepath", "protocol"),
+    "/sftp-config.json":      ("host", "user", "password", "remote_path"),
+    "/.ftpconfig":            ("host", "user", "pass"),
+    # --- IaC / cluster state ----------------------------------------------------
+    "/terraform.tfstate":     ("terraform_version", '"resources"', '"serial"'),
+    "/.terraform/terraform.tfstate": ("terraform_version", '"resources"', '"serial"'),
+    "/.kube/config":          ("apiversion", "clusters", "current-context", "client-certificate-data"),
+    # --- Framework config with credentials -------------------------------------
+    "/config.inc.php":        ("$cfg", "blowfish_secret", "pmaabsoluteuri"),
+    "/application.properties": ("spring.", "datasource", "jdbc:"),
+    "/application.yml":       ("spring:", "datasource"),
+    "/phpunit.xml":           ("<phpunit", "db_", "<env "),
+    "/wp-config.php.old":     ("db_",),
     # --- Cloud / package auth ---------------------------------------------------
     "/.aws/credentials":      ("aws_access_key_id",),
     "/.npmrc":                ("_authtoken",),
@@ -209,6 +240,10 @@ _EXPOSURE_SEVERITY: dict[str, Severity] = {
     # Access-control / rewrite config disclosure — reveals internal paths and auth-file
     # locations, but is not a raw credential store like .htpasswd (which stays CRITICAL).
     "/.htaccess": Severity.HIGH,
+    # Git reflog is history/metadata (feeds source reconstruction), not a raw credential file.
+    "/.git/logs/HEAD": Severity.HIGH,
+    # Test config: often holds DB creds, but less reliably secret than a prod credential file.
+    "/phpunit.xml": Severity.MEDIUM,
 }
 
 # Threshold of uniform 403s above which we assume a blanket deny rule even if the
