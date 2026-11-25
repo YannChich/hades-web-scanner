@@ -54,7 +54,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 ### Track 1 — New detection modules (detection-first, no flag needed)
 
-- [ ] **XXE detection** (`scanner/vulns/xxe_detect.py`): probe XML-accepting endpoints for external-
+- [x] **XXE detection** (`scanner/vulns/xxe_detect.py`): probe XML-accepting endpoints for external-
   entity processing. In-band first (entity expansion reflected / error signatures); blind via the
   existing OOB listener. Evidence + `verified` from the proof. Wire into the `full` vuln profile.
 - [ ] **NoSQL injection detection** (`scanner/vulns/nosqli_detect.py`): operator-injection payloads
@@ -109,6 +109,12 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — XXE detection (`scanner/vulns/xxe_detect.py`): probes XML-accepting endpoints (form
+  actions, parametrised URLs, API/SOAP paths, site root) with three in-band techniques — external-entity
+  file disclosure (`/etc/passwd`, `win.ini`) → HIGH/verified, a benign custom-entity expansion canary
+  → MEDIUM/verified, and conservative XML parser-error signatures → MEDIUM indicator. Reflection is
+  stripped before matching. Wired into the `full` profile, tagged CWE-611 / A05:2021, mapped to the
+  XXE playbook + nuclei; 7 mocked tests.
 - 2026-11-24 — CI workflow (`.github/workflows/ci.yml`): runs `tools/check_imports.py` + the full
   `pytest` suite on every push/PR to main across Python 3.10–3.12, enforcing the "never break main"
   rule in GitHub itself.
