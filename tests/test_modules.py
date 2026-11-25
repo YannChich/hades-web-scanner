@@ -5445,6 +5445,50 @@ class TestHephaestusTls:
 # Hades v1.0 polish — entry point, reports, confidence, graceful install
 # ---------------------------------------------------------------------------
 
+class TestReportJsonContract:
+    """Lock the JSON report's downstream contract: top-level shape, severity counts, coverage
+    passthrough, and the verified/verification proof fields."""
+
+    def test_top_level_structure_and_counts(self, tmp_path):
+        import json
+        from scanner.output.report_json import generate_json
+        findings = [
+            Finding("xxe_detect", "XXE", "d", Severity.HIGH, raw={"confidence": "high"}),
+            Finding("graphql_detect", "GraphQL introspection", "d", Severity.MEDIUM, raw={}),
+            Finding("headers_check", "note", "d", Severity.INFO, raw={}),
+        ]
+        coverage = {"modules": {"run": 5, "skipped": 1}, "surface": {"params": 3}}
+        out = generate_json(findings, "http://t.test", 61, output_path=str(tmp_path), coverage=coverage)
+        data = json.load(open(out, encoding="utf-8"))
+        for k in ("scan_date", "target", "score", "grade", "findings_count", "coverage",
+                  "attack_path", "findings"):
+            assert k in data, f"missing top-level key {k}"
+        assert data["target"] == "http://t.test" and data["score"] == 61
+        assert data["coverage"] == coverage                    # passed through verbatim
+        assert data["findings_count"]["high"] == 1
+        assert data["findings_count"]["medium"] == 1
+        assert data["findings_count"]["info"] == 1
+        assert len(data["findings"]) == 3
+
+    def test_verified_proof_serialised(self, tmp_path):
+        import json
+        from scanner.output.report_json import generate_json
+        f = Finding("sqli_detect", "SQLi", "d", Severity.CRITICAL,
+                    raw={"verified": True, "verification": "boolean split confirmed",
+                         "confidence": "high"})
+        out = generate_json([f], "http://t.test", 30, output_path=str(tmp_path))
+        fj = json.load(open(out, encoding="utf-8"))["findings"][0]
+        assert fj["verified"] is True and fj["verification"] == "boolean split confirmed"
+
+    def test_unverified_finding_serialises_false(self, tmp_path):
+        import json
+        from scanner.output.report_json import generate_json
+        f = Finding("headers_check", "Missing header", "d", Severity.LOW, raw={})
+        out = generate_json([f], "http://t.test", 90, output_path=str(tmp_path))
+        fj = json.load(open(out, encoding="utf-8"))["findings"][0]
+        assert fj["verified"] is False
+
+
 class TestV1Polish:
     def test_every_finding_has_a_confidence(self):
         # A module that sets no confidence still gets one, derived from severity.
