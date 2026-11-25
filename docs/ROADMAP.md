@@ -116,6 +116,15 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
 
+- 2026-11-25 — Coverage-breadth pass on exposure modules, each with tests:
+  **default_creds** catalog grew by ~18 management interfaces (Zabbix, Cacti, Nagios, Netdata,
+  Prometheus, SonarQube, Harbor, Keycloak, MinIO, Mongo Express, Solr, Couchbase, phpPgAdmin, Jupyter,
+  Airflow, WebLogic, Webmin, pfSense, Splunk) — still advisory-only;
+  **sensitive_files** added high-impact targets with content signatures (terraform.tfstate,
+  .kube/config, VS Code/Sublime/Atom SFTP creds, Spring application.properties/.yml, phpMyAdmin
+  config.inc.php, phpunit.xml, wp-config.php.old, .env.test, .git/logs/HEAD);
+  **backup_files** added .war/.tar.xz/.xz/.sqlite3/.db extensions, the XZ magic byte, and source-as-text
+  (.txt/.inc) suffixes.
 - 2026-11-25 — Hardening pass across existing (non-new) modules, each with tests:
   **headers_check** now flags a Report-Only CSP (looks present, enforces nothing), scheme-wide
   `script-src`, `style-src 'unsafe-inline'` and a missing `form-action`;

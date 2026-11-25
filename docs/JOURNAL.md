@@ -4,6 +4,44 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-25 (après-midi 2 — élargir la couverture de 3 modules d'exposition)
+
+**Ce que j'ai amélioré aujourd'hui**
+
+- **Identifiants par défaut** : Hades reconnaît maintenant une vingtaine d'interfaces d'administration
+  de plus (Zabbix, Grafana, SonarQube, MinIO, Keycloak, Jupyter, Airflow, Webmin, pfSense, Splunk…) et
+  rappelle leurs identifiants par défaut documentés. Il ne tente jamais de se connecter (ce serait
+  intrusif) : il prévient juste « cette interface existe, vérifie que le mot de passe par défaut a été
+  changé ».
+- **Fichiers sensibles** : ajout de cibles à fort impact, chacune confirmée par le contenu réel du
+  fichier (pour éviter les fausses alertes) — l'état Terraform (`terraform.tfstate`, qui peut contenir
+  des secrets en clair), la config Kubernetes (`.kube/config`), les identifiants de déploiement SFTP
+  des éditeurs (VS Code, Sublime, Atom), la config Spring (`application.properties`), celle de
+  phpMyAdmin, et le journal Git (`.git/logs/HEAD`).
+- **Fichiers de sauvegarde** : Hades cherche maintenant plus de types d'archives (`.war` Java, `.xz`,
+  bases `.sqlite3`/`.db`) et détecte le code source servi « en texte » (suffixes `.txt`/`.inc`). Un
+  fichier n'est signalé que si son contenu prouve que c'est une vraie archive/sauvegarde.
+
+**Les mots nouveaux**
+
+- **Identifiants par défaut** : le login/mot de passe livré d'usine avec un logiciel (ex. admin/admin) ;
+  s'il n'est pas changé, n'importe qui entre.
+- **Terraform / état** : Terraform décrit l'infrastructure ; son fichier « d'état » peut contenir des
+  mots de passe et clés en clair — à ne jamais exposer sur le web.
+- **Magic bytes** : les premiers octets d'un fichier qui identifient son type (ex. « PK » pour un ZIP) —
+  Hades les vérifie pour confirmer qu'une sauvegarde est réelle.
+
+**Pourquoi ça compte**
+
+Ces trois modules cherchent des secrets exposés par erreur — la cause de nombreuses fuites réelles.
+Élargir leur catalogue (sans ajouter de fausses alertes, car tout est confirmé par le contenu) rend
+Hades nettement plus utile sur des cibles modernes (cloud, conteneurs, CI/CD).
+
+**La suite**
+
+Continuer à durcir d'autres modules (admin_panel, cloud_buckets, http_methods…) au même standard :
+plus de couverture réelle, zéro faux positif, tests à l'appui.
+
 ## 2026-11-25 (midi — amélioration de 7 modules existants)
 
 **Ce que j'ai amélioré aujourd'hui** (sur des modules qui existaient déjà, pas seulement les miens)
