@@ -1831,6 +1831,51 @@ class TestSslCheck:
         assert any("plain http" in f.title.lower() or "no tls" in f.title.lower()
                    for f in findings)
 
+    @staticmethod
+    def _self_signed(key, sig_hash):
+        from datetime import datetime, timezone, timedelta
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        now = datetime.now(timezone.utc)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "example.com")])
+        return (x509.CertificateBuilder()
+                .subject_name(name).issuer_name(name)
+                .public_key(key.public_key()).serial_number(1)
+                .not_valid_before(now - timedelta(days=1))
+                .not_valid_after(now + timedelta(days=90))
+                .sign(key, sig_hash))
+
+    def test_weak_sha1_signature_flagged(self):
+        # OpenSSL refuses to *sign* with SHA-1, so model a received SHA-1 cert with a mock.
+        from scanner.recon.ssl_check import _check_signature_algorithm
+        cert = MagicMock()
+        cert.signature_hash_algorithm.name = "sha1"
+        f = _check_signature_algorithm(cert)
+        assert f and f.severity == Severity.MEDIUM and "SHA1" in f.title
+
+    def test_strong_sha256_signature_not_flagged(self):
+        from scanner.recon.ssl_check import _check_signature_algorithm
+        cert = MagicMock()
+        cert.signature_hash_algorithm.name = "sha256"
+        assert _check_signature_algorithm(cert) is None
+
+    def test_weak_1024_bit_rsa_key_flagged(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import hashes
+        from scanner.recon.ssl_check import _check_key_strength
+        cert = self._self_signed(rsa.generate_private_key(public_exponent=65537, key_size=1024),
+                                 hashes.SHA256())
+        f = _check_key_strength(cert)
+        assert f and f.severity == Severity.HIGH and f.raw["key_size"] == 1024
+
+    def test_strong_2048_bit_rsa_key_not_flagged(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import hashes
+        from scanner.recon.ssl_check import _check_key_strength
+        cert = self._self_signed(rsa.generate_private_key(public_exponent=65537, key_size=2048),
+                                 hashes.SHA256())
+        assert _check_key_strength(cert) is None
+
 
 # ---------------------------------------------------------------------------
 # sqli_detect tests
