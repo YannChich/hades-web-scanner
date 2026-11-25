@@ -2180,6 +2180,49 @@ class TestXssDetect:
         assert not any(f.severity == Severity.HIGH and f.raw.get("context") == "js_string"
                        for f in findings)
 
+    def test_js_template_literal_breakout_is_high(self, base_url):
+        """Input reflected inside a `template literal` with ${...} live → High XSS (js_template)."""
+        from scanner.vulns.xss_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = parse_qs(urlparse(str(req.url)).query).get("q", [""])[0]
+                # Reflected unescaped inside a backtick template literal in a <script>.
+                return httpx.Response(200, text=f"<script>let s = `hello {val} world`;</script>")
+
+        findings = run(self._eng(base_url, _T()))
+        high = [f for f in findings if f.severity == Severity.HIGH]
+        assert high and high[0].raw["context"] == "js_template"
+
+    def test_js_template_inert_breakout_not_high(self, base_url):
+        """A plain-JS `;x();` breakout is inert text inside a template literal — must NOT be High."""
+        from scanner.vulns.xss_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = parse_qs(urlparse(str(req.url)).query).get("q", [""])[0]
+                # Backticks preserved, but ${ } is stripped (so substitution can't be injected).
+                safe = val.replace("${", "").replace("`", "")
+                return httpx.Response(200, text=f"<script>let s = `x {safe} y`;</script>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert not any(f.severity == Severity.HIGH for f in findings)
+
+    def test_attribute_event_handler_injection_is_high(self, base_url):
+        """When '>' is stripped but the quote survives, an injected event-handler attribute is High."""
+        from scanner.vulns.xss_detect import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                val = parse_qs(urlparse(str(req.url)).query).get("q", [""])[0]
+                val = val.replace(">", "")                 # tag-close filtered, quotes allowed
+                return httpx.Response(200, text=f'<input type="text" value="{val}">')
+
+        findings = run(self._eng(base_url, _T()))
+        high = [f for f in findings if f.severity == Severity.HIGH]
+        assert high and high[0].raw["context"] == "attr_double"
+        assert "onq" in high[0].raw["payload"]
+
     def test_stored_xss_via_form_is_high(self, base_url, monkeypatch):
         """Value not echoed in the POST response but rendered unescaped on a display page → Stored XSS."""
         from scanner.vulns.xss_detect import run
