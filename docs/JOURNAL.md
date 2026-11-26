@@ -4,6 +4,56 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-26 (un nouveau module + trois outils de confort)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Contrôle du fichier `security.txt`** (nouveau module `security_txt`) : beaucoup de sites publient
+  un petit fichier standard (`/.well-known/security.txt`) qui dit « voici comment nous signaler une
+  faille ». Hades vérifie maintenant s'il existe, s'il est bien à la bonne adresse, s'il contient une
+  adresse de contact, et surtout s'il n'est pas **périmé**. Un site sérieux a ce fichier à jour ; son
+  absence ou son expiration est une remarque classique dans un rapport. C'est de la **détection
+  seulement** : Hades lit un fichier public, il ne touche à rien.
+- **Rapport au format Markdown** : à chaque scan, Hades écrit désormais aussi un fichier `.md` en plus
+  du HTML et du JSON. Le Markdown se colle directement dans un ticket, une « issue » GitHub ou un
+  e-mail client — avec le score, un tableau du nombre de failles par gravité, et une fiche par faille
+  (preuve, commande `curl` pour reproduire, correction). Plus besoin de recopier à la main.
+- **Liste d'exceptions `.hadesignore`** (option `--ignore-file`) : quand on a vérifié qu'une alerte est
+  une **fausse alerte**, on l'écrit une fois dans un fichier `.hadesignore` (par module, par identifiant,
+  par empreinte, ou par titre). Aux scans suivants, Hades l'enlève **avant** de calculer la note et
+  d'écrire les rapports — donc les fausses alertes ne polluent plus le résultat ni le score. C'est
+  l'équivalent d'un `.gitignore`, mais pour les findings.
+- **Option `--diff-only`** : utilisée avec `--retest` (le re-scan qui compare à la fois précédente),
+  elle n'affiche que les failles **nouvelles** depuis le dernier scan. Pratique pour un re-test : on voit
+  tout de suite ce qui a changé, sans relire toute la liste. La note, elle, continue de refléter l'état
+  complet du site.
+
+**Les mots nouveaux**
+
+- **security.txt (RFC 9116)** : un fichier texte standard où une entreprise explique comment lui
+  signaler une faille de sécurité (adresse de contact, politique, clé de chiffrement).
+- **Markdown** : un format texte simple (celui des README GitHub) qui s'affiche joliment avec des
+  titres, des tableaux et des blocs de code une fois collé.
+- **Fausse alerte (faux positif)** : une faille signalée par l'outil mais qui n'en est pas une après
+  vérification humaine.
+- **Empreinte (fingerprint)** : un petit code unique qui identifie une faille d'un scan à l'autre, même
+  si le reste du rapport change.
+- **Re-test / diff** : refaire le même scan plus tard et comparer pour voir ce qui a été corrigé, ce qui
+  reste, et ce qui est nouveau.
+
+**Pourquoi ça compte**
+
+Un vrai pentester ne livre pas juste une liste brute : il doit la **partager** (Markdown), **écarter le
+bruit** (`.hadesignore`) et **suivre les corrections dans le temps** (`--diff-only`). Ces trois ajouts
+rendent le résultat de Hades plus pro et plus utilisable au quotidien, pendant que le module
+`security.txt` élargit encore la couverture avec un contrôle que des outils reconnus (Mozilla Observatory,
+nuclei) font aussi.
+
+**La suite**
+
+Ajouter une option `--fail-on <gravité>` : faire échouer volontairement un scan (code de sortie ≠ 0)
+quand une faille grave est présente, pour bloquer automatiquement une chaîne d'intégration continue (CI).
+
 ## 2026-11-25 (soir — deux nouveaux modules de détection)
 
 **Ce que j'ai ajouté aujourd'hui**
