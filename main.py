@@ -547,6 +547,13 @@ def build_parser() -> argparse.ArgumentParser:
              "'#' comments). Merged with --scope / --deny",
     )
     parser.add_argument(
+        "--ignore-file",
+        metavar="FILE",
+        help="Suppress known false positives listed in a .hadesignore file (defaults to "
+             "./.hadesignore if present). Rules: module:<name>, id:<finding_id>, "
+             "fingerprint:<hex>, title:<glob>; a bare line matches a finding ID or fingerprint",
+    )
+    parser.add_argument(
         "--wordlist", "-w",
         metavar="FILE",
         help="Custom wordlist path (overrides built-in lists)",
@@ -690,6 +697,7 @@ def main() -> None:
         scope_allow=scope_allow,
         scope_deny=scope_deny,
         noise=getattr(args, "noise", None),
+        ignore_file=getattr(args, "ignore_file", None),
     )
 
 

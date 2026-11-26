@@ -757,6 +757,7 @@ def run_scan(
     scope_allow: Optional[list[str]] = None,
     scope_deny: Optional[list[str]] = None,
     noise: Optional[str] = None,
+    ignore_file: Optional[str] = None,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested.
 
@@ -797,6 +798,20 @@ def run_scan(
 
     if scope is not None and scope.blocked:
         console.print(f"[dim]  🎯 Scope: blocked {scope.blocked} out-of-scope request(s).[/dim]")
+
+    # False-positive suppression (.hadesignore): drop triaged findings before scoring/reporting, so
+    # accepted FPs neither skew the risk score nor reappear in the reports or the retest diff. Loads
+    # ./.hadesignore by default (or --ignore-file); no file → no suppression.
+    try:
+        from scanner.output import suppress  # local import avoids a cycle
+        rules = suppress.load_rules(ignore_file)
+        if rules:
+            findings, suppressed = suppress.apply(findings, rules)
+            if suppressed:
+                console.print(f"[dim]  🙈 Suppressed {len(suppressed)} finding(s) via "
+                              f"{ignore_file or suppress.DEFAULT_IGNORE_FILE}.[/dim]")
+    except Exception as exc:  # noqa: BLE001 — suppression must never abort a scan
+        logger.debug(f"suppression skipped: {exc}")
 
     # Knowledge-base enrichment: attach matching expert playbooks from the skills
     # library (optional — silently no-ops if the library isn't present).
