@@ -22,7 +22,7 @@
 
 **Hades is a terminal-based, red-team web security scanner that does not just *find* weaknesses — it *proves* them.**
 
-It runs 44 modules across reconnaissance, misconfiguration and vulnerability detection, confirms each
+It runs 50 modules across reconnaissance, misconfiguration and vulnerability detection, confirms each
 finding with an evaluated payload / timing / content signature (no blind guessing), maps it to
 **CWE / OWASP / MITRE ATT&CK** with a CVSS score, links a step-by-step **expert playbook**, and weaves
 everything into a single copy-paste **kill-chain attack path** — then exports a polished, self-contained
@@ -122,7 +122,7 @@ evidence**, and every piece of evidence comes with the next move.
 ## Features
 
 **Detection engine**
-- 44 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
+- 50 modules across reconnaissance, web/misconfiguration analysis and active vulnerability detection.
 - Shared, rate-limited crawler feeds every module the same parameters, forms, links and emails.
 - Anti-noise baselines (catch-all 200, blanket 403/5xx, accept-all ports, soft-404) keep results accurate.
 - **Evidence-grade findings:** every actionable finding carries a structured proof block — the exact
@@ -486,22 +486,25 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 </details>
 
 <details>
-<summary><b>Website &amp; Misconfiguration (20)</b></summary>
+<summary><b>Website &amp; Misconfiguration (23)</b></summary>
 
 `headers_check` &middot; `robots_txt` &middot; `sitemap` &middot; `cms_detect` &middot; `admin_panel`
 &middot; `dir_scan` &middot; `subdomain_scan` (+ takeover) &middot; `broken_links` &middot;
 `http_methods` &middot; `backup_files` &middot; `sensitive_files` &middot; `cookie_analysis` &middot;
-`redirect_chain` &middot; `email_exposure` &middot; `favicon_hash` &middot; `cors_check` &middot;
-`clickjacking` &middot; `dir_listing` &middot; `blacklist_check` &middot; `screenshot`
+`redirect_chain` &middot; `security_txt` (RFC 9116 disclosure posture) &middot; `email_exposure`
+&middot; `favicon_hash` &middot; `cors_check` &middot; `clickjacking` &middot; `dir_listing` &middot;
+`blacklist_check` &middot; `screenshot` &middot; `graphql_detect` (introspection) &middot;
+`host_header` (injection / cache-poisoning indicators)
 
 </details>
 
 <details>
-<summary><b>Vulnerability Detection (13)</b></summary>
+<summary><b>Vulnerability Detection (16)</b></summary>
 
-`sqli_detect` &middot; `xss_detect` &middot; `command_injection` &middot; `ssti_detect` &middot;
-`lfi_detect` &middot; `open_redirect` &middot; `ssrf_detect` &middot; `jwt_attacks` &middot;
-`auth_bypass` &middot; `idor_detect` (IDOR / BOLA &mdash; access control) &middot;
+`sqli_detect` &middot; `nosqli_detect` &middot; `xss_detect` &middot; `command_injection` &middot;
+`ssti_detect` &middot; `lfi_detect` &middot; `open_redirect` &middot; `ssrf_detect` &middot;
+`xxe_detect` &middot; `deser_detect` (insecure-deserialization indicators) &middot; `jwt_attacks`
+&middot; `auth_bypass` &middot; `idor_detect` (IDOR / BOLA &mdash; access control) &middot;
 `bruteforce` (opt-in) &middot; `cve_mapping` &middot; `default_creds`
 
 </details>
