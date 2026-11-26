@@ -7137,3 +7137,110 @@ class TestDeserDetect:
         findings = run(self._eng(base_url))
         assert findings and all(f.severity == Severity.INFO for f in findings)
         assert "No Inspectable Inputs" in findings[0].title
+
+
+# ---------------------------------------------------------------------------
+# security_txt tests (RFC 9116 disclosure posture)
+# ---------------------------------------------------------------------------
+
+class TestSecurityTxt:
+    def _eng(self, base_url, transport):
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=transport, follow_redirects=True, verify=False)
+        return eng
+
+    @staticmethod
+    def _future(days: int = 90) -> str:
+        return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def _past(days: int = 30) -> str:
+        return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _serve(self, body: str, *, canonical: bool = True, legacy: bool = False):
+        parent = self
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                p = req.url.path
+                if p == "/.well-known/security.txt" and canonical:
+                    return httpx.Response(200, text=body, headers={"content-type": "text/plain"})
+                if p == "/security.txt" and legacy:
+                    return httpx.Response(200, text=body, headers={"content-type": "text/plain"})
+                return httpx.Response(404, text="not found")
+
+        return _T()
+
+    def test_absent_returns_info(self, base_url):
+        from scanner.web.security_txt import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(404, text="nope")
+
+        findings = run(self._eng(base_url, _T()))
+        assert findings and all(f.severity == Severity.INFO for f in findings)
+        assert "No security.txt" in findings[0].title and findings[0].raw["present"] is False
+
+    def test_valid_canonical_file_info_only(self, base_url):
+        from scanner.web.security_txt import run
+        body = f"Contact: mailto:security@example.com\nExpires: {self._future()}\nPolicy: https://example.com/policy\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        assert findings[0].severity == Severity.INFO and "Found" in findings[0].title
+        assert findings[0].raw["canonical"] is True and findings[0].raw["contacts"]
+        # A well-formed, current file raises no LOW/MEDIUM posture findings.
+        assert all(f.severity == Severity.INFO for f in findings)
+
+    def test_expired_file_medium(self, base_url):
+        from scanner.web.security_txt import run
+        body = f"Contact: mailto:security@example.com\nExpires: {self._past()}\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        expired = [f for f in findings if "Expired" in f.title]
+        assert expired and expired[0].severity == Severity.MEDIUM and expired[0].raw["expired"] is True
+
+    def test_missing_contact_medium(self, base_url):
+        from scanner.web.security_txt import run
+        body = f"Expires: {self._future()}\nPolicy: https://example.com/policy\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        hit = [f for f in findings if "Missing Mandatory Contact" in f.title]
+        assert hit and hit[0].severity == Severity.MEDIUM
+
+    def test_missing_expires_low(self, base_url):
+        from scanner.web.security_txt import run
+        body = "Contact: mailto:security@example.com\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        hit = [f for f in findings if "Missing Mandatory Expires" in f.title]
+        assert hit and hit[0].severity == Severity.LOW
+
+    def test_expires_too_far_low(self, base_url):
+        from scanner.web.security_txt import run
+        body = f"Contact: mailto:security@example.com\nExpires: {self._future(800)}\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        hit = [f for f in findings if "Too Far" in f.title]
+        assert hit and hit[0].severity == Severity.LOW
+
+    def test_legacy_location_only_low(self, base_url):
+        from scanner.web.security_txt import run
+        body = f"Contact: mailto:security@example.com\nExpires: {self._future()}\n"
+        findings = run(self._eng(base_url, self._serve(body, canonical=False, legacy=True)))
+        assert findings[0].raw["canonical"] is False
+        hit = [f for f in findings if "Legacy Location" in f.title]
+        assert hit and hit[0].severity == Severity.LOW
+
+    def test_html_error_page_not_treated_as_file(self, base_url):
+        """A SPA that serves index.html (200) for unknown paths must not be read as a security.txt."""
+        from scanner.web.security_txt import run
+
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                return httpx.Response(200, text="<!DOCTYPE html><html><body>app</body></html>")
+
+        findings = run(self._eng(base_url, _T()))
+        assert findings and findings[0].raw["present"] is False
+
+    def test_malformed_expires_low(self, base_url):
+        from scanner.web.security_txt import run
+        body = "Contact: mailto:security@example.com\nExpires: not-a-date\n"
+        findings = run(self._eng(base_url, self._serve(body)))
+        hit = [f for f in findings if "Malformed Expires" in f.title]
+        assert hit and hit[0].severity == Severity.LOW
