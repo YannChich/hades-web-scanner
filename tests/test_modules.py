@@ -7312,3 +7312,77 @@ class TestReportMarkdown:
         assert p and p.endswith(".md")
         content = open(p, encoding="utf-8").read()
         assert "# Hades Security Report" in content
+
+
+# ---------------------------------------------------------------------------
+# suppress tests (.hadesignore false-positive suppression)
+# ---------------------------------------------------------------------------
+
+class TestSuppress:
+    def _findings(self):
+        return [
+            Finding("dir_listing", "Directory Listing at /backup", "x", Severity.LOW, "", {}),
+            Finding("sqli_detect", "SQL Injection in id", "x", Severity.CRITICAL, "", {}),
+            Finding("headers_check", "Missing X-Frame-Options", "x", Severity.MEDIUM, "", {}),
+        ]
+
+    def test_parse_rules_kinds_and_comments(self):
+        from scanner.output.suppress import parse_rules, Rule
+        rules = parse_rules(
+            "# a comment\n\nmodule:dir_listing\nid:SQLI-1\nfingerprint:abc123\n"
+            "fp:deadbeef\ntitle:*X-Frame*\nBAREFP123\nbogus:thing\n"
+        )
+        kinds = [(r.kind, r.value) for r in rules]
+        assert ("module", "dir_listing") in kinds
+        assert ("id", "sqli-1") in kinds
+        assert ("fingerprint", "abc123") in kinds
+        assert ("fp", "deadbeef") in kinds
+        assert ("title", "*x-frame*") in kinds
+        assert ("any", "barefp123") in kinds        # bare token
+        assert all(r.kind != "bogus" for r in rules)  # unrecognised rule skipped
+
+    def test_apply_module_rule(self):
+        from scanner.output.suppress import apply, parse_rules
+        kept, sup = apply(self._findings(), parse_rules("module:dir_listing"))
+        assert [f.module for f in sup] == ["dir_listing"]
+        assert "dir_listing" not in [f.module for f in kept]
+
+    def test_apply_title_glob(self):
+        from scanner.output.suppress import apply, parse_rules
+        kept, sup = apply(self._findings(), parse_rules("title:*x-frame*"))
+        assert len(sup) == 1 and sup[0].module == "headers_check"
+
+    def test_apply_id_and_bare_token(self):
+        from scanner.output.suppress import apply, parse_rules
+        fs = self._findings()
+        fid = fs[1].finding_id
+        kept, sup = apply(fs, parse_rules(f"id:{fid}"))
+        assert len(sup) == 1 and sup[0] is fs[1]
+        # Bare token matches the same finding by ID.
+        kept2, sup2 = apply(fs, parse_rules(fid))
+        assert len(sup2) == 1 and sup2[0] is fs[1]
+
+    def test_apply_fingerprint(self):
+        from scanner.output.suppress import apply, parse_rules
+        from scanner.output.history import fingerprint
+        fs = self._findings()
+        fp = fingerprint(fs[0])
+        kept, sup = apply(fs, parse_rules(f"fingerprint:{fp}"))
+        assert len(sup) == 1 and sup[0] is fs[0]
+
+    def test_no_rules_keeps_everything(self):
+        from scanner.output.suppress import apply
+        kept, sup = apply(self._findings(), [])
+        assert len(kept) == 3 and sup == []
+
+    def test_load_rules_from_file(self, tmp_path):
+        from scanner.output.suppress import load_rules, apply
+        p = tmp_path / ".hadesignore"
+        p.write_text("# suppress the accepted backup listing\nmodule:dir_listing\n", encoding="utf-8")
+        rules = load_rules(str(p))
+        kept, sup = apply(self._findings(), rules)
+        assert len(rules) == 1 and len(sup) == 1 and sup[0].module == "dir_listing"
+
+    def test_load_rules_missing_file_returns_empty(self, tmp_path):
+        from scanner.output.suppress import load_rules
+        assert load_rules(str(tmp_path / "nope.hadesignore")) == []
