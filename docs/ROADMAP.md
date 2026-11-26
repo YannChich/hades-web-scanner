@@ -98,23 +98,53 @@ natively for Hades' Python CLI architecture — no code is copied.
 ## Backlog (unordered ideas)
 
 - [ ] JSON schema + `--schema` dump for the JSON report (stable contract for downstream tools).
-- [ ] `--diff-only` flag to report just the delta vs the previous scan.
-- [ ] Per-finding "false-positive" suppression file (`.hadesignore`).
-- [ ] Markdown report exporter for quick GitHub/issue pasting.
+- [x] `--diff-only` flag to report just the delta vs the previous scan.
+- [x] Per-finding "false-positive" suppression file (`.hadesignore`).
+- [x] Markdown report exporter for quick GitHub/issue pasting.
 - [ ] JWT algorithm-confusion check (RS256→HS256): when the server's RSA public key is retrievable
   (JWKS/`/.well-known`), try verifying/forging with HS256 using the public key as the HMAC secret —
   detection by default, active forge behind `--exploit`.
-- [ ] `security.txt` / `.well-known` posture check (RFC 9116): report presence/absence and parse
+- [x] `security.txt` / `.well-known` posture check (RFC 9116): report presence/absence and parse
   contact/expiry — a quick credibility + recon win.
 - [ ] Config file support (`hades.toml`) for default flags per project.
 - [ ] More unit tests: raise coverage on `scanner/vulns/*` and `scanner/output/*`.
 - [x] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
+- [ ] `--fail-on <severity>` CI gate: exit non-zero when a finding at/above the given severity is
+  present (and honours `.hadesignore`), so Hades can gate a pipeline the way `nuclei -severity` does.
+  Detection-only; just an exit-code contract on top of the existing scan.
+- [ ] CSV export of findings (`report_csv.py`) for spreadsheet triage / import into a tracker —
+  one row per finding (severity, module, title, CWE, OWASP, verified, url). Pure renderer, no new scan.
+- [ ] `.well-known` posture breadth: alongside `security.txt`, report on `change-password`
+  (RFC 8615), `mta-sts.txt` and an exposed `openid-configuration` — detection/recon, INFO→LOW.
+- [ ] Per-finding first-seen / last-seen timestamps in the history store, surfaced in the retest
+  panel ("new as of <date>", "open for N days") to show how long an issue has been outstanding.
 
 ---
 
 ## Done
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
+
+- 2026-11-26 — Four backlog items shipped (balanced across a new detection module and output/UX
+  tooling), each with tests + docs; suite 507 → 534 green:
+  **security_txt** (`scanner/web/security_txt.py`) — a Track-1, detection-only RFC 9116 posture
+  check. Fetches `/.well-known/security.txt` (falls back to the legacy `/security.txt`), parses the
+  fields and reports absence (INFO), legacy-only location (LOW), missing mandatory Contact (MEDIUM),
+  missing/malformed/past/too-distant Expires (LOW→MEDIUM) and non-HTTPS delivery (LOW); an HTML error
+  page is never mistaken for a served file. Wired into the passive profile + taxonomy (OWASP A05, no
+  misleading CWE) and the tool map; 9 tests.
+  **Markdown report exporter** (`scanner/output/report_md.py`) — every scan now also writes
+  `reports/*.md`: score/grade header, a severity-count table, one section per actionable finding
+  (CWE/OWASP/MITRE/CVSS, evidence, `curl` PoC, fix) with info findings folded into a collapsed block.
+  Pastes straight into a GitHub/GitLab issue or client email; path shown in the reports panel; 7 tests.
+  **`.hadesignore` false-positive suppression** (`scanner/output/suppress.py`, `--ignore-file`) —
+  record triaged FPs by `module:`/`id:`/`fingerprint:`/`title:` glob (bare line = id or fingerprint);
+  matches are dropped *before* scoring and reporting so accepted FPs don't skew the score or reappear;
+  10 tests.
+  **`--diff-only`** — with `--retest`, render only findings new since the last scan (retest panel
+  still reports fixed/still-present); score stays the full-posture score and the history snapshot
+  records the full run. Selection extracted to pure helpers (`select_new_findings`,
+  `_diff_only_applicable`); 3 tests.
 
 - 2026-11-25 — Two new Track-1 detection modules (detection-first, no flag), each with unit tests and
   wired into the `full` profile + taxonomy (CWE/OWASP/MITRE):
