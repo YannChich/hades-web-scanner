@@ -7244,3 +7244,71 @@ class TestSecurityTxt:
         findings = run(self._eng(base_url, self._serve(body)))
         hit = [f for f in findings if "Malformed Expires" in f.title]
         assert hit and hit[0].severity == Severity.LOW
+
+
+# ---------------------------------------------------------------------------
+# report_md tests (Markdown report exporter)
+# ---------------------------------------------------------------------------
+
+class TestReportMarkdown:
+    def _findings(self):
+        crit = Finding("sqli_detect", "SQL Injection in id", "The id param is injectable.",
+                       Severity.CRITICAL, "Use parameterised queries.",
+                       {"evidence": ["payload: 1 OR 1=1", "error reflected"], "confidence": "high",
+                        "verified": True, "proof_url": "https://x/c?id=1"})
+        low = Finding("headers_check", "Missing HSTS", "No Strict-Transport-Security header.",
+                      Severity.LOW, "Add HSTS.", {"confidence": "medium"})
+        info = Finding("robots_txt", "robots.txt Found", "A robots.txt is present.",
+                       Severity.INFO, "", {"confidence": "high"})
+        return [low, crit, info]   # deliberately unordered
+
+    def test_build_markdown_structure_and_ordering(self):
+        from scanner.output.report_md import build_markdown
+        md = build_markdown(self._findings(), "https://example.com", 62)
+        assert md.startswith("# Hades Security Report — https://example.com")
+        assert "## Summary" in md and "| **Total** | **3** |" in md
+        # Critical is actionable and must appear before the Low in the Findings section.
+        assert md.index("SQL Injection in id") < md.index("Missing HSTS")
+        # Info findings are bundled into the collapsed block, not a full section.
+        assert "<summary><b>Informational (1)</b></summary>" in md
+        assert "robots.txt Found" in md
+
+    def test_build_markdown_renders_metadata_evidence_and_poc(self):
+        from scanner.output.report_md import build_markdown
+        md = build_markdown(self._findings(), "https://example.com", 62)
+        assert "CWE-89" in md and "A03:2021 Injection" in md
+        assert "✓ verified" in md
+        assert "```" in md and "payload: 1 OR 1=1" in md
+        assert '```bash' in md and 'curl -sk "https://x/c?id=1"' in md
+
+    def test_build_markdown_retest_diff_line(self):
+        from scanner.output.report_md import build_markdown
+        diff = {"baseline": False, "new": [1], "still_present": [], "fixed": [1, 2]}
+        md = build_markdown(self._findings(), "https://example.com", 62, retest=diff)
+        assert "Retest diff vs previous scan:" in md
+        assert "1 new · 0 still present · 2 fixed" in md
+
+    def test_build_markdown_baseline_has_no_diff_line(self):
+        from scanner.output.report_md import build_markdown
+        md = build_markdown(self._findings(), "https://example.com", 62,
+                            retest={"baseline": True})
+        assert "Retest diff" not in md
+
+    def test_no_actionable_findings_message(self):
+        from scanner.output.report_md import build_markdown
+        info = Finding("robots_txt", "robots.txt Found", "present", Severity.INFO, "", {})
+        md = build_markdown([info], "https://example.com", 100)
+        assert "No actionable" in md
+
+    def test_pipe_in_value_is_escaped(self):
+        from scanner.output.report_md import build_markdown
+        f = Finding("xss_detect", "XSS in a|b param", "reflects a|b value", Severity.HIGH, "", {})
+        md = build_markdown([f], "https://example.com", 70)
+        assert "XSS in a\\|b param" in md    # the cell-breaking pipe is escaped
+
+    def test_generate_md_writes_file(self, tmp_path):
+        from scanner.output.report_md import generate_md
+        p = generate_md(self._findings(), "https://example.com", 62, output_path=str(tmp_path))
+        assert p and p.endswith(".md")
+        content = open(p, encoding="utf-8").read()
+        assert "# Hades Security Report" in content
