@@ -7386,3 +7386,34 @@ class TestSuppress:
     def test_load_rules_missing_file_returns_empty(self, tmp_path):
         from scanner.output.suppress import load_rules
         assert load_rules(str(tmp_path / "nope.hadesignore")) == []
+
+
+# ---------------------------------------------------------------------------
+# --diff-only selection helpers
+# ---------------------------------------------------------------------------
+
+class TestDiffOnly:
+    def _tagged(self):
+        new = Finding("ssrf_detect", "SSRF in url", "x", Severity.HIGH)
+        new.raw["retest"] = "new"
+        still = Finding("sqli_detect", "SQLi in id", "y", Severity.CRITICAL)
+        still.raw["retest"] = "still-present"
+        untagged = Finding("xss_detect", "XSS in q", "z", Severity.MEDIUM)  # no retest tag
+        return [new, still, untagged]
+
+    def test_select_new_findings_keeps_only_new(self):
+        from scanner.engine import select_new_findings
+        new_only = select_new_findings(self._tagged())
+        assert [f.module for f in new_only] == ["ssrf_detect"]
+
+    def test_diff_only_applicable_requires_non_baseline_diff(self):
+        from scanner.engine import _diff_only_applicable
+        assert _diff_only_applicable({"baseline": False, "new": [1]}) is True
+        assert _diff_only_applicable({"baseline": True}) is False
+        assert _diff_only_applicable(None) is False
+
+    def test_select_new_findings_empty_when_none_new(self):
+        from scanner.engine import select_new_findings
+        f = Finding("m", "t", "x", Severity.LOW)
+        f.raw["retest"] = "still-present"
+        assert select_new_findings([f]) == []
