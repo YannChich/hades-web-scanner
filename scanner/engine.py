@@ -875,7 +875,15 @@ def run_scan(
     except Exception as exc:  # noqa: BLE001 — reporting must never abort a scan
         logger.debug(f"SARIF export skipped: {exc}")
         sarif_path = None
-    print_report_paths(html_path, json_path, log_path=str(get_log_path()), sarif_path=sarif_path)
+    # Markdown report for pasting into a GitHub/GitLab issue, ticket or client email.
+    try:
+        from scanner.output.report_md import generate_md  # local import avoids a cycle
+        md_path = generate_md(findings, url, score, retest=retest_diff)
+    except Exception as exc:  # noqa: BLE001 — reporting must never abort a scan
+        logger.debug(f"Markdown export skipped: {exc}")
+        md_path = None
+    print_report_paths(html_path, json_path, log_path=str(get_log_path()),
+                       sarif_path=sarif_path, md_path=md_path)
 
     # Record this run to the per-target history so the next --retest can diff against it.
     if retest:
