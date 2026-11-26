@@ -98,6 +98,7 @@ _WEB_PASSIVE: list[str] = [
     "scanner.web.http_methods",
     "scanner.web.cookie_analysis",
     "scanner.web.redirect_chain",
+    "scanner.web.security_txt",
     "scanner.web.email_exposure",
     "scanner.web.favicon_hash",
     "scanner.web.cors_check",
@@ -265,6 +266,9 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     "admin_panel":       {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
     "graphql_detect":    {"cwe": "CWE-200", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
     "host_header":       {"cwe": "CWE-644", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1190"]},
+    # security.txt posture has no single CWE (it is a disclosure-process maturity signal, not a
+    # concrete weakness); tag only OWASP misconfiguration so no misleading CWE is attached.
+    "security_txt":      {"owasp": "A05:2021 Security Misconfiguration",                            "mitre": []},
     # ── Information disclosure / secrets ──
     "sensitive_files":   {"cwe": "CWE-538", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1552.001"]},
     "backup_files":      {"cwe": "CWE-530", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
@@ -420,6 +424,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "cors_check":        ["nuclei"],
     "clickjacking":      ["nuclei"],
     "headers_check":     ["nuclei"],
+    "security_txt":      ["nuclei"],
     "cve_mapping":       ["nuclei"],
     "jwt_attacks":       ["nuclei"],
     # ── Credential attacks ──
