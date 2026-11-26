@@ -244,6 +244,10 @@ evidence**, and every piece of evidence comes with the next move.
   boundary. Allow/deny patterns (host, host/path-prefix, `*.wildcard` subdomains) are enforced in
   the engine **before any request leaves** — out-of-scope hosts/paths are blocked and counted, with
   deny always taking precedence.
+- **False-positive suppression** (`--ignore-file`, defaults to `./.hadesignore`): record triaged
+  false positives once — by `module:`, `id:`, `fingerprint:` or a `title:` glob (a bare line matches
+  a finding ID or fingerprint) — and later scans drop them **before scoring and reporting**, so
+  accepted FPs neither skew the risk score nor reappear. Same idea as `.gitignore`.
 - Every scan writes an **HTML report** (auto-opened) **and a JSON report**, plus a timestamped log.
 
 > A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
@@ -439,6 +443,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--scope` | | — | Allowlist a host or host/path for the engagement (repeatable; e.g. `*.example.com`, `example.com/api`). The target host is always in scope; anything not allowed is blocked before the request leaves |
 | `--deny` | | — | Denylist a host or host/path (repeatable); **deny wins** over `--scope` (e.g. `logout.example.com`) |
 | `--scope-file` | | — | Read scope patterns from a file (one per line; `!` prefix = deny, `#` = comment). Merged with `--scope` / `--deny` |
+| `--ignore-file` | | `./.hadesignore` | Suppress triaged false positives listed in a `.hadesignore` file. Rules: `module:<name>`, `id:<finding_id>`, `fingerprint:<hex>`, `title:<glob>`; a bare line matches a finding ID or fingerprint. Suppressed findings are dropped before scoring/reporting |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
