@@ -55,11 +55,14 @@ python hades.py --url https://example.com
 - a clean, colour-coded terminal report — **severity + confidence**, technical evidence and remediation per finding;
 - a styled **HTML report** that opens in your browser automatically;
 - a machine-readable **JSON report** for tooling and records;
+- a **Markdown report** you can paste straight into a GitHub/GitLab issue, ticket or client email;
 - an overall **security score (0–100) and A–F grade**, plus a kill-chain attack path.
 
 **Where your reports are saved** (printed at the end of every scan):
 - `reports/webscan_report_<timestamp>.html` — the full visual report (auto-opened)
 - `reports/webscan_report_<timestamp>.json` — the same findings as structured JSON
+- `reports/webscan_report_<timestamp>.md` — a Markdown summary for issues/tickets
+- `reports/webscan_report_<timestamp>.sarif` — SARIF 2.1.0 for GitHub code scanning / CI
 - `logs/webscan_<timestamp>.log` — the detailed run log
 
 **Why it matters:** Hades doesn't hand you a list of *maybe* — every finding carries a severity, a
@@ -219,6 +222,10 @@ evidence**, and every piece of evidence comes with the next move.
   code scanning**, Azure DevOps and most CI dashboards ingest natively — findings show up in a PR's
   Security tab with CWE/OWASP tags and a CVSS-derived severity, and stable fingerprints so re-scans
   dedupe. Sits alongside the HTML and JSON reports.
+- **Markdown export**: every scan also writes a Markdown report (`reports/*.md`) — a header with the
+  score/grade, a severity-count table and one section per finding (CWE/OWASP/MITRE, evidence, a
+  `curl` PoC and the fix) — so results drop straight into a GitHub/GitLab issue, a ticket or a client
+  email without reformatting. Informational findings are folded into a collapsed block.
 - **Noise governor**: the concurrent rate limiter adds timing **jitter** (so traffic isn't perfectly
   periodic) and **adapts** to the target — a `429`/`503` throttles it (honouring `Retry-After`) and
   each success eases it back. `--quiet` and `--aggressive` profiles tune the lanes, delay and jitter
