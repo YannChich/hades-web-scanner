@@ -526,6 +526,12 @@ def build_parser() -> argparse.ArgumentParser:
              "reports/history/ (first run becomes the baseline)",
     )
     parser.add_argument(
+        "--diff-only",
+        action="store_true",
+        help="With --retest: show only the findings that are new since the last scan (the retest "
+             "panel still reports fixed / still-present). The score reflects the full posture",
+    )
+    parser.add_argument(
         "--scope",
         action="append",
         metavar="PATTERN",
@@ -698,6 +704,7 @@ def main() -> None:
         scope_deny=scope_deny,
         noise=getattr(args, "noise", None),
         ignore_file=getattr(args, "ignore_file", None),
+        diff_only=getattr(args, "diff_only", False),
     )
 
 

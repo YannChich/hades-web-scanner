@@ -735,6 +735,20 @@ def _open_in_browser(path: str) -> None:
         logger.debug(f"could not open report in browser: {exc}")
 
 
+def _diff_only_applicable(retest_diff: Optional[dict]) -> bool:
+    """--diff-only only makes sense when a retest produced a real diff (not the first/baseline run)."""
+    return retest_diff is not None and not retest_diff.get("baseline", False)
+
+
+def select_new_findings(findings: list[Finding]) -> list[Finding]:
+    """The subset of *findings* tagged as new since the previous scan (``raw['retest'] == 'new'``).
+
+    Used by --diff-only to render just the delta. Pure and side-effect-free so it is unit-testable
+    without running a scan.
+    """
+    return [f for f in findings if (f.raw or {}).get("retest") == "new"]
+
+
 def run_scan(
     url: str,
     profile: str = "full",
@@ -758,6 +772,7 @@ def run_scan(
     scope_deny: Optional[list[str]] = None,
     noise: Optional[str] = None,
     ignore_file: Optional[str] = None,
+    diff_only: bool = False,
 ) -> None:
     """Instantiate the engine, run the scan, print results, and export a report if requested.
 
@@ -846,10 +861,25 @@ def run_scan(
         logger.debug(f"coverage ledger skipped: {exc}")
         coverage = None
 
+    # Score/grade always reflect the *full* posture (computed before any --diff-only filtering), and
+    # the untouched list is kept for the history snapshot so a later --retest still diffs correctly.
+    score, grade = calculate_score(findings)
+    all_findings = findings
+
+    # --diff-only: on a retest with a previous run, render only the findings that are new since the
+    # last scan (the retest panel still shows fixed/still-present counts). The score stays the
+    # full-posture score so the number isn't misleading.
+    if diff_only:
+        if _diff_only_applicable(retest_diff):
+            findings = select_new_findings(all_findings)
+            console.print(f"[dim]  🔎 --diff-only: showing {len(findings)} new finding(s) since the "
+                          "last scan (score reflects the full posture).[/dim]")
+        else:
+            console.print("[yellow]  ⚠ --diff-only needs a previous scan to diff against "
+                          "(use --retest); showing all findings this run.[/yellow]")
+
     print_findings(findings, url)
     print_verification_links(findings, url)
-    score = score_findings(findings)
-    _, grade = calculate_score(findings)
     print_summary(findings, score)
     if coverage is not None:
         from scanner.output.console import print_coverage  # local import avoids a cycle
@@ -904,7 +934,7 @@ def run_scan(
     if retest:
         try:
             from scanner.output import history  # local import avoids a cycle
-            path = history.save_run(findings, url, score, grade)
+            path = history.save_run(all_findings, url, score, grade)
             if path:
                 console.print(f"[dim]  🕓 Retest snapshot recorded → {path}[/dim]")
         except Exception as exc:  # noqa: BLE001
