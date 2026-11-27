@@ -25,6 +25,7 @@ from rich.text import Text
 from rich.theme import Theme
 
 from scanner.engine import run_scan
+from scanner.output.gate import EXIT_FAIL_ON, FAIL_ON_CHOICES
 from scanner.output.logger import setup_logging
 
 # ---------------------------------------------------------------------------
@@ -560,6 +561,15 @@ def build_parser() -> argparse.ArgumentParser:
              "fingerprint:<hex>, title:<glob>; a bare line matches a finding ID or fingerprint",
     )
     parser.add_argument(
+        "--fail-on",
+        metavar="SEVERITY",
+        choices=FAIL_ON_CHOICES,
+        help="CI gate: exit non-zero (code %d) if any finding is at or above SEVERITY "
+             "(one of: %s). Honours .hadesignore. The scan and reports are unchanged; "
+             "this only sets the exit code so Hades can block a pipeline"
+             % (EXIT_FAIL_ON, ", ".join(FAIL_ON_CHOICES)),
+    )
+    parser.add_argument(
         "--wordlist", "-w",
         metavar="FILE",
         help="Custom wordlist path (overrides built-in lists)",
@@ -599,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> int:
     log_path = setup_logging()
     print_banner()
 
@@ -610,13 +620,13 @@ def main() -> None:
     if args.arsenal:
         from scanner.arsenal.redteam_arsenal import open_arsenal
         open_arsenal(open_browser=not args.no_open)
-        return
+        return 0
 
     # Skills Library (reference page) — no target/scan needed.
     if args.skills:
         from scanner.intel.skills_library import open_skills_library
         open_skills_library(open_browser=not args.no_open)
-        return
+        return 0
 
     modules: Optional[list[str]] = None
 
@@ -648,13 +658,13 @@ def main() -> None:
     if profile == "arsenal":
         from scanner.arsenal.redteam_arsenal import open_arsenal
         open_arsenal(open_browser=not args.no_open)
-        return
+        return 0
 
     # Menu option 10 — open the Skills Library reference page instead of scanning.
     if profile == "skills":
         from scanner.intel.skills_library import open_skills_library
         open_skills_library(open_browser=not args.no_open)
-        return
+        return 0
 
     # Login details: from flags by default; menu option 11 collects them interactively and
     # runs the IDOR / access-control module authenticated.
@@ -681,7 +691,7 @@ def main() -> None:
 
     scope_allow, scope_deny = _collect_scope(args)
 
-    run_scan(
+    return run_scan(
         url=url,
         profile=profile,
         proxy=args.proxy,
@@ -705,14 +715,14 @@ def main() -> None:
         noise=getattr(args, "noise", None),
         ignore_file=getattr(args, "ignore_file", None),
         diff_only=getattr(args, "diff_only", False),
-    )
+        fail_on=getattr(args, "fail_on", None),
+    ) or 0
 
 
 def cli() -> int:
     """Run Hades with friendly top-level error handling. Returns a process exit code."""
     try:
-        main()
-        return 0
+        return main() or 0
     except KeyboardInterrupt:
         console.print("\n[warn]!  Scan aborted by user.[/warn]")
         return 0

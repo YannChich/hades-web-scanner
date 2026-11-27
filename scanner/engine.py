@@ -773,12 +773,17 @@ def run_scan(
     noise: Optional[str] = None,
     ignore_file: Optional[str] = None,
     diff_only: bool = False,
-) -> None:
+    fail_on: Optional[str] = None,
+) -> int:
     """Instantiate the engine, run the scan, print results, and export a report if requested.
 
     When ``retest`` is set, the run is diffed against the target's previous scan (new /
     still-present / fixed) and recorded to the per-target history under ``reports/history/``.
     ``scope_allow`` / ``scope_deny`` constrain which hosts/paths may be requested.
+
+    Returns a process exit code: ``0`` normally, or :data:`scanner.output.gate.EXIT_FAIL_ON`
+    when ``fail_on`` is set and a finding at/above that severity survived suppression (the CI
+    gate). The exit code reflects the full posture, not the ``--diff-only`` display filter.
     """
     from scanner.scope import ScopeRules  # local import avoids a cycle
     scope = ScopeRules.build(url, allow=scope_allow, deny=scope_deny)
@@ -946,3 +951,16 @@ def run_scan(
     # Opt-in exploitation: offer to launch sqlmap against confirmed SQL injections.
     from scanner.exploit import offer as offer_exploitation  # local import avoids a cycle
     offer_exploitation(findings, auto=exploit)
+
+    # CI exit-code gate (--fail-on): decided on the full posture (post-suppression), never the
+    # --diff-only display filter, so a pipeline fails on the real state of the target.
+    if fail_on:
+        from scanner.output.gate import gate_findings, EXIT_FAIL_ON  # local import avoids a cycle
+        tripping = gate_findings(all_findings, fail_on)
+        if tripping:
+            console.print(f"\n[danger]✗  --fail-on {fail_on}: {len(tripping)} finding(s) at or above "
+                          f"[bold]{fail_on}[/bold] — exit code {EXIT_FAIL_ON}.[/danger]")
+            return EXIT_FAIL_ON
+        console.print(f"\n[ok]✓  --fail-on {fail_on}: no finding at or above "
+                      f"[bold]{fail_on}[/bold] — gate passed.[/ok]")
+    return 0

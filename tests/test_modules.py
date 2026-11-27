@@ -7417,3 +7417,71 @@ class TestDiffOnly:
         f = Finding("m", "t", "x", Severity.LOW)
         f.raw["retest"] = "still-present"
         assert select_new_findings([f]) == []
+
+
+class TestFailOnGate:
+    """--fail-on CI exit-code gate (scanner/output/gate.py + CLI wiring)."""
+
+    def _mixed(self):
+        return [
+            Finding("sqli_detect", "SQLi in id", "x", Severity.CRITICAL),
+            Finding("headers", "Missing HSTS", "y", Severity.MEDIUM),
+            Finding("basic_info", "IP address", "z", Severity.INFO),
+        ]
+
+    def test_gate_is_most_severe_inclusive(self):
+        from scanner.output.gate import gate_findings
+        titles = lambda thr: sorted(f.title for f in gate_findings(self._mixed(), thr))
+        assert titles("critical") == ["SQLi in id"]
+        assert titles("medium") == ["Missing HSTS", "SQLi in id"]
+        assert titles("info") == ["IP address", "Missing HSTS", "SQLi in id"]
+
+    def test_should_fail_true_and_false(self):
+        from scanner.output.gate import should_fail
+        assert should_fail(self._mixed(), "high") is True       # critical >= high
+        fs = [Finding("headers", "Missing HSTS", "y", Severity.MEDIUM)]
+        assert should_fail(fs, "high") is False                 # nothing at/above high
+
+    def test_gate_disabled_or_unknown_is_fail_open(self):
+        from scanner.output.gate import gate_findings, should_fail
+        assert gate_findings(self._mixed(), None) == []
+        assert gate_findings(self._mixed(), "") == []
+        assert should_fail(self._mixed(), "nonsense") is False  # typo must not block a pipeline
+
+    def test_exit_code_distinct_from_generic_error(self):
+        from scanner.output.gate import EXIT_FAIL_ON
+        assert EXIT_FAIL_ON not in (0, 1)
+
+    def test_cli_flag_registered_and_validated(self):
+        import main
+        a = main.build_parser().parse_args(["--url", "http://t", "--fail-on", "high"])
+        assert a.fail_on == "high"
+        with pytest.raises(SystemExit):                         # invalid severity rejected
+            main.build_parser().parse_args(["--url", "http://t", "--fail-on", "bogus"])
+
+    def test_run_scan_returns_gate_exit_code(self, monkeypatch, tmp_path):
+        """run_scan returns EXIT_FAIL_ON when a finding meets the threshold, else 0."""
+        from scanner import engine
+        from scanner.output.gate import EXIT_FAIL_ON
+
+        class _StubEngine:
+            authenticated = False
+            def __init__(self, *a, **k): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def run_scan(self):
+                return [Finding("sqli_detect", "SQLi in id", "x", Severity.CRITICAL)]
+
+        # Neutralise everything with side effects so only the gate decision is under test.
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(engine, "ScanEngine", _StubEngine)
+        for name in ("print_findings", "print_verification_links", "print_summary",
+                     "print_playbooks", "print_report_paths"):
+            monkeypatch.setattr(engine, name, lambda *a, **k: None)
+        monkeypatch.setattr(engine, "generate_html", lambda *a, **k: None)
+        monkeypatch.setattr(engine, "generate_json", lambda *a, **k: None)
+
+        code = engine.run_scan("http://t", profile="full", open_report=False, fail_on="high")
+        assert code == EXIT_FAIL_ON
+        code_ok = engine.run_scan("http://t", profile="full", open_report=False, fail_on=None)
+        assert code_ok == 0
