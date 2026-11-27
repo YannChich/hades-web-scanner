@@ -250,6 +250,14 @@ evidence**, and every piece of evidence comes with the next move.
   false positives once — by `module:`, `id:`, `fingerprint:` or a `title:` glob (a bare line matches
   a finding ID or fingerprint) — and later scans drop them **before scoring and reporting**, so
   accepted FPs neither skew the risk score nor reappear. Same idea as `.gitignore`.
+- **CI gate** (`--fail-on <severity>`): make Hades **block a pipeline**. The scan and reports are
+  unchanged; Hades just exits non-zero (**code 3**) when any finding is at or above the chosen
+  severity (`info` / `low` / `medium` / `high` / `critical`), honouring `.hadesignore`. Same contract
+  as `nuclei -severity` or `trivy --exit-code`:
+  ```bash
+  hades --url https://staging.example.com --fail-on high --no-open --ignore-file .hadesignore
+  ```
+  An unknown or absent severity is **fail-open** (exit 0), so a typo can never silently block a merge.
 - Every scan writes an **HTML report** (auto-opened) **and a JSON report**, plus a timestamped log.
 
 > A plain-language guide to every module — what it checks, the consequence of a finding, and the attack
@@ -447,6 +455,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--deny` | | — | Denylist a host or host/path (repeatable); **deny wins** over `--scope` (e.g. `logout.example.com`) |
 | `--scope-file` | | — | Read scope patterns from a file (one per line; `!` prefix = deny, `#` = comment). Merged with `--scope` / `--deny` |
 | `--ignore-file` | | `./.hadesignore` | Suppress triaged false positives listed in a `.hadesignore` file. Rules: `module:<name>`, `id:<finding_id>`, `fingerprint:<hex>`, `title:<glob>`; a bare line matches a finding ID or fingerprint. Suppressed findings are dropped before scoring/reporting |
+| `--fail-on` | | — | **CI gate**: exit non-zero (**code 3**) if any finding is at or above this severity (`info` / `low` / `medium` / `high` / `critical`). Honours `.hadesignore`; the scan and reports are unchanged. Unknown/absent = fail-open (exit 0) |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
