@@ -99,6 +99,7 @@ _WEB_PASSIVE: list[str] = [
     "scanner.web.cookie_analysis",
     "scanner.web.redirect_chain",
     "scanner.web.security_txt",
+    "scanner.web.wellknown",
     "scanner.web.email_exposure",
     "scanner.web.favicon_hash",
     "scanner.web.cors_check",
@@ -269,6 +270,10 @@ FINDING_TAXONOMY: dict[str, dict[str, object]] = {
     # security.txt posture has no single CWE (it is a disclosure-process maturity signal, not a
     # concrete weakness); tag only OWASP misconfiguration so no misleading CWE is attached.
     "security_txt":      {"owasp": "A05:2021 Security Misconfiguration",                            "mitre": []},
+    # .well-known posture (change-password / mta-sts / openid-configuration): misconfiguration /
+    # recon. No module-wide CWE (most findings are posture signals); the OIDC alg:none finding sets
+    # CWE-347 (improper signature verification) on itself.
+    "wellknown":         {"owasp": "A05:2021 Security Misconfiguration",                            "mitre": []},
     # ── Information disclosure / secrets ──
     "sensitive_files":   {"cwe": "CWE-538", "owasp": "A01:2021 Broken Access Control",              "mitre": ["T1552.001"]},
     "backup_files":      {"cwe": "CWE-530", "owasp": "A05:2021 Security Misconfiguration",          "mitre": ["T1552.001"]},
@@ -425,6 +430,7 @@ MODULE_REDTEAM_MAP: dict[str, list[str]] = {
     "clickjacking":      ["nuclei"],
     "headers_check":     ["nuclei"],
     "security_txt":      ["nuclei"],
+    "wellknown":         ["nuclei"],
     "cve_mapping":       ["nuclei"],
     "jwt_attacks":       ["nuclei"],
     # ── Credential attacks ──

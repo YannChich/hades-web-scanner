@@ -7538,3 +7538,66 @@ class TestReportCSV:
         assert p and p.endswith(".csv")
         rows = list(csv.DictReader(open(p, encoding="utf-8", newline="")))
         assert len(rows) == 3 and rows[0]["severity"] == "critical"
+
+
+class TestWellKnown:
+    """`.well-known` posture breadth (scanner/web/wellknown.py): change-password / mta-sts / OIDC."""
+
+    def _eng(self, base_url, routes: dict):
+        """routes: path -> (status, text). Any unlisted path returns 404."""
+        class _T(httpx.BaseTransport):
+            def handle_request(self, req):
+                st, txt = routes.get(req.url.path, (404, "not found"))
+                return httpx.Response(st, text=txt)
+        eng = ScanEngine(base_url, rate_delay=0)
+        eng._client = httpx.Client(transport=_T(), follow_redirects=True, verify=False)
+        return eng
+
+    def test_absent_everything_is_silent(self, base_url):
+        from scanner.web.wellknown import run
+        assert run(self._eng(base_url, {})) == []
+
+    def test_change_password_present_info(self, base_url):
+        from scanner.web.wellknown import run
+        fs = run(self._eng(base_url, {"/.well-known/change-password": (200, "ok")}))
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO
+        assert "change-password" in fs[0].title.lower()
+
+    def test_mta_sts_enforce_is_info(self, base_url):
+        from scanner.web.wellknown import run
+        policy = "version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 604800"
+        fs = run(self._eng(base_url, {"/.well-known/mta-sts.txt": (200, policy)}))
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO and fs[0].raw["mode"] == "enforce"
+
+    def test_mta_sts_testing_is_low(self, base_url):
+        from scanner.web.wellknown import run
+        policy = "version: STSv1\nmode: testing\nmx: mail.example.com\nmax_age: 604800"
+        fs = run(self._eng(base_url, {"/.well-known/mta-sts.txt": (200, policy)}))
+        assert len(fs) == 1 and fs[0].severity == Severity.LOW and "Not Enforcing" in fs[0].title
+
+    def test_mta_sts_html_error_page_ignored(self, base_url):
+        from scanner.web.wellknown import run
+        fs = run(self._eng(base_url, {"/.well-known/mta-sts.txt": (200, "<html><body>404</body></html>")}))
+        assert fs == []
+
+    def test_oidc_discovery_info(self, base_url):
+        from scanner.web.wellknown import run
+        doc = '{"issuer":"https://idp.example.com","authorization_endpoint":"https://idp.example.com/auth",' \
+              '"id_token_signing_alg_values_supported":["RS256","ES256"]}'
+        fs = run(self._eng(base_url, {"/.well-known/openid-configuration": (200, doc)}))
+        assert len(fs) == 1 and fs[0].severity == Severity.INFO
+        assert fs[0].raw["issuer"] == "https://idp.example.com"
+        assert "authorization_endpoint" in fs[0].raw["endpoints"]
+
+    def test_oidc_alg_none_is_medium_verified(self, base_url):
+        from scanner.web.wellknown import run
+        doc = '{"issuer":"https://idp.example.com","id_token_signing_alg_values_supported":["RS256","none"]}'
+        fs = run(self._eng(base_url, {"/.well-known/openid-configuration": (200, doc)}))
+        alg = [f for f in fs if "none" in f.title.lower()]
+        assert alg and alg[0].severity == Severity.MEDIUM
+        assert alg[0].verified is True and alg[0].cwe == "CWE-347"
+
+    def test_oidc_non_json_ignored(self, base_url):
+        from scanner.web.wellknown import run
+        fs = run(self._eng(base_url, {"/.well-known/openid-configuration": (200, "<html>login</html>")}))
+        assert fs == []
