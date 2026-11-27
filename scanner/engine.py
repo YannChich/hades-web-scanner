@@ -932,8 +932,15 @@ def run_scan(
     except Exception as exc:  # noqa: BLE001 — reporting must never abort a scan
         logger.debug(f"Markdown export skipped: {exc}")
         md_path = None
+    # CSV for spreadsheet triage / tracker import (one row per finding).
+    try:
+        from scanner.output.report_csv import generate_csv  # local import avoids a cycle
+        csv_path = generate_csv(findings, url)
+    except Exception as exc:  # noqa: BLE001 — reporting must never abort a scan
+        logger.debug(f"CSV export skipped: {exc}")
+        csv_path = None
     print_report_paths(html_path, json_path, log_path=str(get_log_path()),
-                       sarif_path=sarif_path, md_path=md_path)
+                       sarif_path=sarif_path, md_path=md_path, csv_path=csv_path)
 
     # Record this run to the per-target history so the next --retest can diff against it.
     if retest:

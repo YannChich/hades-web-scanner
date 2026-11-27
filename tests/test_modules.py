@@ -7485,3 +7485,56 @@ class TestFailOnGate:
         assert code == EXIT_FAIL_ON
         code_ok = engine.run_scan("http://t", profile="full", open_report=False, fail_on=None)
         assert code_ok == 0
+
+
+class TestReportCSV:
+    """CSV export (scanner/output/report_csv.py) — pure renderer, one row per finding."""
+
+    def _findings(self):
+        crit = Finding("sqli_detect", "SQL Injection in id", "injectable", Severity.CRITICAL,
+                       "Use parameterised queries.",
+                       {"confidence": "high", "verified": True, "proof_url": "https://x/c?id=1"},
+                       verified=True, verification="error signature")
+        med = Finding("headers_check", "Missing HSTS", "no HSTS", Severity.MEDIUM, "Add HSTS.",
+                      {"confidence": "medium"})
+        info = Finding("robots_txt", "robots.txt Found", "present", Severity.INFO, "", {"confidence": "high"})
+        return [med, info, crit]   # deliberately unordered
+
+    def test_header_and_row_count(self):
+        import csv, io
+        from scanner.output.report_csv import build_csv, COLUMNS
+        rows = list(csv.DictReader(io.StringIO(build_csv(self._findings()))))
+        assert list(rows[0].keys()) == COLUMNS
+        assert len(rows) == 3
+
+    def test_rows_sorted_most_severe_first(self):
+        import csv, io
+        from scanner.output.report_csv import build_csv
+        rows = list(csv.DictReader(io.StringIO(build_csv(self._findings()))))
+        assert [r["severity"] for r in rows] == ["critical", "medium", "info"]
+
+    def test_verified_and_url_columns(self):
+        import csv, io
+        from scanner.output.report_csv import build_csv
+        rows = {r["module"]: r for r in csv.DictReader(io.StringIO(build_csv(self._findings())))}
+        assert rows["sqli_detect"]["verified"] == "yes"
+        assert rows["sqli_detect"]["verification"] == "error signature"
+        assert rows["sqli_detect"]["url"] == "https://x/c?id=1"
+        assert rows["sqli_detect"]["cwe"] == "CWE-89"
+        assert rows["headers_check"]["verified"] == "no"
+
+    def test_commas_quotes_newlines_are_escaped(self):
+        import csv, io
+        from scanner.output.report_csv import build_csv
+        f = Finding("xss_detect", 'XSS, with "quotes"\nand newline', "d", Severity.HIGH)
+        # Round-trips cleanly through a CSV reader → the special chars were quoted, not corrupted.
+        rows = list(csv.DictReader(io.StringIO(build_csv([f]))))
+        assert rows[0]["title"] == 'XSS, with "quotes"\nand newline'
+
+    def test_generate_csv_writes_file(self, tmp_path):
+        import csv
+        from scanner.output.report_csv import generate_csv
+        p = generate_csv(self._findings(), "https://example.com", output_path=str(tmp_path))
+        assert p and p.endswith(".csv")
+        rows = list(csv.DictReader(open(p, encoding="utf-8", newline="")))
+        assert len(rows) == 3 and rows[0]["severity"] == "critical"

@@ -589,8 +589,8 @@ def print_summary(findings: list[Finding], score: int) -> None:
 
 def print_report_paths(html_path: "str | None", json_path: "str | None",
                        log_path: str = "", sarif_path: "str | None" = None,
-                       md_path: "str | None" = None) -> None:
-    """Show where the HTML/JSON/SARIF/Markdown reports and the log file were written."""
+                       md_path: "str | None" = None, csv_path: "str | None" = None) -> None:
+    """Show where the HTML/JSON/SARIF/Markdown/CSV reports and the log file were written."""
     import os
 
     rows: list[str] = []
@@ -605,6 +605,9 @@ def print_report_paths(html_path: "str | None", json_path: "str | None",
     if md_path:
         rows.append(f"[bold]Markdown   [/bold]  [cyan]{os.path.abspath(md_path)}[/cyan]  "
                     "[dim](paste into an issue / ticket)[/dim]")
+    if csv_path:
+        rows.append(f"[bold]CSV        [/bold]  [cyan]{os.path.abspath(csv_path)}[/cyan]  "
+                    "[dim](spreadsheet / tracker triage)[/dim]")
     if log_path:
         rows.append(f"[bold]Scan log   [/bold]  [dim]{os.path.abspath(log_path)}[/dim]")
     if not rows:
