@@ -63,6 +63,7 @@ python hades.py --url https://example.com
 - `reports/webscan_report_<timestamp>.json` — the same findings as structured JSON
 - `reports/webscan_report_<timestamp>.md` — a Markdown summary for issues/tickets
 - `reports/webscan_report_<timestamp>.sarif` — SARIF 2.1.0 for GitHub code scanning / CI
+- `reports/webscan_report_<timestamp>.csv` — one row per finding for spreadsheet / tracker triage
 - `logs/webscan_<timestamp>.log` — the detailed run log
 
 **Why it matters:** Hades doesn't hand you a list of *maybe* — every finding carries a severity, a
