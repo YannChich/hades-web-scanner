@@ -109,13 +109,14 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [ ] Config file support (`hades.toml`) for default flags per project.
 - [ ] More unit tests: raise coverage on `scanner/vulns/*` and `scanner/output/*`.
 - [x] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
-- [ ] `--fail-on <severity>` CI gate: exit non-zero when a finding at/above the given severity is
+- [x] `--fail-on <severity>` CI gate: exit non-zero when a finding at/above the given severity is
   present (and honours `.hadesignore`), so Hades can gate a pipeline the way `nuclei -severity` does.
   Detection-only; just an exit-code contract on top of the existing scan.
-- [ ] CSV export of findings (`report_csv.py`) for spreadsheet triage / import into a tracker —
+- [x] CSV export of findings (`report_csv.py`) for spreadsheet triage / import into a tracker —
   one row per finding (severity, module, title, CWE, OWASP, verified, url). Pure renderer, no new scan.
-- [ ] `.well-known` posture breadth: alongside `security.txt`, report on `change-password`
-  (RFC 8615), `mta-sts.txt` and an exposed `openid-configuration` — detection/recon, INFO→LOW.
+- [x] `.well-known` posture breadth: alongside `security.txt`, report on `change-password`
+  (RFC 8615), `mta-sts.txt` and an exposed `openid-configuration` — detection/recon, INFO→LOW
+  (plus MEDIUM/verified for an OIDC `alg:none`).
 - [ ] Per-finding first-seen / last-seen timestamps in the history store, surfaced in the retest
   panel ("new as of <date>", "open for N days") to show how long an issue has been outstanding.
 
@@ -124,6 +125,26 @@ natively for Hades' Python CLI architecture — no code is copied.
 ## Done
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
+
+- 2026-11-27 — Three self-contained backlog items shipped (balanced: one CI contract, one output
+  renderer, one new detection module), each with tests + docs; suite 534 → 553 green. The top
+  "Next up" item (scan resume/checkpoint) was intentionally skipped again — it touches the threaded
+  scan loop and mid-scan persistence, and the project note defers it to avoid a half-done checkpoint
+  on `main`; these three were safe, high-value and independent.
+  **`--fail-on <severity>`** (`scanner/output/gate.py`) — a CI exit-code gate: `run_scan` now returns
+  a process exit code and exits `3` when any finding is at/above the chosen severity (honouring
+  `.hadesignore`, decided on the full posture not the `--diff-only` view), so Hades can block a
+  pipeline like `nuclei -severity`. Unknown/absent severity is fail-open. Threaded through
+  `main()`/`cli()`; 6 tests.
+  **CSV export** (`scanner/output/report_csv.py`) — every scan also writes `reports/*.csv`: one row
+  per finding (id, severity, confidence, verified, module, title, CWE, OWASP, MITRE, CVSS, retest,
+  url), most-severe first, stdlib-`csv` quoting, for spreadsheet / tracker triage; shown in the
+  reports panel; 5 tests.
+  **`wellknown`** (`scanner/web/wellknown.py`) — a Track-1 detection module in the passive profile
+  probing three `.well-known` resources: change-password (RFC 8615, INFO), mta-sts.txt (RFC 8461 —
+  INFO on `enforce`, LOW when not enforcing TLS) and openid-configuration (INFO recon; MEDIUM +
+  verified + CWE-347 when the IdP advertises the `none` id_token signing algorithm). Silent when
+  nothing is present. OWASP A05, mapped to nuclei; 8 tests.
 
 - 2026-11-26 — Four backlog items shipped (balanced across a new detection module and output/UX
   tooling), each with tests + docs; suite 507 → 534 green:

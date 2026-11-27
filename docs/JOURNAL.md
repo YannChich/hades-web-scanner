@@ -4,6 +4,60 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-27 (bloquer un pipeline, export tableur, et la famille `.well-known`)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Option `--fail-on <gravité>` (le « feu rouge » pour l'intégration continue)** : on peut maintenant
+  dire à Hades « si tu trouves quelque chose d'au moins aussi grave que *high*, échoue ». Concrètement,
+  Hades renvoie un **code d'erreur** (3) au lieu de 0. C'est ce qui permet de **bloquer automatiquement
+  une mise en production** : si le scan trouve une faille sérieuse, la chaîne d'automatisation s'arrête
+  toute seule. C'est exactement ce que font des outils reconnus comme `nuclei`. Hades respecte aussi la
+  liste des fausses alertes (`.hadesignore`), et si on écrit une gravité qui n'existe pas, il ne bloque
+  rien (pour ne jamais casser un pipeline à cause d'une faute de frappe).
+- **Export CSV (fichier tableur)** : à chaque scan, Hades écrit aussi un fichier `.csv` — une ligne par
+  faille, avec les colonnes utiles pour trier (gravité, module, titre, CWE, OWASP, « vérifié ? », URL…).
+  On l'ouvre direct dans Excel ou Google Sheets, ou on l'importe dans un outil de suivi de tickets, pour
+  faire le tri des findings à plusieurs.
+- **Nouveau module `wellknown` (la famille des fichiers `.well-known`)** : en plus de `security.txt`,
+  Hades inspecte maintenant trois autres fichiers standard qu'un site peut publier :
+  - **change-password** : un raccourci standard vers la page « changer mon mot de passe » (bon signe de
+    maturité s'il existe) ;
+  - **mta-sts.txt** : la règle de sécurité des e-mails entrants. Si elle est en mode « enforce », les
+    e-mails sont forcés en chiffré (bien). Si elle est en mode « testing » ou absente de règle, Hades
+    prévient que le chiffrement n'est **pas réellement imposé** ;
+  - **openid-configuration** : la « carte » du système de connexion (OpenID Connect). Hades la liste
+    comme information de reconnaissance, et surtout il **alerte en MEDIUM** si ce système accepte des
+    jetons **non signés** (l'algorithme `none`) — c'est une vraie faiblesse qui permettrait à un
+    attaquant de se faire passer pour un autre utilisateur.
+  Ce module ne dit rien quand ces fichiers n'existent pas, pour ne pas polluer le rapport.
+
+**Les mots nouveaux**
+
+- **Pipeline / intégration continue (CI)** : la chaîne automatique qui teste et déploie le code à chaque
+  modification. Un « code d'erreur » non nul l'arrête.
+- **Code de sortie (exit code)** : le nombre qu'un programme renvoie en terminant — 0 = tout va bien,
+  autre chose = problème. C'est le signal que la CI lit pour décider de continuer ou non.
+- **CSV** : un format de tableau tout simple (valeurs séparées par des virgules) que tous les tableurs
+  savent ouvrir.
+- **MTA-STS (RFC 8461)** : une règle publiée par un domaine pour forcer le chiffrement (TLS) des e-mails
+  qu'on lui envoie, afin d'empêcher qu'ils soient lus ou détournés en route.
+- **OpenID Connect / `alg:none`** : un standard de connexion par jeton. « alg:none » veut dire « jeton
+  sans signature » : si le serveur l'accepte, n'importe qui peut fabriquer un faux jeton.
+
+**Pourquoi ça compte**
+
+Hades devient utilisable **dans une chaîne automatique** (il peut bloquer un déploiement risqué) et ses
+résultats sortent maintenant dans les formats où les équipes travaillent vraiment (tableur, ticket). Le
+nouveau module élargit la reconnaissance vers l'e-mail et l'authentification, avec une vraie alerte de
+sécurité sur les jetons non signés. Trois ajouts indépendants, testés, sans jamais casser `main`.
+
+**La suite**
+
+Les prochaines grandes cases sont les capacités « actives » derrière `--exploit` (confirmation hors-bande
+des SSRF/XXE, confirmation d'IDOR) ; j'ai sciemment laissé de côté la reprise de scan (`--resume`) car
+elle touche au cœur du moteur et le projet préfère ne pas risquer un état incomplet sur `main`.
+
 ## 2026-11-26 (un nouveau module + trois outils de confort)
 
 **Ce que j'ai ajouté aujourd'hui**
