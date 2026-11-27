@@ -516,7 +516,8 @@ endpoints) &middot; `cloud_buckets` (S3/GCS/Azure) &middot; `git_dumper` (expose
 `headers_check` &middot; `robots_txt` &middot; `sitemap` &middot; `cms_detect` &middot; `admin_panel`
 &middot; `dir_scan` &middot; `subdomain_scan` (+ takeover) &middot; `broken_links` &middot;
 `http_methods` &middot; `backup_files` &middot; `sensitive_files` &middot; `cookie_analysis` &middot;
-`redirect_chain` &middot; `security_txt` (RFC 9116 disclosure posture) &middot; `email_exposure`
+`redirect_chain` &middot; `security_txt` (RFC 9116 disclosure posture) &middot; `wellknown`
+(change-password / MTA-STS / OpenID Connect posture) &middot; `email_exposure`
 &middot; `favicon_hash` &middot; `cors_check` &middot; `clickjacking` &middot; `dir_listing` &middot;
 `blacklist_check` &middot; `screenshot` &middot; `graphql_detect` (introspection) &middot;
 `host_header` (injection / cache-poisoning indicators)
