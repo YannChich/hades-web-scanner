@@ -158,8 +158,9 @@ evidence**, and every piece of evidence comes with the next move.
   submit, not just the submission's own response), and **DOM-based / stored** verified in a real headless
   browser (optional Playwright) — catching client-rendered sinks (`innerHTML`, …) that never appear in
   the HTTP response and only execute in a browser.
-- JWT attacks (`alg:none`, weak-secret cracking, claim disclosure), 401/403 access-control bypass, CVE
-  mapping via the NVD, and a default-credentials advisory.
+- JWT attacks (`alg:none`, weak-secret cracking, **RS256→HS256 algorithm confusion** when the public
+  key is retrievable via JWKS / OpenID discovery, claim disclosure), 401/403 access-control bypass,
+  CVE mapping via the NVD, and a default-credentials advisory.
 - **IDOR / BOLA** (broken access control): tampers object-reference ids in URL params and path segments
   to surface other users' objects, and — when scanning with a session — flags objects served without it.
 - **Authenticated scanning**: log in once (`--login-url` / `--login-data`, CSRF tokens auto-replayed) and

@@ -7,9 +7,14 @@ classic weaknesses a red team exploits to forge a valid token:
   * **alg:none** — the token is unsigned (an attacker can rewrite any claim).        → CRITICAL
   * **weak HMAC secret** — the HS256/384/512 signing key is a common/guessable string
     (cracked offline against a wordlist); with it, an attacker mints admin tokens.    → CRITICAL
+  * **algorithm confusion (RS256→HS256)** — an asymmetric (RS*/ES*/PS*) token whose public key is
+    publicly retrievable (JWKS / OpenID discovery): if the verifier trusts the token's own `alg`,
+    an attacker re-signs it as HS256 with the public key as the HMAC secret.           → MEDIUM
   * **sensitive claims / no expiry** — roles, emails, missing `exp`.                  → INFO/LOW
 
-Signature cracking is done locally (HMAC compute, no extra requests). Tokens are redacted.
+Signature cracking is done locally (HMAC compute, no extra requests). The alg-confusion check is
+detection-only by default; with ``--exploit`` it mints a forged HS256 token locally as a copy-paste
+PoC (never replayed automatically). Tokens are redacted.
 """
 from __future__ import annotations
 
