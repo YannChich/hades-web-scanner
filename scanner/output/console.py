@@ -427,6 +427,22 @@ def print_retest_diff(diff: dict, score: int, grade: str) -> None:
         console.print("[green]✓ No new issues since the last scan.[/green]"
                       if not still else
                       "[dim]No change in the issue set since the last scan.[/dim]")
+
+    # Longest-standing open issues: how long each still-present finding has been outstanding
+    # (from its first_seen date), so the oldest unresolved problems are visible at a glance.
+    aged = [f for f in still
+            if isinstance((f.raw or {}).get("days_open"), int) and (f.raw or {})["days_open"] > 0]
+    if aged:
+        aged.sort(key=lambda f: f.raw.get("days_open", 0), reverse=True)
+        console.print()
+        console.print("[dim]Longest-standing open issues:[/dim]")
+        for f in aged[:3]:
+            days = f.raw.get("days_open", 0)
+            since = (f.raw.get("first_seen") or "")[:10]
+            sev = f.severity.value
+            console.print(
+                f"  [{_SEVERITY_STYLE.get(sev, 'white')}]{sev.upper():8}[/]"
+                f" [yellow]open {days}d[/yellow] [dim](since {since})[/dim]  {f.title}")
     console.print()
 
 
