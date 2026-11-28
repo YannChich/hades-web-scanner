@@ -4989,7 +4989,84 @@ def _make_jwt(payload: dict, secret: str = "secret", alg: str = "HS256") -> str:
     return f"{signing}.{sig}"
 
 
+import functools as _functools
+
+
+@_functools.lru_cache(maxsize=1)
+def _rsa_jwks_and_token():
+    """Build (jwks_json, rs256_token): an RSA keypair published as a JWKS plus an RS256 token.
+
+    Generated once (cached) so the suite pays the RSA key-gen cost a single time.
+    """
+    import base64 as _b64, json as _json
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    nums = key.public_key().public_numbers()
+
+    def b64u_int(i: int) -> str:
+        b = i.to_bytes((i.bit_length() + 7) // 8, "big")
+        return _b64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+    jwks = _json.dumps({"keys": [{"kty": "RSA", "use": "sig", "alg": "RS256",
+                                  "n": b64u_int(nums.n), "e": b64u_int(nums.e)}]})
+
+    def b64u(d) -> str:
+        return _b64.urlsafe_b64encode(_json.dumps(d).encode()).rstrip(b"=").decode()
+    token = f'{b64u({"alg": "RS256", "typ": "JWT"})}.{b64u({"role": "admin"})}.AAAAsignatureAAAA'
+    return jwks, token
+
+
 class TestJwtAttacks:
+    def _jwks_engine(self, token: str, jwks: str | None, exploit: bool = False):
+        """ScanEngine serving *token* in a JS page and (optionally) a JWKS at the standard path."""
+        from scanner.crawler import CrawlResult
+        responses = {}
+        if jwks is not None:
+            responses["http://jwt.test/.well-known/jwks.json"] = httpx.Response(
+                200, text=jwks, headers={"content-type": "application/json"})
+        eng = ScanEngine("http://jwt.test", rate_delay=0, exploit=exploit)
+        eng.get_crawl = MagicMock(return_value=CrawlResult(pages={"http://jwt.test/a.js": f'var t="{token}";'}))
+        eng._client = httpx.Client(transport=MockTransport(responses, default_status=404),
+                                   follow_redirects=True, verify=False)
+        return eng
+
+    def test_alg_confusion_detected_when_jwks_present(self):
+        from scanner.vulns import jwt_attacks
+        jwks, token = _rsa_jwks_and_token()
+        findings = jwt_attacks.run(self._jwks_engine(token, jwks))
+        ac = [f for f in findings if "Algorithm-Confusion" in f.title]
+        assert len(ac) == 1
+        f = ac[0]
+        assert f.severity == Severity.MEDIUM
+        assert f.raw.get("jwks_source") == "/.well-known/jwks.json"
+        assert f.verified is False                    # detection-only without --exploit
+        assert "forged_token" not in f.raw
+        assert f.cwe == "CWE-347"                      # auto-tagged by the module taxonomy
+
+    def test_alg_confusion_not_flagged_without_retrievable_key(self):
+        from scanner.vulns import jwt_attacks
+        _, token = _rsa_jwks_and_token()
+        findings = jwt_attacks.run(self._jwks_engine(token, jwks=None))  # JWKS → 404
+        assert not [f for f in findings if "Algorithm-Confusion" in f.title]
+
+    def test_alg_confusion_forge_poc_under_exploit(self):
+        from scanner.vulns import jwt_attacks
+        jwks, token = _rsa_jwks_and_token()
+        findings = jwt_attacks.run(self._jwks_engine(token, jwks, exploit=True))
+        ac = [f for f in findings if "Algorithm-Confusion" in f.title]
+        assert len(ac) == 1
+        f = ac[0]
+        assert f.raw.get("forged_token")              # a local HS256 PoC was minted
+        assert f.raw.get("confidence") == "high"
+        assert "forged" in (f.verification or "").lower()
+
+    def test_symmetric_token_has_no_alg_confusion(self):
+        from scanner.vulns import jwt_attacks
+        jwks, _ = _rsa_jwks_and_token()
+        tok = _make_jwt({"role": "admin"}, secret="secret")   # HS256 — not asymmetric
+        findings = jwt_attacks.run(self._jwks_engine(tok, jwks))
+        assert not [f for f in findings if "Algorithm-Confusion" in f.title]
+
     def test_weak_hmac_secret_cracked(self):
         from scanner.vulns import jwt_attacks
         from scanner.crawler import CrawlResult
