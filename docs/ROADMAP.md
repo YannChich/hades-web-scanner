@@ -97,16 +97,19 @@ natively for Hades' Python CLI architecture — no code is copied.
 
 ## Backlog (unordered ideas)
 
-- [ ] JSON schema + `--schema` dump for the JSON report (stable contract for downstream tools).
+- [x] JSON schema + `--schema` dump for the JSON report (stable contract for downstream tools).
 - [x] `--diff-only` flag to report just the delta vs the previous scan.
 - [x] Per-finding "false-positive" suppression file (`.hadesignore`).
 - [x] Markdown report exporter for quick GitHub/issue pasting.
-- [ ] JWT algorithm-confusion check (RS256→HS256): when the server's RSA public key is retrievable
+- [x] JWT algorithm-confusion check (RS256→HS256): when the server's RSA public key is retrievable
   (JWKS/`/.well-known`), try verifying/forging with HS256 using the public key as the HMAC secret —
-  detection by default, active forge behind `--exploit`.
+  detection by default, active forge behind `--exploit`. *(Shipped detection-first: flags the risk
+  when an asymmetric token's public key is retrievable; `--exploit` mints the forged HS256 token
+  locally as a copy-paste PoC — it is never auto-replayed, keeping Hades a detection/verification
+  scanner rather than an attack framework.)*
 - [x] `security.txt` / `.well-known` posture check (RFC 9116): report presence/absence and parse
   contact/expiry — a quick credibility + recon win.
-- [ ] Config file support (`hades.toml`) for default flags per project.
+- [x] Config file support (`hades.toml`) for default flags per project.
 - [ ] More unit tests: raise coverage on `scanner/vulns/*` and `scanner/output/*`.
 - [x] CI workflow (GitHub Actions): run `pytest` + `check_imports` on every push/PR.
 - [x] `--fail-on <severity>` CI gate: exit non-zero when a finding at/above the given severity is
@@ -117,7 +120,7 @@ natively for Hades' Python CLI architecture — no code is copied.
 - [x] `.well-known` posture breadth: alongside `security.txt`, report on `change-password`
   (RFC 8615), `mta-sts.txt` and an exposed `openid-configuration` — detection/recon, INFO→LOW
   (plus MEDIUM/verified for an OIDC `alg:none`).
-- [ ] Per-finding first-seen / last-seen timestamps in the history store, surfaced in the retest
+- [x] Per-finding first-seen / last-seen timestamps in the history store, surfaced in the retest
   panel ("new as of <date>", "open for N days") to show how long an issue has been outstanding.
 
 ---
@@ -125,6 +128,25 @@ natively for Hades' Python CLI architecture — no code is copied.
 ## Done
 
 <!-- Append finished items here, newest first: `- YYYY-MM-DD — <what shipped>` -->
+
+- 2026-11-28 — Four self-contained backlog items shipped, balanced across the three tracks, each
+  with tests + docs; suite 553 → 573 green:
+  **Finding age / first-seen tracking** (Track 3, improve existing) — the `--retest` history store
+  now records each finding's `first_seen` / `last_seen`, carried forward across runs by fingerprint.
+  The console and HTML retest panels show the *longest-standing open issues* ("open 12d since
+  2026-11-16") and the JSON report carries `first_seen` / `days_open` — a direct read on how long an
+  issue has gone unremediated. 5 tests.
+  **JSON report schema** (`--schema`, tooling) — a hand-written JSON Schema draft-2020-12
+  (`scanner/output/report_schema.py`) is the published contract for `reports/*.json`; `hades --schema`
+  dumps it to stdout (clean, pipeable). A test validates a real report against it (full `jsonschema`
+  when available, plus a dependency-free structural check) so schema and report can't drift. 4 tests.
+  **JWT algorithm-confusion (RS256→HS256)** (Track 1/2) — `jwt_attacks` now flags the confusion risk
+  when an asymmetric token's RSA public key is retrievable (JWKS / OpenID discovery); detection-only
+  (MEDIUM, CWE-347) by default, and with `--exploit` it mints the forged HS256 token locally as a
+  copy-paste PoC (never auto-replayed). 4 tests.
+  **Project config** (`hades.toml`, `--config`, UX) — default flags per project under a `[hades]`
+  TOML table, fed under argparse so an explicit CLI flag always wins; stdlib `tomllib` on 3.11+ with a
+  `tomli` fallback on 3.10. 8 tests.
 
 - 2026-11-27 — Three self-contained backlog items shipped (balanced: one CI contract, one output
   renderer, one new detection module), each with tests + docs; suite 534 → 553 green. The top

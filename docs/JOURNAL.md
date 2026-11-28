@@ -4,6 +4,60 @@
 > Objectif : que Yann comprenne l'évolution de l'outil sans avoir à lire le code.
 > Entrée la plus récente en haut.
 
+## 2026-11-28 (depuis quand une faille traîne, un « contrat » pour le rapport, confusion d'algo JWT, et un fichier de config)
+
+**Ce que j'ai ajouté aujourd'hui**
+
+- **Savoir depuis combien de temps une faille existe** : quand on relance un scan sur la même cible
+  (option `--retest`), Hades mémorisait déjà ce qui est *nouveau*, *toujours là* ou *corrigé*. Il
+  retient maintenant **la date où chaque faille a été vue pour la première fois**. Du coup, le rapport
+  affiche les **problèmes les plus anciens encore ouverts** — par exemple « ouvert depuis 12 jours
+  (depuis le 16/11) ». C'est très parlant pour un client : ça montre en un coup d'œil ce qui traîne et
+  n'a toujours pas été réparé.
+- **Un « contrat » officiel pour le rapport JSON (`--schema`)** : Hades produit déjà un rapport au
+  format JSON (lisible par d'autres programmes). J'ai ajouté une commande `hades --schema` qui décrit
+  **la structure exacte** de ce rapport (quels champs, quels types). Les outils qui lisent les rapports
+  de Hades (tableaux de bord, scripts de tri) ont ainsi une référence stable. Et un test vérifie qu'un
+  vrai rapport respecte bien ce contrat — donc les deux ne pourront jamais se désynchroniser en douce.
+- **Détection de la « confusion d'algorithme » sur les jetons JWT** : un JWT est un petit jeton de
+  connexion signé. Certains sites le signent avec une **clé publique** (méthode RS256). Si cette clé
+  publique est téléchargeable publiquement, et que le site vérifie mal le jeton, un attaquant peut
+  **re-signer un faux jeton** en détournant la clé publique — et se faire passer pour n'importe qui.
+  Hades repère maintenant ce risque (il voit que le jeton est de ce type ET que la clé publique est
+  accessible). Par défaut il se contente de **prévenir** (détection). Uniquement avec l'option
+  `--exploit` (réservée aux tests autorisés), il fabrique un exemple de faux jeton **en local**, à
+  recopier pour vérifier manuellement — il ne l'envoie jamais tout seul contre la cible.
+- **Un fichier de configuration `hades.toml`** : si on scanne souvent la même cible, on en avait assez
+  de retaper les mêmes options à chaque fois. On peut désormais poser un petit fichier `hades.toml`
+  dans son dossier avec ses réglages par défaut (profil, périmètre, nombre de threads…). Une option
+  tapée dans la commande reste prioritaire sur le fichier. C'est le même confort que des outils connus
+  comme `nuclei`.
+
+**Les mots nouveaux**
+
+- **JWT (JSON Web Token)** : un jeton signé que les sites utilisent pour garder un utilisateur
+  connecté. Signé, mais pas chiffré — donc lisible par celui qui le détient.
+- **Clé publique / clé privée** : une paire de clés. La privée sert à signer (secrète), la publique à
+  vérifier la signature (partageable). La « confusion d'algorithme » abuse d'un site qui mélange les
+  deux usages.
+- **JWKS** : le fichier standard où un site publie ses clés publiques pour vérifier les JWT.
+- **Schéma JSON** : une description formelle de la forme attendue d'un fichier JSON (quels champs,
+  quels types) — un « contrat » que les programmes peuvent contrôler automatiquement.
+- **TOML** : un format de fichier de configuration simple et lisible (comme `hades.toml`).
+
+**Pourquoi ça compte**
+
+- La date de première apparition transforme le rapport de retest en vrai **suivi de remédiation** : on
+  voit ce qui dure. Le schéma JSON rend Hades **intégrable** proprement dans la chaîne d'outils d'une
+  équipe. La détection JWT ajoute une faille d'authentification sérieuse et crédible, en restant un
+  outil de détection. Et le fichier de config rend l'usage quotidien plus rapide et moins pénible.
+
+**La suite**
+
+- Les prochaines idées du backlog : la **reprise d'un scan interrompu** (`--resume`) — soigneusement
+  mise de côté car elle touche au cœur du moteur et ne doit pas être livrée à moitié — ou la
+  **confirmation hors-bande (OOB)** des failles SSRF/XXE derrière `--exploit`.
+
 ## 2026-11-27 (bloquer un pipeline, export tableur, et la famille `.well-known`)
 
 **Ce que j'ai ajouté aujourd'hui**
