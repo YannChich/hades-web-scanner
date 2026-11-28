@@ -81,6 +81,8 @@ def generate_json(
                 "description":    f.description,
                 "severity":       f.severity.value,
                 "retest":         (f.raw or {}).get("retest"),
+                "first_seen":     (f.raw or {}).get("first_seen"),
+                "days_open":      (f.raw or {}).get("days_open"),
                 "confidence":     (f.raw or {}).get("confidence", ""),
                 "verified":       bool(getattr(f, "verified", False)),
                 "verification":   getattr(f, "verification", "") or "",

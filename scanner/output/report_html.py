@@ -261,6 +261,9 @@ details.cov-all summary { cursor: pointer; color: var(--muted); font-size: 0.8re
 .retest-table th { text-align: left; color: var(--muted); font-size: 0.7rem; text-transform: uppercase;
   letter-spacing: 1px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
 .retest-table td { padding: 5px 10px; border-bottom: 1px solid var(--border-soft); font-size: 0.82rem; }
+.retest-aged { list-style: none; margin: 6px 0 0; padding: 0; }
+.retest-aged li { padding: 4px 0; font-size: 0.82rem; border-bottom: 1px solid var(--border-soft); }
+.retest-aged li:last-child { border-bottom: none; }
 
 /* ── Evidence box: the exact request/response that proves the finding ── */
 .evidence-box {
@@ -670,6 +673,28 @@ def _retest_section_html(retest: dict | None) -> str:
         '<div class="retest-note">No new or resolved issues since the last scan.</div>'
     )
 
+    # How long each still-present finding has been open (from first_seen), oldest first.
+    aged = [f for f in still
+            if isinstance((f.raw or {}).get("days_open"), int) and (f.raw or {})["days_open"] > 0]
+    aged.sort(key=lambda f: (f.raw or {}).get("days_open", 0), reverse=True)
+    aged_html = ""
+    if aged:
+        items = ""
+        for f in aged[:5]:
+            days = (f.raw or {}).get("days_open", 0)
+            since = ((f.raw or {}).get("first_seen") or "")[:10]
+            color = _SEV_COLOR.get(f.severity.value, "#c9d1d9")
+            items += (
+                f'<li><span class="sev-badge" style="--sev-color:{color};--sev-bg:transparent;">'
+                f'{f.severity.value.upper()}</span> '
+                f'<b>open {days}d</b> <span style="color:var(--muted);">(since {_e(since)})</span> '
+                f'&nbsp;{_e(str(f.title))}</li>'
+            )
+        aged_html = (
+            '<div class="retest-note" style="margin-top:12px;">Longest-standing open issues</div>'
+            f'<ul class="retest-aged">{items}</ul>'
+        )
+
     return (
         '<div class="section-title">Retest · change since last scan</div>'
         '<div class="retest-panel">'
@@ -679,7 +704,7 @@ def _retest_section_html(retest: dict | None) -> str:
         f'<span class="retest-stat rt-fixed" style="color:var(--green);">{len(fixed)} fixed</span>'
         f'{delta}</div>'
         f'<div class="retest-note">{note}</div>'
-        f'{table}</div>'
+        f'{table}{aged_html}</div>'
     )
 
 
