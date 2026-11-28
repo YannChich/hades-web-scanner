@@ -6868,6 +6868,57 @@ class TestRetestHistory:
         history.tag_findings(cur, None)
         assert "retest" not in cur[0].raw
 
+    def test_first_seen_carries_forward_for_still_present(self, tmp_path):
+        from scanner.output import history
+        # First run records a finding; its first_seen == the run's scan_date.
+        history.save_run([self._f("sqli_detect", "SQLi in id")], "https://x.test", 50, "F",
+                         base=str(tmp_path))
+        run1 = history.last_run("https://x.test", base=str(tmp_path))
+        fs1 = run1["findings"][0]["first_seen"]
+        assert fs1 and run1["findings"][0]["last_seen"] == fs1
+        # Second run of the same finding keeps first_seen but advances last_seen.
+        history.save_run([self._f("sqli_detect", "SQLi in id")], "https://x.test", 50, "F",
+                         base=str(tmp_path))
+        run2 = history.last_run("https://x.test", base=str(tmp_path))
+        e2 = run2["findings"][0]
+        assert e2["first_seen"] == fs1          # carried forward, not reset
+        assert e2["last_seen"] >= fs1           # last_seen is this run
+
+    def test_first_seen_is_fresh_for_a_new_finding(self, tmp_path):
+        from scanner.output import history
+        history.save_run([self._f("sqli_detect", "SQLi in id")], "https://x.test", 50, "F",
+                         base=str(tmp_path))
+        history.save_run([self._f("sqli_detect", "SQLi in id"), self._f("xss_detect", "XSS in q")],
+                         "https://x.test", 40, "F", base=str(tmp_path))
+        run = history.last_run("https://x.test", base=str(tmp_path))
+        by_mod = {e["module"]: e for e in run["findings"]}
+        # The new finding's first_seen == last_seen (never seen before this run).
+        assert by_mod["xss_detect"]["first_seen"] == by_mod["xss_detect"]["last_seen"]
+
+    def test_days_open_counts_whole_days(self):
+        from datetime import datetime, timezone, timedelta
+        from scanner.output import history
+        ref = datetime(2026, 11, 28, tzinfo=timezone.utc)
+        ten_days = (ref - timedelta(days=10)).isoformat()
+        assert history.days_open(ten_days, ref) == 10
+        assert history.days_open(None, ref) is None
+        assert history.days_open("not-a-date", ref) is None
+        # Naive timestamps are treated as UTC rather than crashing.
+        assert history.days_open("2026-11-18T00:00:00", ref) == 10
+
+    def test_tag_findings_stamps_first_seen_and_age(self, tmp_path):
+        from scanner.output import history
+        history.save_run([self._f("sqli_detect", "SQLi in id")], "https://x.test", 50, "F",
+                         base=str(tmp_path))
+        prev = history.last_run("https://x.test", base=str(tmp_path))
+        cur = [self._f("sqli_detect", "SQLi in id"), self._f("ssrf_detect", "SSRF in url")]
+        history.tag_findings(cur, prev)
+        by_mod = {f.module: f.raw for f in cur}
+        # Still-present finding keeps the earlier first_seen; new one is stamped this run.
+        assert by_mod["sqli_detect"]["first_seen"] == prev["findings"][0]["first_seen"]
+        assert "first_seen" in by_mod["ssrf_detect"]
+        assert by_mod["sqli_detect"]["days_open"] >= 0
+
 
 class TestRetestReports:
     """--retest rendering across the JSON report, the HTML report, and the console."""
