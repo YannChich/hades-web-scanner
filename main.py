@@ -472,6 +472,12 @@ def build_parser() -> argparse.ArgumentParser:
              "A stable contract for CI dashboards / triage tooling that consume reports/*.json",
     )
     parser.add_argument(
+        "--config",
+        metavar="FILE",
+        help="Read default flag values from a TOML file (defaults to ./hades.toml if present). "
+             "Values go under a [hades] table; an explicit flag on the command line always wins",
+    )
+    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -615,6 +621,25 @@ def build_parser() -> argparse.ArgumentParser:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _parse_args_with_config(parser: "argparse.ArgumentParser"):
+    """Parse args, applying hades.toml defaults underneath any explicit CLI flag.
+
+    Config values are fed to ``set_defaults`` and the args are re-parsed, so a flag the user actually
+    typed still overrides the config. Returns (args, config_path_or_None).
+    """
+    from scanner.config_file import find_config, load_config, select_defaults
+    args = parser.parse_args()
+    cfg_path = find_config(getattr(args, "config", None))
+    if not cfg_path:
+        return args, None
+    valid_dests = {a.dest for a in parser._actions}
+    defaults = select_defaults(load_config(cfg_path), valid_dests)
+    if defaults:
+        parser.set_defaults(**defaults)
+        args = parser.parse_args()          # re-parse: explicit flags win over config defaults
+    return args, cfg_path
+
+
 def main() -> int:
     # --schema is a pure reference dump: emit clean JSON to stdout before any banner/logging so it
     # can be piped straight to a file (hades --schema > report.schema.json).
@@ -628,7 +653,9 @@ def main() -> int:
     print_banner()
 
     parser = build_parser()
-    args = parser.parse_args()
+    args, cfg_path = _parse_args_with_config(parser)
+    if cfg_path:
+        console.print(f"[dim]Loaded default flags from [cyan]{cfg_path}[/cyan].[/dim]")
 
     # RedTeam Arsenal (reference page) — no target/scan needed.
     if args.arsenal:
