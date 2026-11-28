@@ -66,15 +66,52 @@ def fingerprint(finding: "Finding") -> str:
     return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:12]
 
 
-def _entry(finding: "Finding") -> dict:
-    """Minimal, serialisable record of a finding for the on-disk snapshot."""
+def _entry(finding: "Finding", now_iso: str, first_seen: Optional[str] = None) -> dict:
+    """Minimal, serialisable record of a finding for the on-disk snapshot.
+
+    ``first_seen`` carries forward the ISO timestamp from the first run an identical finding
+    (same fingerprint) appeared in; ``last_seen`` is always this run. Together they let the
+    retest panel show how long an issue has been outstanding.
+    """
     return {
         "fp": fingerprint(finding),
         "id": finding.finding_id,
         "module": finding.module,
         "title": finding.title,
         "severity": finding.severity.value,
+        "first_seen": first_seen or now_iso,
+        "last_seen": now_iso,
     }
+
+
+def _first_seen_map(previous: Optional[dict]) -> dict:
+    """Map each previous finding's fingerprint to its recorded ``first_seen`` timestamp.
+
+    Falls back to a run-level ``scan_date`` for snapshots written before first/last-seen
+    tracking existed, so pre-existing history still yields a sensible age.
+    """
+    out: dict[str, str] = {}
+    for e in (previous or {}).get("findings", []):
+        fp = e.get("fp")
+        if not fp:
+            continue
+        out[fp] = e.get("first_seen") or e.get("last_seen") or (previous or {}).get("scan_date")
+    return out
+
+
+def days_open(first_seen: Optional[str], ref: Optional[datetime] = None) -> Optional[int]:
+    """Whole days between *first_seen* (ISO string) and *ref* (default: now). None if unparsable."""
+    if not first_seen:
+        return None
+    try:
+        start = datetime.fromisoformat(first_seen)
+    except (TypeError, ValueError):
+        return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    now = ref or datetime.now(timezone.utc)
+    delta = now - start
+    return max(0, delta.days)
 
 
 # ---------------------------------------------------------------------------
@@ -109,12 +146,16 @@ def save_run(findings: list["Finding"], url: str, score: int, grade: str,
     runs = hist.get("runs")
     if not isinstance(runs, list):
         runs = []
+    # Carry each finding's first_seen forward from the most recent prior run (if any), so a
+    # still-present issue keeps the date it was first observed instead of resetting every scan.
+    prior_first_seen = _first_seen_map(runs[-1] if runs else None)
+    now_iso = datetime.now(timezone.utc).isoformat()
     runs.append({
-        "scan_date": datetime.now(timezone.utc).isoformat(),
+        "scan_date": now_iso,
         "score": score,
         "grade": grade,
         "counts": severity_counts(findings),
-        "findings": [_entry(f) for f in findings],
+        "findings": [_entry(f, now_iso, prior_first_seen.get(fingerprint(f))) for f in findings],
     })
     hist["runs"] = runs[-MAX_RUNS:]
 
@@ -172,8 +213,20 @@ def tag_findings(findings: list["Finding"], previous: Optional[dict]) -> None:
     """
     if previous is None:
         return
-    prev_fps = {e.get("fp") for e in previous.get("findings", []) if e.get("fp")}
+    first_seen = _first_seen_map(previous)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
     for f in findings:
         if not isinstance(f.raw, dict):
             continue
-        f.raw["retest"] = STATUS_STILL if fingerprint(f) in prev_fps else STATUS_NEW
+        fp = fingerprint(f)
+        if fp in first_seen:
+            f.raw["retest"] = STATUS_STILL
+            seen = first_seen[fp] or now_iso
+        else:
+            f.raw["retest"] = STATUS_NEW
+            seen = now_iso
+        f.raw["first_seen"] = seen
+        age = days_open(seen, now)
+        if age is not None:
+            f.raw["days_open"] = age
