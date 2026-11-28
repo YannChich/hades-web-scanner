@@ -251,6 +251,10 @@ evidence**, and every piece of evidence comes with the next move.
   `reports/*.json` to stdout — a stable contract for CI dashboards, triage scripts and ticket
   importers that consume Hades output. The test-suite validates a real report against it, so the
   schema and the report can never silently drift (`hades --schema > report.schema.json`).
+- **Project config** (`hades.toml`): drop a `hades.toml` in a project to set default flags once —
+  profile, scope, `--no-open`, `--ignore-file`, thread count, and so on — under a `[hades]` table, so
+  repeated engagements don't retype the same options. A flag passed on the command line always wins
+  over the file, which wins over the built-in default (point elsewhere with `--config`).
 - **Scope / deny rules** (`--scope`, `--deny`, `--scope-file`): keep a scan inside an authorised
   boundary. Allow/deny patterns (host, host/path-prefix, `*.wildcard` subdomains) are enforced in
   the engine **before any request leaves** — out-of-scope hosts/paths are blocked and counted, with
@@ -466,6 +470,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--ignore-file` | | `./.hadesignore` | Suppress triaged false positives listed in a `.hadesignore` file. Rules: `module:<name>`, `id:<finding_id>`, `fingerprint:<hex>`, `title:<glob>`; a bare line matches a finding ID or fingerprint. Suppressed findings are dropped before scoring/reporting |
 | `--fail-on` | | — | **CI gate**: exit non-zero (**code 3**) if any finding is at or above this severity (`info` / `low` / `medium` / `high` / `critical`). Honours `.hadesignore`; the scan and reports are unchanged. Unknown/absent = fail-open (exit 0) |
 | `--schema` | | — | Print the JSON Schema (draft 2020-12) for the JSON report to stdout and exit (no scan). A stable contract for tooling that consumes `reports/*.json` |
+| `--config` | | `./hades.toml` | Read default flag values from a TOML file (keys under a `[hades]` table). An explicit flag on the command line always overrides the config |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
