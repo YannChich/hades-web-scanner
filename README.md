@@ -242,7 +242,14 @@ evidence**, and every piece of evidence comes with the next move.
   panel in the console and HTML report. Each run is recorded under `reports/history/<host>.json`
   (a rolling window of the last runs), so you can track remediation progress across engagements.
   Add **`--diff-only`** to render just the findings that are *new* since the last scan — ideal for a
-  focused re-test — while the score still reflects the full posture.
+  focused re-test — while the score still reflects the full posture. The history store also tracks
+  each finding's **first-seen** date, so the console and HTML retest panels show the **longest-standing
+  open issues** ("open 12d since 2026-11-16") and the JSON report carries `first_seen` / `days_open` —
+  a direct read on how long an issue has gone unremediated.
+- **JSON report schema** (`--schema`): print the published JSON Schema (draft 2020-12) for
+  `reports/*.json` to stdout — a stable contract for CI dashboards, triage scripts and ticket
+  importers that consume Hades output. The test-suite validates a real report against it, so the
+  schema and the report can never silently drift (`hades --schema > report.schema.json`).
 - **Scope / deny rules** (`--scope`, `--deny`, `--scope-file`): keep a scan inside an authorised
   boundary. Allow/deny patterns (host, host/path-prefix, `*.wildcard` subdomains) are enforced in
   the engine **before any request leaves** — out-of-scope hosts/paths are blocked and counted, with
@@ -457,6 +464,7 @@ python hades.py --url https://example.com --proxy http://127.0.0.1:8080 --cookie
 | `--scope-file` | | — | Read scope patterns from a file (one per line; `!` prefix = deny, `#` = comment). Merged with `--scope` / `--deny` |
 | `--ignore-file` | | `./.hadesignore` | Suppress triaged false positives listed in a `.hadesignore` file. Rules: `module:<name>`, `id:<finding_id>`, `fingerprint:<hex>`, `title:<glob>`; a bare line matches a finding ID or fingerprint. Suppressed findings are dropped before scoring/reporting |
 | `--fail-on` | | — | **CI gate**: exit non-zero (**code 3**) if any finding is at or above this severity (`info` / `low` / `medium` / `high` / `critical`). Honours `.hadesignore`; the scan and reports are unchanged. Unknown/absent = fail-open (exit 0) |
+| `--schema` | | — | Print the JSON Schema (draft 2020-12) for the JSON report to stdout and exit (no scan). A stable contract for tooling that consumes `reports/*.json` |
 | `--exploit` | | `false` | Launch sqlmap on confirmed SQL injections (authorised targets only) |
 | `--bruteforce` | | `false` | Spray common credentials at login forms and Basic-Auth (authorised only) |
 | `--oob-host` | | auto | Reachable callback address for `oob_scan` (public IP / tunnel) |
