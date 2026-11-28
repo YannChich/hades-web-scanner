@@ -5890,6 +5890,81 @@ class TestReportJsonContract:
         assert fj["verified"] is False
 
 
+class TestConfigFile:
+    """hades.toml project defaults: loading, key validation, and CLI precedence."""
+
+    def _write(self, tmp_path, text):
+        p = tmp_path / "hades.toml"
+        p.write_text(text, encoding="utf-8")
+        return str(p)
+
+    def test_load_hades_table(self, tmp_path):
+        from scanner.config_file import load_config
+        path = self._write(tmp_path, '[hades]\nprofile = "full"\nthreads = 20\nno_open = true\n')
+        cfg = load_config(path)
+        assert cfg == {"profile": "full", "threads": 20, "no_open": True}
+
+    def test_load_flat_top_level_keys(self, tmp_path):
+        from scanner.config_file import load_config
+        path = self._write(tmp_path, 'profile = "passive"\nscope = ["*.ex.com"]\n')
+        cfg = load_config(path)
+        assert cfg["profile"] == "passive" and cfg["scope"] == ["*.ex.com"]
+
+    def test_missing_file_is_empty_not_fatal(self, tmp_path):
+        from scanner.config_file import load_config
+        assert load_config(str(tmp_path / "nope.toml")) == {}
+        assert load_config(None) == {}
+
+    def test_malformed_toml_is_ignored(self, tmp_path):
+        from scanner.config_file import load_config
+        path = self._write(tmp_path, "this is = = not valid toml [[[")
+        assert load_config(path) == {}
+
+    def test_find_config_prefers_explicit_then_local(self, tmp_path, monkeypatch):
+        from scanner.config_file import find_config
+        explicit = self._write(tmp_path, "[hades]\n")
+        assert find_config(explicit) == explicit
+        monkeypatch.chdir(tmp_path)
+        assert find_config(None) == "hades.toml"          # ./hades.toml picked up
+        (tmp_path / "hades.toml").unlink()
+        assert find_config(None) is None
+
+    def test_select_defaults_filters_unknown_and_normalises_hyphens(self):
+        from scanner.config_file import select_defaults
+        cfg = {"profile": "full", "ignore-file": ".hadesignore", "totally_unknown": 1}
+        valid = {"profile", "ignore_file", "threads"}
+        out = select_defaults(cfg, valid)
+        assert out == {"profile": "full", "ignore_file": ".hadesignore"}   # unknown dropped, hyphen→_
+
+    def test_cli_flag_overrides_config_default(self, tmp_path):
+        from main import build_parser, _parse_args_with_config
+        self._write(tmp_path, '[hades]\nthreads = 25\nprofile = "full"\n')
+        import os
+        cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            # No CLI threads → config's 25 applies.
+            import sys
+            argv = sys.argv
+            sys.argv = ["hades"]
+            try:
+                args, path = _parse_args_with_config(build_parser())
+                assert args.threads == 25 and args.profile == "full" and path == "hades.toml"
+                # Explicit --threads wins over the config default.
+                sys.argv = ["hades", "--threads", "99"]
+                args2, _ = _parse_args_with_config(build_parser())
+                assert args2.threads == 99
+            finally:
+                sys.argv = argv
+        finally:
+            os.chdir(cwd)
+
+    def test_config_flag_registered(self):
+        from main import build_parser
+        ns = build_parser().parse_args(["--config", "x.toml"])
+        assert ns.config == "x.toml"
+
+
 class TestReportSchema:
     """The published JSON Schema (``hades --schema``) must stay in lockstep with the real report."""
 
