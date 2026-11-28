@@ -5813,6 +5813,98 @@ class TestReportJsonContract:
         assert fj["verified"] is False
 
 
+class TestReportSchema:
+    """The published JSON Schema (``hades --schema``) must stay in lockstep with the real report."""
+
+    def _assert(self, cond, msg):
+        assert cond, msg
+
+    def _check_type(self, value, spec):
+        """Minimal, dependency-free JSON-Schema type check (handles our subset)."""
+        t = spec.get("type")
+        if t is None:
+            return True
+        types = t if isinstance(t, list) else [t]
+        ok = False
+        for name in types:
+            if name == "null":
+                ok = ok or value is None
+            elif name == "string":
+                ok = ok or isinstance(value, str)
+            elif name == "integer":
+                ok = ok or (isinstance(value, int) and not isinstance(value, bool))
+            elif name == "number":
+                ok = ok or (isinstance(value, (int, float)) and not isinstance(value, bool))
+            elif name == "boolean":
+                ok = ok or isinstance(value, bool)
+            elif name == "array":
+                ok = ok or isinstance(value, list)
+            elif name == "object":
+                ok = ok or isinstance(value, dict)
+        return ok
+
+    def _validate(self, data, schema):
+        """Recursively validate required keys + declared types against our schema subset."""
+        for req in schema.get("required", []):
+            self._assert(req in data, f"missing required key: {req}")
+        for key, spec in schema.get("properties", {}).items():
+            if key not in data:
+                continue
+            val = data[key]
+            self._assert(self._check_type(val, spec),
+                         f"type mismatch for {key}: {val!r} vs {spec.get('type')}")
+            if spec.get("type") == "array" and isinstance(val, list) and "items" in spec \
+                    and isinstance(spec["items"], dict) and spec["items"].get("properties"):
+                for item in val:
+                    if isinstance(item, dict):
+                        self._validate(item, spec["items"])
+            if spec.get("type") == "object" and isinstance(val, dict) and spec.get("properties"):
+                self._validate(val, spec)
+
+    def test_schema_dump_is_valid_json(self):
+        import json
+        from scanner.output.report_schema import schema_json, SCHEMA_VERSION
+        doc = json.loads(schema_json())
+        assert doc["x-hades-schema-version"] == SCHEMA_VERSION
+        assert doc["type"] == "object"
+        assert "findings" in doc["properties"]
+
+    def test_generated_report_matches_schema(self, tmp_path):
+        import json
+        from scanner.output.report_json import generate_json
+        from scanner.output.report_schema import get_schema
+        findings = [
+            Finding("sqli_detect", "SQLi in id", "d", Severity.CRITICAL,
+                    raw={"verified": True, "verification": "boolean split", "confidence": "high",
+                         "retest": "still-present", "first_seen": "2026-11-16T00:00:00+00:00",
+                         "days_open": 12}),
+            Finding("headers_check", "Missing HSTS", "d", Severity.LOW, raw={}),
+        ]
+        coverage = {"counts": {"ran": 10}, "surface": {"params": 2}}
+        retest = {"baseline": False, "previous_date": "2026-11-16T00:00:00+00:00",
+                  "previous_score": 70, "previous_grade": "C",
+                  "new": [], "still_present": findings[:1], "fixed": []}
+        out = generate_json(findings, "http://t.test", 42, output_path=str(tmp_path),
+                            retest=retest, coverage=coverage)
+        data = json.load(open(out, encoding="utf-8"))
+        self._validate(data, get_schema())            # dependency-free structural check
+
+    def test_against_jsonschema_if_available(self, tmp_path):
+        import json
+        jsonschema = pytest.importorskip("jsonschema")
+        from scanner.output.report_json import generate_json
+        from scanner.output.report_schema import get_schema
+        f = Finding("xss_detect", "Reflected XSS in q", "d", Severity.HIGH, raw={"confidence": "high"})
+        out = generate_json([f], "http://t.test", 55, output_path=str(tmp_path))
+        data = json.load(open(out, encoding="utf-8"))
+        jsonschema.validate(data, get_schema())        # full draft-2020-12 validation when present
+
+    def test_schema_flag_registered(self):
+        from main import build_parser
+        ns = build_parser().parse_args(["--schema"])
+        assert ns.schema is True
+
+
 class TestV1Polish:
     def test_every_finding_has_a_confidence(self):
         # A module that sets no confidence still gets one, derived from severity.

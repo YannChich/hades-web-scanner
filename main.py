@@ -466,6 +466,12 @@ def build_parser() -> argparse.ArgumentParser:
              "grouped by subdomain (no scan; also available as menu option 10)",
     )
     parser.add_argument(
+        "--schema",
+        action="store_true",
+        help="Print the JSON Schema for Hades' JSON report to stdout and exit (no scan). "
+             "A stable contract for CI dashboards / triage tooling that consume reports/*.json",
+    )
+    parser.add_argument(
         "--oob-host",
         metavar="HOST",
         help="Reachable address for out-of-band callbacks (oob_scan); auto-detected if omitted",
@@ -610,6 +616,14 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    # --schema is a pure reference dump: emit clean JSON to stdout before any banner/logging so it
+    # can be piped straight to a file (hades --schema > report.schema.json).
+    _early = build_parser().parse_args()
+    if getattr(_early, "schema", False):
+        from scanner.output.report_schema import schema_json
+        print(schema_json())
+        return 0
+
     log_path = setup_logging()
     print_banner()
 
